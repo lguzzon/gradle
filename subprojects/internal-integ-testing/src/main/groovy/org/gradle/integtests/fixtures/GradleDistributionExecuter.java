@@ -47,6 +47,7 @@ public class GradleDistributionExecuter extends AbstractDelegatingGradleExecuter
     private Executer executerType;
     private File daemonBaseDir;
     private boolean allowExtraLogging = true;
+    private boolean mustFork = false;
 
     public enum Executer {
         embedded(false),
@@ -83,6 +84,14 @@ public class GradleDistributionExecuter extends AbstractDelegatingGradleExecuter
         reset();
     }
 
+    public boolean isMustFork() {
+        return mustFork;
+    }
+
+    public void setMustFork(boolean mustFork) {
+        this.mustFork = mustFork;
+    }
+
     public Executer getType() {
         return executerType;
     }
@@ -100,6 +109,7 @@ public class GradleDistributionExecuter extends AbstractDelegatingGradleExecuter
         workingDirSet = false;
         userHomeSet = false;
         deprecationChecksOn = true;
+        mustFork = false;
         DeprecationLogger.reset();
         return this;
     }
@@ -224,7 +234,7 @@ public class GradleDistributionExecuter extends AbstractDelegatingGradleExecuter
         TestFile tmpDir = getTmpDir();
         tmpDir.deleteDir().createDir();
 
-        if (executerType.forks || !inProcessGradleExecuter.canExecute()) {
+        if (executerType.forks || !inProcessGradleExecuter.canExecute() || isMustFork()) {
             boolean useDaemon = executerType == Executer.daemon && getExecutable() == null;
             ForkingGradleExecuter forkingGradleExecuter = useDaemon ? new DaemonGradleExecuter(dist, daemonBaseDir, !isQuiet() && allowExtraLogging) : new ForkingGradleExecuter(dist.getGradleHomeDir());
             copyTo(forkingGradleExecuter);

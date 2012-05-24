@@ -22,6 +22,7 @@ import org.junit.Rule
 import spock.lang.Specification
 import org.gradle.api.internal.file.BaseDirFileResolver
 import org.gradle.internal.nativeplatform.filesystem.FileSystems
+import org.gradle.api.file.UnableToDeleteFileException
 
 /**
  * @author Hans Dockter
@@ -33,6 +34,10 @@ class DeleteActionImplTest extends Specification {
     FileResolver fileResolver = new BaseDirFileResolver(FileSystems.default, tmpDir.getDir())
     
     DeleteActionImpl delete = new DeleteActionImpl(fileResolver);
+
+    TestFile file(String path) {
+        tmpDir.file(path)
+    }
 
     def deletesDirectory() {
         TestFile dir = tmpDir.getDir();
@@ -96,4 +101,5 @@ class DeleteActionImplTest extends Specification {
         then:
         !didWork
     }
+
 }
