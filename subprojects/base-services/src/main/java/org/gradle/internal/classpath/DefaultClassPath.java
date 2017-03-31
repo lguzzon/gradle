@@ -23,10 +23,7 @@ import java.io.Serializable;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URL;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.List;
+import java.util.*;
 
 /**
  * An immutable classpath.
@@ -34,22 +31,46 @@ import java.util.List;
 public class DefaultClassPath implements ClassPath, Serializable {
     private final List<File> files;
 
-    public DefaultClassPath(Iterable<File> files) {
-        this.files = new ArrayList<File>();
-        for (File file : files) {
-            this.files.add(file);
+    DefaultClassPath() {
+        this.files = Collections.emptyList();
+    }
+
+    public static ClassPath of(Collection<File> files) {
+        if (files == null || files.isEmpty()) {
+            return EMPTY;
+        } else {
+            return new DefaultClassPath(files);
         }
     }
-    
+
+    public DefaultClassPath(Iterable<File> files) {
+        Set<File> noDuplicates = new LinkedHashSet<File>();
+        for (File file : files) {
+            noDuplicates.add(file);
+        }
+        this.files = new ArrayList<File>(noDuplicates);
+    }
+
+    private DefaultClassPath(Set<File> files) {
+        this.files = new ArrayList<File>(files);
+    }
+
     public DefaultClassPath(File... files) {
-        this(Arrays.asList(files));
+        Set<File> noDuplicates = new LinkedHashSet<File>();
+        Collections.addAll(noDuplicates, files);
+        this.files = new ArrayList<File>(noDuplicates);
+    }
+
+    @Override
+    public String toString() {
+        return files.toString();
     }
 
     public boolean isEmpty() {
         return files.isEmpty();
     }
 
-    public Collection<URI> getAsURIs() {
+    public List<URI> getAsURIs() {
         List<URI> urls = new ArrayList<URI>();
         for (File file : files) {
             urls.add(file.toURI());
@@ -57,16 +78,16 @@ public class DefaultClassPath implements ClassPath, Serializable {
         return urls;
     }
 
-    public Collection<File> getAsFiles() {
+    public List<File> getAsFiles() {
         return files;
     }
 
     public URL[] getAsURLArray() {
         Collection<URL> result = getAsURLs();
-        return result.toArray(new URL[result.size()]);
+        return result.toArray(new URL[0]);
     }
 
-    public Collection<URL> getAsURLs() {
+    public List<URL> getAsURLs() {
         List<URL> urls = new ArrayList<URL>();
         for (File file : files) {
             try {
@@ -95,8 +116,8 @@ public class DefaultClassPath implements ClassPath, Serializable {
         return new DefaultClassPath(concat(files, other));
     }
 
-    private Iterable<File> concat(List<File> files1, Collection<File> files2) {
-        List<File> result = new ArrayList<File>();
+    private Set<File> concat(Collection<File> files1, Collection<File> files2) {
+        Set<File> result = new LinkedHashSet<File>();
         result.addAll(files1);
         result.addAll(files2);
         return result;

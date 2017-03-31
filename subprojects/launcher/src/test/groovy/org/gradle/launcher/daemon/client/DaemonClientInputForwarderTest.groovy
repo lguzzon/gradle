@@ -17,14 +17,13 @@ package org.gradle.launcher.daemon.client
 
 import org.gradle.launcher.daemon.protocol.CloseInput
 import org.gradle.launcher.daemon.protocol.ForwardInput
-import org.gradle.messaging.dispatch.Dispatch
+import org.gradle.internal.dispatch.Dispatch
 import org.gradle.util.ConcurrentSpecification
 
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 
 import static org.gradle.util.TextUtil.toPlatformLineSeparators
-import org.gradle.internal.id.IdGenerator
 
 class DaemonClientInputForwarderTest extends ConcurrentSpecification {
 
@@ -35,7 +34,7 @@ class DaemonClientInputForwarderTest extends ConcurrentSpecification {
 
     def received = new LinkedBlockingQueue()
     def dispatch = { received << it } as Dispatch
-    
+
     def receivedCommand() {
         received.poll(5, TimeUnit.SECONDS)
     }
@@ -50,22 +49,22 @@ class DaemonClientInputForwarderTest extends ConcurrentSpecification {
     boolean receiveClosed() {
         receivedCommand() instanceof CloseInput
     }
-    
+
     def forwarder
 
     def createForwarder() {
-        forwarder = new DaemonClientInputForwarder(inputStream, dispatch, executorFactory, {12} as IdGenerator, bufferSize)
+        forwarder = new DaemonClientInputForwarder(inputStream, dispatch, executorFactory, bufferSize)
         forwarder.start()
     }
-    
+
     def setup() {
         createForwarder()
     }
-    
+
     def closeInput() {
         source.close()
     }
-    
+
     def "input is forwarded until forwarder is stopped"() {
         when:
         source << toPlatformLineSeparators("abc\ndef\njkl\n")
@@ -81,7 +80,7 @@ class DaemonClientInputForwarderTest extends ConcurrentSpecification {
         then:
         receiveClosed()
     }
-    
+
     def "close input is sent when the underlying input stream is closed"() {
         when:
         source << toPlatformLineSeparators("abc\ndef\n")
@@ -93,16 +92,22 @@ class DaemonClientInputForwarderTest extends ConcurrentSpecification {
 
         and:
         receiveClosed()
+
+        when:
+        forwarder.stop()
+
+        then:
+        !receivedCommand()
     }
-        
+
     def "stream being closed without sending anything just sends close input command"() {
         when:
         forwarder.stop()
-        
+
         then:
         receiveClosed()
     }
-    
+
     def "one partial line when input stream closed gets forwarded"() {
         when:
         source << "abc"
@@ -129,7 +134,7 @@ class DaemonClientInputForwarderTest extends ConcurrentSpecification {
         and:
         receiveClosed()
     }
-    
+
     def cleanup() {
         source.close()
         inputStream.close()

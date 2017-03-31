@@ -16,17 +16,14 @@
 
 package org.gradle.api.plugins.antlr
 
-import spock.lang.Specification
-import org.gradle.api.Project
-import org.gradle.util.HelperUtil
+import org.gradle.api.Action
+import org.gradle.test.fixtures.AbstractProjectBuilderSpec
 
-class AntlrPluginTest extends Specification {
-    private final Project project = HelperUtil.createRootProject()
-    private final AntlrPlugin plugin = new AntlrPlugin()
+class AntlrPluginTest extends AbstractProjectBuilderSpec {
 
     def addsAntlrPropertiesToEachSourceSet() {
         when:
-        plugin.apply(project)
+        project.pluginManager.apply(AntlrPlugin)
 
         then:
         def main = project.sourceSets.main
@@ -36,16 +33,37 @@ class AntlrPluginTest extends Specification {
         test.antlr.srcDirs == [project.file('src/test/antlr')] as Set
 
         when:
-        project.sourceSets.add('custom')
+        project.sourceSets.create('custom')
 
         then:
         def custom = project.sourceSets.custom
         custom.antlr.srcDirs == [project.file('src/custom/antlr')] as Set
     }
-    
+
+    def "allows configuration of antlr directories on source sets"() {
+        when:
+        project.pluginManager.apply(AntlrPlugin)
+
+        and: 'using Closure'
+        def main = project.sourceSets.main
+        main.antlr { sourceSet ->
+            sourceSet.srcDirs = [project.file('src/main/antlr-custom')]
+        }
+
+        and: 'using Action'
+        def test = project.sourceSets.test
+        test.antlr({ sourceSet ->
+            sourceSet.srcDirs = [project.file('src/test/antlr-custom')]
+        } as Action)
+
+        then:
+        main.antlr.srcDirs == [project.file('src/main/antlr-custom')] as Set
+        test.antlr.srcDirs == [project.file('src/test/antlr-custom')] as Set
+    }
+
     def addsTaskForEachSourceSet() {
         when:
-        plugin.apply(project)
+        project.pluginManager.apply(AntlrPlugin)
 
         then:
         def main = project.tasks.generateGrammarSource
@@ -57,11 +75,12 @@ class AntlrPluginTest extends Specification {
         project.tasks.compileTestJava.taskDependencies.getDependencies(null).contains(test)
 
         when:
-        project.sourceSets.add('custom')
+        project.sourceSets.create('custom')
 
         then:
         def custom = project.tasks.generateCustomGrammarSource
         custom instanceof AntlrTask
         project.tasks.compileCustomJava.taskDependencies.getDependencies(null).contains(custom)
     }
+
 }

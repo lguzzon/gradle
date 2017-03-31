@@ -16,14 +16,11 @@
 
 package org.gradle.integtests.tooling.m8
 
-import org.gradle.integtests.tooling.fixture.MinTargetGradleVersion
-import org.gradle.integtests.tooling.fixture.MinToolingApiVersion
+import org.gradle.integtests.tooling.fixture.TargetGradleVersion
 import org.gradle.integtests.tooling.fixture.ToolingApiSpecification
 import org.gradle.tooling.model.GradleProject
 import org.gradle.tooling.model.build.BuildEnvironment
 
-@MinToolingApiVersion('1.0-milestone-8')
-@MinTargetGradleVersion('1.0-milestone-8')
 class BuildEnvironmentModelCrossVersionSpec extends ToolingApiSpecification {
 
     def "informs about build environment"() {
@@ -31,16 +28,26 @@ class BuildEnvironmentModelCrossVersionSpec extends ToolingApiSpecification {
         BuildEnvironment model = withConnection { it.getModel(BuildEnvironment.class) }
 
         then:
-        model.gradle.gradleVersion == targetDist.version
+        model.gradle.gradleVersion == targetDist.version.version
         model.java.javaHome
         !model.java.jvmArguments.empty
     }
 
+    @TargetGradleVersion("<1.2")
+    def "partial BuildEnvironment model for pre 1.2 providers"() {
+        when:
+        BuildEnvironment buildEnv = withConnection { it.getModel(BuildEnvironment.class) }
+
+        then:
+        buildEnv != null
+        buildEnv.gradle.gradleVersion == targetDist.version.version
+    }
+
     def "informs about java args as in the build script"() {
         given:
-        toolingApi.isEmbedded = false //cannot be run in embedded mode
+        toolingApi.requireDaemons() //cannot be run in embedded mode
 
-        dist.file('build.gradle') <<
+        file('build.gradle') <<
             "project.description = java.lang.management.ManagementFactory.runtimeMXBean.inputArguments.join('##')"
 
         when:
@@ -54,8 +61,8 @@ class BuildEnvironmentModelCrossVersionSpec extends ToolingApiSpecification {
 
     def "informs about java home as in the build script"() {
         given:
-        dist.file('build.gradle') << """
-        description = Jvm.current().javaHome.toString()
+        file('build.gradle') << """
+        description = org.gradle.internal.jvm.Jvm.current().javaHome.toString()
         """
 
         when:
@@ -68,7 +75,7 @@ class BuildEnvironmentModelCrossVersionSpec extends ToolingApiSpecification {
 
     def "informs about gradle version as in the build script"() {
         given:
-        dist.file('build.gradle') << "description = GradleVersion.current().getVersion()"
+        file('build.gradle') << "description = GradleVersion.current().getVersion()"
 
         when:
         BuildEnvironment env = withConnection { it.getModel(BuildEnvironment.class) }

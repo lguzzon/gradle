@@ -15,52 +15,31 @@
  */
 
 package org.gradle.plugins.ide.idea
-
 import org.gradle.integtests.fixtures.TestResources
 import org.gradle.plugins.ide.AbstractIdeIntegrationTest
 import org.junit.Rule
 import org.junit.Test
-import spock.lang.Issue
 
 class IdeaProjectIntegrationTest extends AbstractIdeIntegrationTest {
     @Rule
-    public final TestResources testResources = new TestResources()
-
-    @Issue("GRADLE-1011")
-    @Test
-    void "uses java plugin source compatibility settings"() {
-        //when
-        runTask('idea', '''
-apply plugin: "java"
-apply plugin: "idea"
-
-sourceCompatibility = 1.4
-''')
-
-        //then
-        def ipr = getFile([:], 'root.ipr').text
-
-        assert ipr.contains('languageLevel="JDK_1_4"')
-    }
+    public final TestResources testResources = new TestResources(testDirectoryProvider)
 
     @Test
-    void "allows configuring the language level"() {
+    void "allows configuring the VCS"() {
         //when
         runTask('idea', '''
 apply plugin: "java"
 apply plugin: "idea"
 
 idea.project {
-    jdkName   = 1.6
-    languageLevel = 1.5
+    vcs = 'Git'
 }
 ''')
 
         //then
         def ipr = getFile([:], 'root.ipr').text
 
-        assert ipr.contains('project-jdk-name="1.6"')
-        assert ipr.contains('languageLevel="JDK_1_5"')
+        assert ipr.contains('<mapping directory="" vcs="Git"/>')
     }
 
     @Test
@@ -121,6 +100,9 @@ idea {
   </component>
   <component name="ProjectRootManager" version="2" languageLevel="JDK_1_5" assert-keyword="true" jdk-15="true" project-jdk-type="JavaSDK" assert-jdk-15="true" project-jdk-name="1.5">
     <output url="file://$PROJECT_DIR$/out"/>
+  </component>
+  <component name="VcsDirectoryMappings">
+    <mapping directory="" vcs="Git" />
   </component>
 </project>
 '''

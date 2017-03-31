@@ -22,6 +22,7 @@ dependencies {
     compile("group1:compile:1.0") {
         exclude(group: 'excludeGroup', module: 'excludeArtifact')
     }
+    // NOTE: explicit artifact reference makes a dependency non-transitive
     providedCompile "group2:providedCompile:1.0@jar"
     runtime "group3:runtime:1.0"
     providedRuntime("group4:providedRuntime:1.0@zip") {
@@ -58,8 +59,14 @@ uploadArchives {
 
 // Customize the contents of the pom
 
-ext.installer = install.repositories.mavenInstaller
-ext.deployer = uploadArchives.repositories.mavenDeployer
+// START SNIPPET when-configured
+def installer = install.repositories.mavenInstaller
+def deployer = uploadArchives.repositories.mavenDeployer
+
+[installer, deployer]*.pom*.whenConfigured {pom ->
+    pom.dependencies.find {dep -> dep.groupId == 'group3' && dep.artifactId == 'runtime' }.optional = true
+}
+// END SNIPPET when-configured
 
 [installer, deployer]*.pom*.version = '1.0MVN'
 installer.pom.project {
@@ -68,28 +75,26 @@ installer.pom.project {
 deployer.pom.groupId = 'deployGroup'
 
 // START SNIPPET new-pom
-task writeNewPom << {
-    pom {
-        project {
-            inceptionYear '2008'
-            licenses {
-                license {
-                    name 'The Apache Software License, Version 2.0'
-                    url 'http://www.apache.org/licenses/LICENSE-2.0.txt'
-                    distribution 'repo'
+task writeNewPom {
+    doLast {
+        pom {
+            project {
+                inceptionYear '2008'
+                licenses {
+                    license {
+                        name 'The Apache Software License, Version 2.0'
+                        url 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+                        distribution 'repo'
+                    }
                 }
             }
-        }
-    }.writeTo("$buildDir/newpom.xml")
+        }.writeTo("$buildDir/newpom.xml")
+    }
 }
 // END SNIPPET new-pom
 
-// START SNIPPET when-configured
-[installer, deployer]*.pom*.whenConfigured {pom ->
-    pom.dependencies.find {dep -> dep.groupId == 'group3' && dep.artifactId == 'runtime' }.optional = true
-}
-// END SNIPPET when-configured
-
-task writeDeployerPom(dependsOn: uploadArchives) << {
-    deployer.pom.writeTo("$buildDir/deployerpom.xml")
+task writeDeployerPom(dependsOn: uploadArchives) {
+    doLast {
+        deployer.pom.writeTo("$buildDir/deployerpom.xml")
+    }
 }

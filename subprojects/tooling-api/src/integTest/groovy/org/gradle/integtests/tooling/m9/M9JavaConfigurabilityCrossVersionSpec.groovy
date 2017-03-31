@@ -17,55 +17,18 @@
 package org.gradle.integtests.tooling.m9
 
 import org.gradle.integtests.fixtures.AvailableJavaHomes
-import org.gradle.integtests.tooling.fixture.MinTargetGradleVersion
-import org.gradle.integtests.tooling.fixture.MinToolingApiVersion
 import org.gradle.integtests.tooling.fixture.TextUtil
 import org.gradle.integtests.tooling.fixture.ToolingApiSpecification
-import org.gradle.tooling.GradleConnectionException
 import org.gradle.tooling.model.GradleProject
 import org.gradle.tooling.model.build.BuildEnvironment
-import org.gradle.util.GradleVersion
-import spock.lang.IgnoreIf
-import spock.lang.Issue
-import spock.lang.Timeout
-import org.gradle.util.Jvm
+import org.junit.Assume
 
-@MinToolingApiVersion('1.0-milestone-9')
-@MinTargetGradleVersion('1.0-milestone-8')
 class M9JavaConfigurabilityCrossVersionSpec extends ToolingApiSpecification {
 
     def setup() {
         //this test does not make any sense in embedded mode
         //as we don't own the process
-        toolingApi.isEmbedded = false
-    }
-
-    def "uses sensible java defaults if nulls configured"() {
-        when:
-        BuildEnvironment env = withConnection {
-            def model = it.model(BuildEnvironment.class)
-            model
-                    .setJvmArguments(null)
-                    .get()
-        }
-
-        then:
-        env.java.javaHome
-    }
-
-    @Issue("GRADLE-1799")
-    @Timeout(25)
-    def "promptly discovers when java is not a valid installation"() {
-        def dummyJdk = dist.file("wrong jdk location").createDir()
-
-        when:
-        def ex = maybeFailWithConnection {
-            it.newBuild().setJavaHome(dummyJdk).run()
-        }
-
-        then:
-        ex instanceof GradleConnectionException
-        ex.cause.message.contains "wrong jdk location"
+        toolingApi.requireDaemons()
     }
 
     def "uses defaults when a variant of empty jvm args requested"() {
@@ -88,32 +51,35 @@ class M9JavaConfigurabilityCrossVersionSpec extends ToolingApiSpecification {
         env.java.jvmArguments == env3.java.jvmArguments
     }
 
-    @IgnoreIf({ AvailableJavaHomes.bestAlternative == null })
     def "customized java home is reflected in the java.home and the build model"() {
+        def jdk = AvailableJavaHomes.getAvailableJdk { targetDist.isToolingApiTargetJvmSupported(it.javaVersion) }
+        Assume.assumeNotNull(jdk)
+
         given:
-        dist.file('build.gradle') << "project.description = new File(System.getProperty('java.home')).canonicalPath"
+        file('build.gradle') << "project.description = new File(System.getProperty('java.home')).canonicalPath"
 
         when:
-        File javaHome = AvailableJavaHomes.bestAlternative
+
         BuildEnvironment env
         GradleProject project
         withConnection {
-            env = it.model(BuildEnvironment.class).setJavaHome(javaHome).get()
-            project = it.model(GradleProject.class).setJavaHome(javaHome).get()
+            env = it.model(BuildEnvironment.class).setJavaHome(jdk.javaHome).get()
+            project = it.model(GradleProject.class).setJavaHome(jdk.javaHome).get()
         }
 
         then:
         project.description.startsWith(env.java.javaHome.canonicalPath)
     }
 
-    @IgnoreIf({ AvailableJavaHomes.bestAlternative == null })
     def "tooling api provided java home takes precedence over gradle.properties"() {
-        File javaHome = AvailableJavaHomes.bestAlternative
+        File currentJavaHome = new File(System.getProperty("java.home")).canonicalFile
+        def jdk = AvailableJavaHomes.getAvailableJdk { targetDist.isToolingApiTargetJvmSupported(it.javaVersion) && it.javaHome != currentJavaHome }
+        Assume.assumeNotNull(jdk)
+        File javaHome = jdk.javaHome
         String javaHomePath = TextUtil.escapeString(javaHome.canonicalPath)
-        File otherJava = Jvm.current().getJavaHome()
-        String otherJavaPath = TextUtil.escapeString(otherJava.canonicalPath)
-        dist.file('build.gradle') << "assert new File(System.getProperty('java.home')).canonicalPath.startsWith('$javaHomePath')"
-        dist.file('gradle.properties') << "org.gradle.java.home=$otherJavaPath"
+        String otherJavaPath = TextUtil.escapeString(currentJavaHome.canonicalPath)
+        file('build.gradle') << "assert new File(System.getProperty('java.home')).canonicalPath.startsWith('$javaHomePath')"
+        file('gradle.properties') << "org.gradle.java.home=$otherJavaPath"
 
         when:
         def env = withConnection {
@@ -126,6 +92,6 @@ class M9JavaConfigurabilityCrossVersionSpec extends ToolingApiSpecification {
         then:
         env != null
         env.java.javaHome == javaHome
-        env.java.javaHome != otherJava
+        env.java.javaHome != currentJavaHome
     }
 }

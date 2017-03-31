@@ -16,16 +16,15 @@
 
 package org.gradle.launcher.daemon
 
-/**
- * by Szczepan Faber, created at: 1/20/12
- */
+import org.gradle.integtests.fixtures.daemon.DaemonIntegrationSpec
+
 class DispachingFailureIntegrationSpec extends DaemonIntegrationSpec {
 
     def "failing build does not make the daemon send corrupted message"() {
         expect:
         //This kind of failure more likely reproduces the problem
-        def settingsFile = distribution.file("settings.gradle") << "// empty"
-        def projectdir = distribution.file("project dir").createDir()
+        def settingsFile = file("settings.gradle") << "// empty"
+        def projectdir = file("project dir").createDir()
 
         //requesting x failing builds creates enough stress to expose issues with unsynchronized dispatch
         50.times {

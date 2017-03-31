@@ -19,45 +19,41 @@ package org.gradle.initialization
 import org.gradle.StartParameter
 import org.gradle.api.initialization.ProjectDescriptor
 import org.gradle.api.internal.GradleInternal
-import org.gradle.api.internal.project.DefaultProject
+import org.gradle.api.internal.file.TestFiles
+import org.gradle.api.internal.initialization.ClassLoaderScope
 import org.gradle.api.internal.project.IProjectFactory
 import org.gradle.api.internal.project.ProjectInternal
-import org.gradle.util.HelperUtil
-import org.gradle.util.JUnit4GroovyMockery
-import org.gradle.util.TemporaryFolder
-import org.jmock.integration.junit4.JMock
-import org.junit.Before
+import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
+import org.gradle.util.TestUtil
 import org.junit.Rule
-import org.junit.Test
-import org.junit.runner.RunWith
-import static org.hamcrest.Matchers.*
-import static org.junit.Assert.assertThat
+import spock.lang.Specification
 
-/**
- * @author Hans Dockter
- */
-@RunWith(JMock.class)
-class InstantiatingBuildLoaderTest {
+class InstantiatingBuildLoaderTest extends Specification {
 
     InstantiatingBuildLoader buildLoader
     IProjectFactory projectFactory
     File testDir
     File rootProjectDir
     File childProjectDir
-    IProjectDescriptorRegistry projectDescriptorRegistry = new DefaultProjectDescriptorRegistry()
+    ProjectDescriptorRegistry projectDescriptorRegistry = new DefaultProjectDescriptorRegistry()
     StartParameter startParameter = new StartParameter()
     ProjectDescriptor rootDescriptor
     ProjectInternal rootProject
     ProjectDescriptor childDescriptor
     ProjectInternal childProject
     GradleInternal build
-    JUnit4GroovyMockery context = new JUnit4GroovyMockery()
-    @Rule public TemporaryFolder tmpDir = new TemporaryFolder();
+    def rootProjectClassLoaderScope = Mock(ClassLoaderScope)
+    def baseClassLoaderScope = Mock(ClassLoaderScope) {
+        1 * createChild("root-project") >> rootProjectClassLoaderScope
+    }
 
-    @Before public void setUp()  {
-        projectFactory = context.mock(IProjectFactory)
+    @Rule
+    public TestNameTestDirectoryProvider tmpDir = new TestNameTestDirectoryProvider();
+
+    def setup() {
+        projectFactory = Mock(IProjectFactory)
         buildLoader = new InstantiatingBuildLoader(projectFactory)
-        testDir = tmpDir.dir
+        testDir = tmpDir.testDirectory
         (rootProjectDir = new File(testDir, 'root')).mkdirs()
         (childProjectDir = new File(rootProjectDir, 'child')).mkdirs()
         startParameter.currentDir = rootProjectDir
@@ -65,75 +61,51 @@ class InstantiatingBuildLoaderTest {
         rootProject = project(rootDescriptor, null)
         childDescriptor = descriptor('child', rootDescriptor, childProjectDir)
         childProject = project(childDescriptor, rootProject)
-        build = context.mock(GradleInternal)
-        context.checking {
-            allowing(build).getStartParameter()
-            will(returnValue(startParameter))
-        }
+        build = Mock(GradleInternal)
+        build.getStartParameter() >> startParameter
     }
 
-    @Test public void createsBuildWithRootProject() {
+    def createsBuildWithRootProjectAsTheDefaultOne() {
+        when:
         ProjectDescriptor rootDescriptor = descriptor('root', null, rootProjectDir)
         ProjectInternal rootProject = project(rootDescriptor, null)
 
-        context.checking {
-            one(projectFactory).createProject(withParam(equalTo(rootDescriptor)),
-                    withParam(nullValue()),
-                    withParam(notNullValue()))
-            will(returnValue(rootProject))
-            one(build).setRootProject(rootProject)
-            allowing(build).getRootProject()
-            will(returnValue(rootProject))
-            one(build).setDefaultProject(rootProject)
-        }
+        projectFactory.createProject(rootDescriptor, null, !null, rootProjectClassLoaderScope, baseClassLoaderScope) >> rootProject
+        1 * build.setRootProject(rootProject)
+        build.getRootProject() >> rootProject
+        1 * build.setDefaultProject(rootProject)
 
-        buildLoader.load(rootDescriptor, build)
+        then:
+        buildLoader.load(rootDescriptor, rootDescriptor, build, baseClassLoaderScope)
     }
 
-    @Test public void createsBuildWithMultipleProjects() {
+    def createsBuildWithMultipleProjectsAndNotRootDefaultProject() {
+        when:
         expectProjectsCreated()
+        1 * build.setDefaultProject(childProject)
+        buildLoader.load(rootDescriptor, childDescriptor, build, baseClassLoaderScope)
 
-        buildLoader.load(rootDescriptor, build)
-
-        assertThat(rootProject.childProjects['child'], sameInstance(childProject))
+        then:
+        rootProject.childProjects['child'].is childProject
     }
 
-    private def expectProjectsCreatedNoDefaultProject() {
-        context.checking {
-            one(projectFactory).createProject(withParam(equalTo(rootDescriptor)),
-                    withParam(nullValue()),
-                    withParam(notNullValue()))
-            will(returnValue(rootProject))
-
-            one(projectFactory).createProject(withParam(equalTo(childDescriptor)),
-                    withParam(equalTo(rootProject)),
-                    withParam(notNullValue()))
-            will(returnValue(childProject))
-
-            one(build).setRootProject(rootProject)
-            allowing(build).getRootProject()
-            will(returnValue(rootProject))
-        }
+    def expectProjectsCreated() {
+        1 * projectFactory.createProject(rootDescriptor, null, !null, rootProjectClassLoaderScope, baseClassLoaderScope) >> rootProject
+        1 * projectFactory.createProject(childDescriptor, rootProject, !null, _ as ClassLoaderScope, baseClassLoaderScope) >> childProject
+        1 * build.setRootProject(rootProject)
+        build.getRootProject() >> rootProject
     }
 
-    private def expectProjectsCreated() {
-        expectProjectsCreatedNoDefaultProject()
-
-        context.checking {
-            one(build).setDefaultProject(rootProject)
-        }
+    ProjectDescriptor descriptor(String name, ProjectDescriptor parent, File projectDir) {
+        new DefaultProjectDescriptor(parent, name, projectDir, projectDescriptorRegistry, TestFiles.resolver(rootProjectDir))
     }
 
-    private ProjectDescriptor descriptor(String name, ProjectDescriptor parent, File projectDir) {
-        new DefaultProjectDescriptor(parent, name, projectDir, projectDescriptorRegistry)
-    }
-
-    private ProjectInternal project(ProjectDescriptor descriptor, ProjectInternal parent) {
-        DefaultProject project
+    ProjectInternal project(ProjectDescriptor descriptor, ProjectInternal parent) {
+        ProjectInternal project
         if (parent) {
-            project = HelperUtil.createChildProject(parent, descriptor.name, descriptor.projectDir)
+            project = TestUtil.createChildProject(parent, descriptor.name, descriptor.projectDir)
         } else {
-            project = HelperUtil.createRootProject(descriptor.projectDir)
+            project = TestUtil.createRootProject(descriptor.projectDir)
         }
         project
     }

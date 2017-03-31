@@ -18,8 +18,8 @@
     <para>Gradle offers a variety of ways to organize your build logic. First of all you can put your build logic
         directly in the action closure of a task. If a couple of tasks share the same logic you can extract this logic
         into a method. If multiple projects of a multi-project build share some logic you can define this method in the
-        parent project. If the build logic gets too complex for being properly modeled by methods you want have an OO
-        Model.
+        parent project. If the build logic gets too complex for being properly modeled by methods then you likely should
+        implement your logic with classes to encapsulate your logic.
         <footnote>
             <para>Which might range from a single class to something very complex.
             </para>
@@ -63,7 +63,7 @@
             <para><link linkend="custom_plugins">Custom plugins</link>. Put your build logic into a custom plugin,
                 and apply that plugin to multiple projects. The plugin must be in the classpath of your build script.
                 You can achieve this either by using <link linkend="sec:build_sources"><filename>build sources</filename></link> or
-                by adding an <link linkend="sec:external_dependencies">external library</link> that contains the plugin. 
+                by adding an <link linkend="sec:external_dependencies">external library</link> that contains the plugin.
             </para>
         </listitem>
         <listitem>
@@ -105,11 +105,23 @@
             <output args="-q show"/>
         </sample>
     </section>
-    
-    <section id='sec:build_sources'>
+
+    <section id="sec:configuring_using_external_script">
+        <title>Configuring the project using an external build script</title>
+        <para>You can configure the current project using an external build script. All of the Gradle build language
+            is available in the external script. You can even apply other scripts from the external script.
+        </para>
+        <sample id="configureProjectUsingScript" dir="userguide/tutorial/configureProjectUsingScript" title="Configuring the project using an external build script">
+            <sourcefile file="build.gradle"/>
+            <sourcefile file="other.gradle"/>
+            <output args="-q hello"/>
+        </sample>
+    </section>
+
+    <section id="sec:build_sources">
         <title>Build sources in the <filename>buildSrc</filename> project</title>
-        <para>When you run Gradle, it checks for the existence of a directory called <filename>buildSrc</filename>. 
-            Gradle then automatically compiles and tests this code and puts it in the classpath of your build script. 
+        <para>When you run Gradle, it checks for the existence of a directory called <filename>buildSrc</filename>.
+            Gradle then automatically compiles and tests this code and puts it in the classpath of your build script.
             You don't need to provide any further instruction. This can be a good place to add your custom tasks and plugins.
         </para>
         <para>For multi-project builds there can be only one <filename>buildSrc</filename> directory, which has to be
@@ -118,10 +130,10 @@
         <para>Listed below is the default build script that Gradle applies to the <filename>buildSrc</filename> project:</para>
         <figure>
             <title>Default buildSrc build script</title>
-            <programlisting><xi:include href='../../../../../subprojects/core/src/main/resources/org/gradle/initialization/defaultBuildSourceScript.txt' parse='text'/></programlisting>
+            <programlisting><xi:include href='../../../../../subprojects/core/src/main/resources/org/gradle/initialization/buildsrc/defaultBuildSourceScript.txt' parse='text'/></programlisting>
         </figure>
         <para>
-            This means that you can just put you build source code in this directory and stick to the layout convention for a 
+            This means that you can just put your build source code in this directory and stick to the layout convention for a
             Java/Groovy project (see <xref linkend='javalayout'/>).
         </para>
         <para>
@@ -133,8 +145,8 @@
             <sourcefile file="buildSrc/build.gradle"/>
         </sample>
         <para>
-            The <filename>buildSrc</filename> project can be a multi-project build. This works like any other regular Gradle multi-project build. However,
-            you need to make all of the projects that you wish be on the classpath of the actual build <literal>runtime</literal> dependencies of the root project in 
+            The <filename>buildSrc</filename> project can be a multi-project build, just like any other regular multi-project build. However,
+            all of the projects that should be on the classpath of the actual build must be <literal>runtime</literal> dependencies of the root project in
             <filename>buildSrc</filename>. You can do this by adding this to the configuration of each project you wish to export:
         </para>
         <sample id="multiProjectBuildSrc" dir="multiProjectBuildSrc" includeLocation="true" title="Adding subprojects to the root buildSrc project">
@@ -155,7 +167,7 @@
         </sample>
     </section>
 
-    <section id='sec:external_dependencies'>
+    <section id="sec:build_script_external_dependencies">
         <title>External dependencies for the build script</title>
         <para>If your build script needs to use external libraries, you can add them to the script's classpath in the
             build script itself. You do this using the <literal>buildscript()</literal> method, passing in a closure which
@@ -177,30 +189,38 @@
             <output args="-q encode"/>
         </sample>
         <para>
-            For multi-project builds, the dependencies declared in the a project's build script, are available to the
-            build scripts of all sub-projects.
+            For multi-project builds, the dependencies declared with a project's <literal>buildscript()</literal> method
+            are available to the build scripts of all its sub-projects.
+        </para>
+        <para>
+            Build script dependencies may be Gradle plugins.
+            Please consult <xref linkend="plugins"/> for more information on Gradle plugins.
+        </para>
+        <para>
+            Every project automatically has a <literal>buildEnvironment</literal> task of type <apilink class="org.gradle.api.tasks.diagnostics.BuildEnvironmentReportTask" />
+            that can be invoked to report on the resolution of the build script dependencies.
         </para>
     </section>
 
-    <section id='sec:ant_optional_dependencies'>
+    <section id="sec:ant_optional_dependencies">
         <title>Ant optional dependencies</title>
         <para>For reasons we don't fully understand yet, external dependencies are not picked up by Ant's optional
             tasks. But you can easily do it in another way.
             <footnote>
-                <para>In fact, we think this is anyway the nicer solution. Only if your buildscript and Ant's optional
-                    task need the <emphasis>same</emphasis> library you would have to define it two times. In such a
-                    case it would be nice, if Ant's optional task would automatically pickup the classpath defined
-                    in the <literal>gradesettings</literal>.
+                <para>In fact, we think this is a better solution. Only if your buildscript and Ant's optional
+                    task need the <emphasis>same</emphasis> library would you have to define it twice. In such a
+                    case it would be nice if Ant's optional task would automatically pick up the classpath defined
+                    in the “<filename>gradle.settings</filename>” file.
                 </para>
             </footnote>
         </para>
         <sample id="buildLogic" dir="userguide/organizeBuildLogic" title="Ant optional dependencies">
             <sourcefile file="build.gradle"/>
         </sample>
-        <para>This is also nice example for the usage of client modules. The pom.xml in maven central for the
+        <para>This is also a good example for the usage of client modules. The POM file in Maven Central for the
         ant-commons-net task does not provide the right information for this use case.</para>
     </section>
-    <section id='sec:philosophy'>
+    <section id="sec:philosophy">
         <title>Summary</title>
         <para>Gradle offers you a variety of ways of organizing your build logic. You can choose what is right for your
             domain and find the right balance between unnecessary indirections, and avoiding redundancy and a hard to

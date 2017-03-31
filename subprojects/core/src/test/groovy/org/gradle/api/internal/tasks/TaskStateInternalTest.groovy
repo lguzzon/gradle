@@ -21,53 +21,75 @@ package org.gradle.api.internal.tasks
 
 import org.gradle.api.GradleException
 import org.junit.Test
+
 import static org.hamcrest.Matchers.*
 import static org.junit.Assert.*
 
 class TaskStateInternalTest {
-    private final TaskStateInternal state = new TaskStateInternal('task-description')
+    private final TaskStateInternal state = new TaskStateInternal()
 
     @Test
     public void defaultValues() {
         assertFalse(state.getExecuted())
         assertFalse(state.getExecuting())
+        assertTrue(state.configurable)
         assertThat(state.getFailure(), nullValue())
         assertFalse(state.getDidWork())
         assertFalse(state.getSkipped())
         assertThat(state.getSkipMessage(), nullValue())
+        assertFalse(state.upToDate)
+        assertFalse(state.taskOutputCaching.enabled)
     }
 
     @Test
     public void canMarkTaskAsExecuted() {
-        state.executed()
+        state.setOutcome(TaskExecutionOutcome.EXECUTED)
         assertTrue(state.executed)
         assertFalse(state.skipped)
+        assertFalse(state.upToDate)
+        assertFalse(state.configurable)
         assertThat(state.getFailure(), nullValue())
     }
-    
+
     @Test
     public void canMarkTaskAsExecutedWithFailure() {
         RuntimeException failure = new RuntimeException()
-        state.executed(failure)
+        state.setOutcome(failure)
         assertTrue(state.executed)
         assertFalse(state.skipped)
+        assertFalse(state.upToDate)
+        assertFalse(state.configurable)
         assertThat(state.failure, sameInstance(failure))
     }
 
     @Test
     public void canMarkTaskAsSkipped() {
-        state.skipped('skip-message')
+        state.setOutcome(TaskExecutionOutcome.SKIPPED)
         assertTrue(state.executed)
         assertTrue(state.skipped)
-        assertThat(state.skipMessage, equalTo('skip-message'))
+        assertFalse(state.upToDate)
+        assertFalse(state.configurable)
+        assertThat(state.skipMessage, equalTo("SKIPPED"))
     }
 
     @Test
     public void canMarkTaskAsUpToDate() {
-        state.upToDate()
+        state.setOutcome(TaskExecutionOutcome.UP_TO_DATE)
         assertTrue(state.executed)
         assertTrue(state.skipped)
+        assertTrue(state.upToDate)
+        assertFalse(state.configurable)
         assertThat(state.skipMessage, equalTo('UP-TO-DATE'))
+    }
+
+    @Test
+    public void canMarkTaskAsFromCache() {
+        state.setOutcome(TaskExecutionOutcome.FROM_CACHE)
+        assertTrue(state.executed)
+        assertTrue(state.skipped)
+        assertTrue(state.upToDate)
+        assertFalse(state.configurable)
+        assertThat(state.skipMessage, equalTo('FROM-CACHE'))
     }
 
     @Test
@@ -77,14 +99,14 @@ class TaskStateInternalTest {
 
     @Test
     public void rethrowFailureDoesNothingWhenTaskDidNotFail() {
-        state.executed()
+        state.setOutcome(TaskExecutionOutcome.EXECUTED)
         state.rethrowFailure()
     }
 
     @Test
     public void rethrowsFailureWhenFailureIsRuntimeException() {
         RuntimeException failure = new RuntimeException()
-        state.executed(failure)
+        state.setOutcome(failure)
         try {
             state.rethrowFailure()
             fail()
@@ -96,7 +118,7 @@ class TaskStateInternalTest {
     @Test
     public void rethrowsFailureWhenFailureIsError() {
         Error failure = new Error()
-        state.executed(failure)
+        state.setOutcome(failure)
         try {
             state.rethrowFailure()
             fail()
@@ -108,12 +130,12 @@ class TaskStateInternalTest {
     @Test
     public void rethrowsFailureWhenFailureIsException() {
         Exception failure = new Exception()
-        state.executed(failure)
+        state.setOutcome(failure)
         try {
             state.rethrowFailure()
             fail()
         } catch (GradleException e) {
-            assertThat(e.message, equalTo('Task-description failed with an exception.'))
+            assertThat(e.message, equalTo('Task failed with an exception.'))
             assertThat(e.cause, sameInstance(failure))
         }
     }

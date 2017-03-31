@@ -18,41 +18,39 @@ package org.gradle.api.internal.project;
 import org.gradle.api.InvalidUserDataException;
 import org.gradle.api.Project;
 import org.gradle.api.specs.Spec;
-import org.gradle.util.HelperUtil;
+import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider;
+import org.gradle.util.TestUtil;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 
 import java.util.SortedSet;
 import java.util.TreeSet;
 
 import static junit.framework.Assert.assertSame;
-import static org.gradle.util.WrapUtil.*;
+import static org.gradle.util.WrapUtil.toSet;
+import static org.gradle.util.WrapUtil.toSortedSet;
 import static org.hamcrest.Matchers.*;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.*;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 
-/**
- * @author Hans Dockter
- */
 public class DefaultProjectRegistryTest {
     public static final String CHILD_NAME = "child";
     public static final String CHILD_CHILD_NAME = "childchild";
-    private DefaultProject rootMock;
-    private DefaultProject childMock;
-    private DefaultProject childChildMock;
+    private ProjectInternal rootMock;
+    private ProjectInternal childMock;
+    private ProjectInternal childChildMock;
 
     private DefaultProjectRegistry<ProjectInternal> projectRegistry;
+
+    @Rule
+    public TestNameTestDirectoryProvider temporaryFolder = new TestNameTestDirectoryProvider();
 
     @Before
     public void setUp() {
         projectRegistry = new DefaultProjectRegistry<ProjectInternal>();
-        rootMock = HelperUtil.createRootProject();
-        childMock = HelperUtil.createChildProject(rootMock, CHILD_NAME);
-        childChildMock = HelperUtil.createChildProject(childMock, CHILD_CHILD_NAME);
+        rootMock = TestUtil.create(temporaryFolder).rootProject();
+        childMock = TestUtil.createChildProject(rootMock, CHILD_NAME);
+        childChildMock = TestUtil.createChildProject(childMock, CHILD_CHILD_NAME);
         projectRegistry.addProject(rootMock);
         projectRegistry.addProject(childMock);
         projectRegistry.addProject(childChildMock);
@@ -66,8 +64,8 @@ public class DefaultProjectRegistryTest {
         checkAccessMethods(childChildMock, toSortedSet(childChildMock), new TreeSet(), childChildMock);
     }
 
-    private void checkAccessMethods(Project project, SortedSet<DefaultProject> expectedAllProjects,
-                                    SortedSet<DefaultProject> expectedSubProjects, Project expectedGetProject) {
+    private void checkAccessMethods(Project project, SortedSet<ProjectInternal> expectedAllProjects,
+                                    SortedSet<ProjectInternal> expectedSubProjects, Project expectedGetProject) {
         assertSame(expectedGetProject, projectRegistry.getProject(project.getPath()));
         assertEquals(expectedAllProjects, projectRegistry.getAllProjects(project.getPath()));
         assertEquals(expectedSubProjects, projectRegistry.getSubProjects(project.getPath()));
@@ -77,7 +75,7 @@ public class DefaultProjectRegistryTest {
 
     @Test
     public void cannotLocateProjectsWithAmbiguousProjectDir() {
-        DefaultProject duplicateProjectDirProject = HelperUtil.createChildProject(childMock, "childchild2", childMock.getProjectDir());
+        ProjectInternal duplicateProjectDirProject = TestUtil.createChildProject(childMock, "childchild2", childMock.getProjectDir());
         projectRegistry.addProject(duplicateProjectDirProject);
 
         try {
@@ -91,7 +89,7 @@ public class DefaultProjectRegistryTest {
     @Test
     public void accessMethodsForNonExistingsPaths() {
         projectRegistry = new DefaultProjectRegistry<ProjectInternal>();
-        Project otherRoot = HelperUtil.createRootProject();
+        Project otherRoot = TestUtil.create(temporaryFolder.getTestDirectory()).rootProject();
         assertNull(projectRegistry.getProject(otherRoot.getPath()));
         assertEquals(new TreeSet<ProjectInternal>(), projectRegistry.getAllProjects(otherRoot.getPath()));
         assertEquals(new TreeSet<ProjectInternal>(), projectRegistry.getSubProjects(otherRoot.getPath()));
@@ -103,7 +101,7 @@ public class DefaultProjectRegistryTest {
         assertThat(projectRegistry.getAllProjects(), equalTo(toSet((ProjectInternal) rootMock, childMock,
                 childChildMock)));
     }
-    
+
     @Test
     public void canLocateAllProjectsWhichMatchSpec() {
         Spec<Project> spec = new Spec<Project>() {

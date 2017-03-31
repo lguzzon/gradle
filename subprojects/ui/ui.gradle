@@ -14,11 +14,13 @@
  * limitations under the License.
  */
 
+sourceCompatibility = javaVersion.java9Compatible ? 1.6 : 1.5
+
 dependencies {
     compile project(':core')
     compile project(':openApi')
 
-    groovy libraries.groovy
+    compile libraries.groovy
 
     compile libraries.dom4j
     compile libraries.commons_io
@@ -27,8 +29,11 @@ dependencies {
     runtime libraries.jaxen
 }
 
-test {
-    jvmArgs '-Xms128m', '-Xmx256m', '-XX:MaxPermSize=128m', '-XX:+HeapDumpOnOutOfMemoryError'
+useTestFixtures()
+
+integTest {
+    maxParallelForks = 1
 }
 
-useTestFixtures()
+verifyTestFilesCleanup.errorWhenNotEmpty = false
+

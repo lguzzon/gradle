@@ -15,21 +15,26 @@
  */
 package org.gradle.cache.internal
 
-import org.gradle.CacheUsage
 import org.gradle.api.Action
-import org.gradle.cache.DefaultSerializer
-import org.gradle.util.TemporaryFolder
+import org.gradle.cache.CacheBuilder
+import org.gradle.cache.CacheValidator
+import org.gradle.cache.internal.locklistener.NoOpFileLockContentionHandler
+import org.gradle.internal.concurrent.ExecutorFactory
+import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
 import org.junit.Rule
 import spock.lang.Specification
-import org.gradle.cache.CacheValidator
+
+import static org.gradle.cache.internal.FileLockManager.LockMode.Exclusive
+import static org.gradle.cache.internal.FileLockManager.LockMode.Shared
+import static org.gradle.cache.internal.filelock.LockOptionsBuilder.mode
 
 class DefaultCacheFactoryTest extends Specification {
     @Rule
-    public final TemporaryFolder tmpDir = new TemporaryFolder()
+    public final TestNameTestDirectoryProvider tmpDir = new TestNameTestDirectoryProvider()
     final Action<?> opened = Mock()
     final Action<?> closed = Mock()
     final ProcessMetaDataProvider metaDataProvider = Mock()
-    private final DefaultCacheFactory factoryFactory = new DefaultCacheFactory(new DefaultFileLockManager(metaDataProvider)) {
+    private final DefaultCacheFactory factory = new DefaultCacheFactory(new DefaultFileLockManager(metaDataProvider, new NoOpFileLockContentionHandler()), Mock(ExecutorFactory)) {
         @Override
         void onOpen(Object cache) {
             opened.execute(cache)
@@ -46,372 +51,173 @@ class DefaultCacheFactoryTest extends Specification {
         _ * metaDataProvider.processDisplayName >> 'process'
     }
 
-    def cleanup() {
-        factoryFactory.close()
-    }
-
-    public void "creates directory backed store instance"() {
-        when:
-        def factory = factoryFactory.create()
-        def cache = factory.openStore(tmpDir.dir, "<display>", FileLockManager.LockMode.Shared, null)
-
-        then:
-        cache instanceof DefaultPersistentDirectoryStore
-        cache.baseDir == tmpDir.dir
-        cache.toString().startsWith "<display>"
-
-        when:
-        factory.close()
-
-        then:
-        1 * closed.execute(cache)
-    }
-
     public void "creates directory backed cache instance"() {
         when:
-        def factory = factoryFactory.create()
-        def cache = factory.open(tmpDir.dir, "<display>", CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.Shared, null)
+        def cache = factory.open(tmpDir.testDirectory, "<display>", null, [prop: 'value'], CacheBuilder.LockTarget.DefaultTarget, mode(Shared), null)
 
         then:
-        cache instanceof DefaultPersistentDirectoryCache
-        cache.baseDir == tmpDir.dir
+        cache.reference.cache instanceof DefaultPersistentDirectoryCache
+        cache.baseDir == tmpDir.testDirectory
         cache.toString().startsWith "<display>"
 
-        when:
+        cleanup:
         factory.close()
-
-        then:
-        1 * closed.execute(cache)
-    }
-
-    public void "creates DelegateOnDemandPersistentDirectoryCache cache instance for LockMode.NONE"() {
-            when:
-            def factory = factoryFactory.create()
-            def cache = factory.open(tmpDir.dir, "<display>", CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.None, null)
-
-            then:
-            cache instanceof DelegateOnDemandPersistentDirectoryCache
-            cache.baseDir == tmpDir.dir
-            cache.toString().startsWith "<display>"
-
-            when:
-            factory.close()
-
-            then:
-            1 * closed.execute(cache)
-        }
-
-    public void "creates indexed cache instance"() {
-        when:
-        def factory = factoryFactory.create()
-        def cache = factory.openIndexedCache(tmpDir.dir, CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, new DefaultSerializer())
-
-        then:
-        cache instanceof MultiProcessSafePersistentIndexedCache
-    }
-
-    public void "creates state cache instance"() {
-        when:
-        def factory = factoryFactory.create()
-        def cache = factory.openStateCache(tmpDir.dir, CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, new DefaultSerializer())
-
-        then:
-        cache instanceof SimpleStateCache
     }
 
     public void "reuses directory backed cache instances"() {
         when:
-        def factory = factoryFactory.create()
-        def ref1 = factory.open(tmpDir.dir, null, CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
-        def ref2 = factory.open(tmpDir.dir, null, CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
+        def ref1 = factory.open(tmpDir.testDirectory, null, null, [prop: 'value'], CacheBuilder.LockTarget.DefaultTarget, mode(Exclusive), null)
+        def ref2 = factory.open(tmpDir.testDirectory, null, null, [prop: 'value'], CacheBuilder.LockTarget.DefaultTarget, mode(Exclusive), null)
 
         then:
-        ref1.is(ref2)
-        0 * closed._
+        ref1.reference.cache.is(ref2.reference.cache)
+
+        and:
+        1 * opened.execute(_)
+        0 * opened._
+
+        cleanup:
+        factory.close()
     }
 
-    public void "reuses directory backed cache instances across multiple sessions"() {
+    public void "closes cache instance when factory is closed"() {
+        def implementation
+
         when:
-        def factory1 = factoryFactory.create()
-        def factory2 = factoryFactory.create()
-        def ref1 = factory1.open(tmpDir.dir, null, CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
-        def ref2 = factory2.open(tmpDir.dir, null, CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
+        factory.open(tmpDir.testDirectory, null, null, [prop: 'value'], CacheBuilder.LockTarget.DefaultTarget, mode(Exclusive), null)
 
         then:
-        ref1.is(ref2)
-        0 * closed._
+        1 * opened.execute(_) >> { DefaultPersistentDirectoryStore s -> implementation = s }
+        0 * opened._
+
+        when:
+        factory.close()
+
+        then:
+        1 * closed.execute(implementation)
+        0 * _
     }
 
-    public void "reuses directory backed store instances"() {
+    public void "closes cache instance when reference is closed"() {
+        def implementation
+
         when:
-        def factory = factoryFactory.create()
-        def ref1 = factory.openStore(tmpDir.dir, null, FileLockManager.LockMode.Exclusive, null)
-        def ref2 = factory.openStore(tmpDir.dir, null, FileLockManager.LockMode.Exclusive, null)
+        def cache1 = factory.open(tmpDir.testDirectory, null, null, [prop: 'value'], CacheBuilder.LockTarget.DefaultTarget, mode(Exclusive), null)
+        def cache2 = factory.open(tmpDir.testDirectory, null, null, [prop: 'value'], CacheBuilder.LockTarget.DefaultTarget, mode(Exclusive), null)
 
         then:
-        ref1.is(ref2)
-        0 * closed._
+        1 * opened.execute(_) >> { DefaultPersistentDirectoryStore s -> implementation = s }
+        0 * opened._
+
+        when:
+        cache1.close()
+
+        then:
+        0 * _
+
+        when:
+        cache2.close()
+
+        then:
+        1 * closed.execute(implementation)
+        0 * _
     }
 
-    public void "reuses directory backed store instances across multiple sessions"() {
+    public void "can close cache multiple times"() {
+        def implementation
+
         when:
-        def factory1 = factoryFactory.create()
-        def factory2 = factoryFactory.create()
-        def ref1 = factory1.openStore(tmpDir.dir, null, FileLockManager.LockMode.Exclusive, null)
-        def ref2 = factory2.openStore(tmpDir.dir, null, FileLockManager.LockMode.Exclusive, null)
+        def cache = factory.open(tmpDir.testDirectory, null, null, [prop: 'value'], CacheBuilder.LockTarget.DefaultTarget, mode(Exclusive), null)
 
         then:
-        ref1.is(ref2)
-        0 * closed._
+        1 * opened.execute(_) >> { DefaultPersistentDirectoryStore s -> implementation = s }
+        0 * opened._
+
+        when:
+        cache.close()
+        cache.close()
+
+        then:
+        1 * closed.execute(implementation)
+        0 * _
     }
 
-    public void "reuses indexed cache instances"() {
-        when:
-        def factory = factoryFactory.create()
-        def ref1 = factory.openIndexedCache(tmpDir.dir, CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
-        def ref2 = factory.openIndexedCache(tmpDir.dir, CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
-
-        then:
-        ref1.is(ref2)
-        0 * closed._
-    }
-
-    public void "reuses indexed cache instances across multiple sessions"() {
-        when:
-        def factory1 = factoryFactory.create()
-        def factory2 = factoryFactory.create()
-        def ref1 = factory1.openIndexedCache(tmpDir.dir, CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
-        def ref2 = factory2.openIndexedCache(tmpDir.dir, CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
-
-        then:
-        ref1.is(ref2)
-        0 * closed._
-    }
-
-    public void "reuses state cache instances"() {
-        when:
-        def factory = factoryFactory.create()
-        def ref1 = factory.openStateCache(tmpDir.dir, CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
-        def ref2 = factory.openStateCache(tmpDir.dir, CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
-
-        then:
-        ref1.is(ref2)
-        0 * closed._
-    }
-
-    public void "reuses state cache instances across multiple sessions"() {
-        when:
-        def factory1 = factoryFactory.create()
-        def factory2 = factoryFactory.create()
-        def ref1 = factory1.openStateCache(tmpDir.dir, CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
-        def ref2 = factory2.openStateCache(tmpDir.dir, CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
-
-        then:
-        ref1.is(ref2)
-        0 * closed._
-    }
-
-    public void "releases directory cache instance when last reference released"() {
-        given:
-        def factory1 = factoryFactory.create()
-        def factory2 = factoryFactory.create()
-        factory1.open(tmpDir.dir, null, CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
-        def oldCache = factory2.open(tmpDir.dir, null, CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
+    public void "can close factory after closing cache"() {
+        def implementation
 
         when:
-        factory1.close()
-        factory2.close()
+        def cache = factory.open(tmpDir.testDirectory, null, null, [prop: 'value'], CacheBuilder.LockTarget.DefaultTarget, mode(Exclusive), null)
 
         then:
-        1 * closed.execute(!null)
+        1 * opened.execute(_) >> { DefaultPersistentDirectoryStore s -> implementation = s }
+        0 * opened._
 
         when:
-        def factory = factoryFactory.create()
-        def cache = factory.open(tmpDir.dir, null, CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
+        cache.close()
+        factory.close()
 
         then:
-        !cache.is(oldCache)
-        1 * opened.execute(!null)
-        0 * closed._
-    }
-
-    public void "releases index cache instance and backing directory instance when last reference released"() {
-        given:
-        def factory1 = factoryFactory.create()
-        def factory2 = factoryFactory.create()
-        factory1.openIndexedCache(tmpDir.dir, CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
-        def oldCache = factory2.openIndexedCache(tmpDir.dir, CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
-
-        when:
-        factory1.close()
-        factory2.close()
-
-        then:
-        2 * closed.execute(!null)
-
-        when:
-        def factory = factoryFactory.create()
-        def cache = factory.openIndexedCache(tmpDir.dir, CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
-
-        then:
-        !cache.is(oldCache)
-        2 * opened.execute(!null)
-        0 * closed._
-    }
-
-    public void "releases state cache instance and backing directory instance when last reference released"() {
-        given:
-        def factory1 = factoryFactory.create()
-        def factory2 = factoryFactory.create()
-        factory1.openStateCache(tmpDir.dir, CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
-        def oldCache = factory2.openStateCache(tmpDir.dir, CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
-
-        when:
-        factory1.close()
-        factory2.close()
-
-        then:
-        2 * closed.execute(!null)
-
-        when:
-        def factory = factoryFactory.create()
-        def cache = factory.openStateCache(tmpDir.dir, CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
-
-        then:
-        !cache.is(oldCache)
-        2 * opened.execute(!null)
-        0 * closed._
-    }
-
-    public void "can open and release cache as directory and indexed and state cache"() {
-        given:
-        def factory1 = factoryFactory.create()
-        def factory2 = factoryFactory.create()
-        def oldCache = factory1.open(tmpDir.dir, null, CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
-        factory2.openIndexedCache(tmpDir.dir, CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
-        factory2.openStateCache(tmpDir.dir, CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
-        factory2.open(tmpDir.dir, null, CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
-
-        when:
-        factory1.close()
-        factory2.close()
-
-        then:
-        3 * closed.execute(!null)
-
-        when:
-        def factory = factoryFactory.create()
-        def cache = factory.open(tmpDir.dir, null, CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
-
-        then:
-        !oldCache.is(cache)
-        1 * opened.execute(!null)
-        0 * closed._
+        1 * closed.execute(implementation)
+        0 * _
     }
 
     public void "fails when directory cache is already open with different properties"() {
         given:
-        def factory = factoryFactory.create()
-        factory.open(tmpDir.dir, null, CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
+        factory.open(tmpDir.testDirectory, null, null, [prop: 'value'], CacheBuilder.LockTarget.DefaultTarget, mode(Exclusive), null)
 
         when:
-        factory.open(tmpDir.dir, null, CacheUsage.ON, null, [prop: 'other'], FileLockManager.LockMode.Exclusive, null)
+        factory.open(tmpDir.testDirectory, null, null, [prop: 'other'], CacheBuilder.LockTarget.DefaultTarget, mode(Exclusive), null)
 
         then:
         IllegalStateException e = thrown()
-        e.message == "Cache '${tmpDir.dir}' is already open with different state."
-    }
+        e.message == "Cache '${tmpDir.testDirectory}' is already open with different properties."
 
-    public void "fails when directory cache is already open with different properties in different session"() {
-        given:
-        def factory1 = factoryFactory.create()
-        factory1.open(tmpDir.dir, null, CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
-
-        when:
-        def factory2 = factoryFactory.create()
-        factory2.open(tmpDir.dir, null, CacheUsage.ON, null, [prop: 'other'], FileLockManager.LockMode.Exclusive, null)
-
-        then:
-        IllegalStateException e = thrown()
-        e.message == "Cache '${tmpDir.dir}' is already open with different state."
-    }
-
-    public void "fails when directory cache is already open when rebuild is requested"() {
-        given:
-        def factory = factoryFactory.create()
-        factory.open(tmpDir.dir, null, CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
-
-        when:
-        factory.open(tmpDir.dir, null, CacheUsage.REBUILD, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
-
-        then:
-        IllegalStateException e = thrown()
-        e.message == "Cannot rebuild cache '${tmpDir.dir}' as it is already open."
-    }
-
-    public void "fails when directory cache is already open in different session when rebuild is requested"() {
-        given:
-        def factory1 = factoryFactory.create()
-        factory1.open(tmpDir.dir, null, CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
-
-        when:
-        def factory2 = factoryFactory.create()
-        factory2.open(tmpDir.dir, null, CacheUsage.REBUILD, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
-
-        then:
-        IllegalStateException e = thrown()
-        e.message == "Cannot rebuild cache '${tmpDir.dir}' as it is already open."
-    }
-
-    public void "can open directory cache when rebuild is requested and cache was rebuilt in same session"() {
-        given:
-        def factory = factoryFactory.create()
-        factory.open(tmpDir.dir, null, CacheUsage.REBUILD, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
-
-        when:
-        factory.open(tmpDir.dir, null, CacheUsage.REBUILD, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
-
-        then:
-        notThrown(RuntimeException)
-    }
-
-    public void "can open directory cache when rebuild is requested and has been closed"() {
-        given:
-        def factory1 = factoryFactory.create()
-        factory1.open(tmpDir.dir, null, CacheUsage.REBUILD, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
-        factory1.close()
-
-        when:
-        def factory2 = factoryFactory.create()
-        factory2.open(tmpDir.dir, null, CacheUsage.REBUILD, null, [prop: 'value'], FileLockManager.LockMode.Exclusive, null)
-
-        then:
-        notThrown(RuntimeException)
+        cleanup:
+        factory.close()
     }
 
     public void "fails when directory cache when cache is already open with different lock mode"() {
         given:
-        def factory = factoryFactory.create()
-        factory.open(tmpDir.dir, null, CacheUsage.ON, null, [prop: 'value'], FileLockManager.LockMode.Shared, null)
+        factory.open(tmpDir.testDirectory, null, null, [prop: 'value'], CacheBuilder.LockTarget.DefaultTarget, mode(Shared), null)
 
         when:
-        factory.open(tmpDir.dir, null, CacheUsage.ON, null, [prop: 'other'], FileLockManager.LockMode.Exclusive, null)
+        factory.open(tmpDir.testDirectory, null, null, [prop: 'other'], CacheBuilder.LockTarget.DefaultTarget, mode(Exclusive), null)
 
         then:
         IllegalStateException e = thrown()
-        e.message == "Cannot open cache '${tmpDir.dir}' with exclusive lock mode as it is already open with shared lock mode."
+        e.message == "Cache '${tmpDir.testDirectory}' is already open with different lock options."
+
+        cleanup:
+        factory.close()
+    }
+
+    public void "fails when directory cache when cache is already open with different lock target"() {
+        given:
+        factory.open(tmpDir.testDirectory, null, null, [prop: 'value'], CacheBuilder.LockTarget.CachePropertiesFile, mode(Shared), null)
+
+        when:
+        factory.open(tmpDir.testDirectory, null, null, [prop: 'other'], CacheBuilder.LockTarget.DefaultTarget, mode(Shared), null)
+
+        then:
+        IllegalStateException e = thrown()
+        e.message == "Cache '${tmpDir.testDirectory}' is already open with different lock target."
+
+        cleanup:
+        factory.close()
     }
 
     public void "can pass CacheValidator to Cache"() {
         given:
-        def factory1 = factoryFactory.create()
         CacheValidator validator = Mock()
 
         when:
-        def cache = factory1.open(tmpDir.dir, null, CacheUsage.ON, validator, [prop: 'value'], FileLockManager.LockMode.Shared, null)
+        def cache = factory.open(tmpDir.testDirectory, null, validator, [prop: 'value'], CacheBuilder.LockTarget.DefaultTarget, mode(Shared), null)
 
         then:
         validator.isValid() >>> [false, true]
         cache != null
+
+        cleanup:
+        factory.close()
     }
 }

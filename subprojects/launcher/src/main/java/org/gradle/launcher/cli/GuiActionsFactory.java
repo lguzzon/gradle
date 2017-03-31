@@ -16,11 +16,10 @@
 
 package org.gradle.launcher.cli;
 
-import org.gradle.api.Action;
 import org.gradle.cli.CommandLineParser;
 import org.gradle.cli.ParsedCommandLine;
 import org.gradle.gradleplugin.userinterface.swing.standalone.BlockingApplication;
-import org.gradle.launcher.bootstrap.ExecutionListener;
+import org.gradle.util.DeprecationLogger;
 
 class GuiActionsFactory implements CommandLineAction {
     private static final String GUI = "gui";
@@ -29,9 +28,10 @@ class GuiActionsFactory implements CommandLineAction {
         parser.option(GUI).hasDescription("Launches the Gradle GUI.");
     }
 
-    public Action<ExecutionListener> createAction(CommandLineParser parser, ParsedCommandLine commandLine) {
+    public Runnable createAction(CommandLineParser parser, ParsedCommandLine commandLine) {
         if (commandLine.hasOption(GUI)) {
-            return new ActionAdapter(new ShowGuiAction());
+            DeprecationLogger.nagUserOfToolReplacedWithExternalOne("Gradle GUI", "an IDE with support for Gradle e.g. Eclipse, IntelliJ or NetBeans");
+            return new ShowGuiAction();
         }
         return null;
     }

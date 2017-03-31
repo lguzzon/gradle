@@ -18,45 +18,14 @@ package org.gradle.plugins.ide.eclipse
 import org.gradle.api.internal.ConventionTask
 import org.gradle.api.tasks.AbstractSpockTaskTest
 import org.gradle.plugins.ide.eclipse.model.EclipseWtpComponent
-import org.gradle.plugins.ide.eclipse.model.WbProperty
-import org.gradle.plugins.ide.eclipse.model.WbResource
 
-/**
- * @author Hans Dockter
- */
 public class GenerateEclipseWtpComponentTest extends AbstractSpockTaskTest {
-    private eclipseComponent = createTask(GenerateEclipseWtpComponent)
+    private eclipseComponent
 
     def setup() {
+        eclipseComponent = createTask(GenerateEclipseWtpComponent)
         eclipseComponent.component = new EclipseWtpComponent(project, null)
     }
 
     ConventionTask getTask() { eclipseComponent }
-
-    def "property should add"() {
-        when:
-        eclipseComponent.property name: 'prop1', value: 'value1'
-        eclipseComponent.property name: 'prop2', value: 'value2'
-
-        then:
-        eclipseComponent.properties == [new WbProperty('prop1', 'value1'), new WbProperty('prop2', 'value2')]
-    }
-
-    def "resource should add"() {
-        when:
-        eclipseComponent.resource deployPath: 'path1', sourcePath: 'sourcepath1'
-        eclipseComponent.resource deployPath: 'path2', sourcePath: 'sourcepath2'
-
-        then:
-        eclipseComponent.resources == [new WbResource('path1', 'sourcepath1'), new WbResource('path2', 'sourcepath2')]
-    }
-
-    def "variables should add"() {
-        when:
-        eclipseComponent.variables variable1: 'value1'
-        eclipseComponent.variables variable2: 'value2'
-
-        then:
-        eclipseComponent.variables == [variable1: 'value1', variable2: 'value2']
-    }
 }

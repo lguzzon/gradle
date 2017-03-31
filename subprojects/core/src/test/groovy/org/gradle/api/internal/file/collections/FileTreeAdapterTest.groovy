@@ -18,10 +18,13 @@ package org.gradle.api.internal.file.collections
 import org.gradle.api.Buildable
 import org.gradle.api.file.FileVisitDetails
 import org.gradle.api.file.FileVisitor
+import org.gradle.api.internal.file.FileCollectionVisitor
 import org.gradle.api.tasks.TaskDependency
 import org.gradle.api.tasks.util.PatternFilterable
+import org.gradle.util.UsesNativeServices
 import spock.lang.Specification
 
+@UsesNativeServices
 class FileTreeAdapterTest extends Specification {
     def toStringUsesDisplayName() {
         MinimalFileTree tree = Mock()
@@ -52,7 +55,7 @@ class FileTreeAdapterTest extends Specification {
         FileCollectionResolveContext context = Mock()
 
         when:
-        adapter.resolve(context)
+        adapter.visitContents(context)
 
         then:
         1 * context.add(tree)
@@ -128,7 +131,7 @@ class FileTreeAdapterTest extends Specification {
         filteredAdapter.tree == filtered
         1 * tree.filter(filter) >> filtered
     }
-    
+
     def containsDelegatesToTargetTreeWhenItImplementsRandomAccessFileCollection() {
         TestFileTree tree = Mock()
         File f = new File('a')
@@ -140,6 +143,32 @@ class FileTreeAdapterTest extends Specification {
         then:
         result
         1 * tree.contains(f) >> true
+    }
+
+    def visitsBackingDirectoryTree() {
+        def visitor = Mock(FileCollectionVisitor)
+        def tree = new DirectoryFileTree(new File("dir"))
+        def adapter = new FileTreeAdapter(tree)
+
+        when:
+        adapter.visitRootElements(visitor)
+
+        then:
+        1 * visitor.visitDirectoryTree(tree)
+        0 * visitor._
+    }
+
+    def visitsSelfWhenBackingTreeIsNotDirectoryTree() {
+        def visitor = Mock(FileCollectionVisitor)
+        def tree = Mock(MinimalFileTree)
+        def adapter = new FileTreeAdapter(tree)
+
+        when:
+        adapter.visitRootElements(visitor)
+
+        then:
+        1 * visitor.visitTree(adapter)
+        0 * visitor._
     }
 }
 

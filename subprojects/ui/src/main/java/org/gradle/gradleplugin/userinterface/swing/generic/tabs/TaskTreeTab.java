@@ -48,8 +48,6 @@ import java.util.List;
 
 /**
  * This displays a tree of projects and tasks.
- *
- * @author mhunsicker
  */
 public class TaskTreeTab implements GradleTab, GradlePluginLord.GeneralPluginObserver, GradlePluginLord.RequestObserver {
     private final Logger logger = Logging.getLogger(TaskTreeTab.class);
@@ -135,15 +133,7 @@ public class TaskTreeTab implements GradleTab, GradlePluginLord.GeneralPluginObs
         resetShowDescription(); //make sure that our setting is pushed to the tree's setting.
 
         //when we start up, refresh our list.
-        SwingUtilities.invokeLater(new Runnable() {
-            public void run() {
-                if (gradlePluginLord.isSetupComplete()) {
-                    refresh();
-                } else {
-                    showTextInViewport("Cannot show tasks until configuration is complete. See Setup tab.");
-                }
-            }
-        });
+        refresh();
     }
 
     public void setupUI() {
@@ -290,7 +280,6 @@ public class TaskTreeTab implements GradleTab, GradlePluginLord.GeneralPluginObs
      * Notification that a command is about to be executed. This is mostly useful for IDE's that may need to save their files.
      *
      * @param request the request that's about to be executed.
-     * @author mhunsicker
      */
     public void aboutToExecuteRequest(Request request) {
         //we don't really care
@@ -439,9 +428,7 @@ public class TaskTreeTab implements GradleTab, GradlePluginLord.GeneralPluginObs
 
         executeButton.setEnabled(canDoThings);
 
-        if (alternateUIInteraction
-                .doesSupportEditingOpeningFiles())   //I'll allow this to be dynamic. If we start supporting editing while running (say a user configured a setting to use a specific external tool), then we'll allow it.
-        {
+        if (alternateUIInteraction.doesSupportEditingOpeningFiles()) { //I'll allow this to be dynamic. If we start supporting editing while running (say a user configured a setting to use a specific external tool), then we'll allow it.
             editFileMenuItem.setVisible(true);
             boolean hasProjectsSelected = treeComponent.hasProjectsSelected();
             editFileMenuItem.setEnabled(hasProjectsSelected && canDoThings);

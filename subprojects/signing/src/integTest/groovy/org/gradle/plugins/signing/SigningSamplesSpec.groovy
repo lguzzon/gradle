@@ -16,12 +16,20 @@
 
 package org.gradle.plugins.signing
 
-import org.gradle.integtests.fixtures.*
-
-import org.junit.*
+import org.gradle.integtests.fixtures.AbstractIntegrationSpec
+import org.gradle.integtests.fixtures.Sample
+import org.gradle.integtests.fixtures.UsesSample
+import org.gradle.integtests.fixtures.executer.GradleContextualExecuter
+import org.gradle.test.fixtures.maven.MavenFileRepository
+import org.junit.Rule
+import spock.lang.IgnoreIf
 
 class SigningSamplesSpec extends AbstractIntegrationSpec {
-    @Rule public final Sample mavenSample = new Sample()
+    @Rule public final Sample mavenSample = new Sample(temporaryFolder)
+
+    void setup(){
+        using m2
+    }
 
     @UsesSample('signing/maven')
     def "upload attaches signatures"() {
@@ -36,6 +44,7 @@ class SigningSamplesSpec extends AbstractIntegrationSpec {
     }
 
     @UsesSample('signing/conditional')
+    @IgnoreIf({GradleContextualExecuter.parallel})
     def "conditional signing"() {
         given:
         sample mavenSample
@@ -47,10 +56,11 @@ class SigningSamplesSpec extends AbstractIntegrationSpec {
         ":signArchives" in skippedTasks
 
         and:
-        repo.module('gradle', 'conditional', '1.0-SNAPSHOT').assertArtifactsPublished('conditional-1.0-SNAPSHOT.pom', 'conditional-1.0-SNAPSHOT.jar')
+        final module = repo.module('gradle', 'conditional', '1.0-SNAPSHOT')
+        module.assertArtifactsPublished("maven-metadata.xml", "conditional-${module.publishArtifactVersion}.pom", "conditional-${module.publishArtifactVersion}.jar")
     }
 
-    MavenRepository getRepo() {
-        return new MavenRepository(mavenSample.dir.file("build/repo"))
+    MavenFileRepository getRepo() {
+        return maven(mavenSample.dir.file("build/repo"))
     }
 }

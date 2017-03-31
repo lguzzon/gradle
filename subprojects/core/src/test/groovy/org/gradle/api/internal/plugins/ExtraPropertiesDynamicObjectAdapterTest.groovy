@@ -16,15 +16,12 @@
 
 package org.gradle.api.internal.plugins
 
-import org.gradle.api.internal.BeanDynamicObject
 import org.gradle.api.plugins.ExtraPropertiesExtension
 import spock.lang.Specification
 
 public class ExtraPropertiesDynamicObjectAdapterTest extends Specification {
-
-    Object delegate = new Object()
     ExtraPropertiesExtension extension = new DefaultExtraPropertiesExtension()
-    ExtraPropertiesDynamicObjectAdapter adapter =  new ExtraPropertiesDynamicObjectAdapter(delegate, new BeanDynamicObject(delegate), extension)
+    ExtraPropertiesDynamicObjectAdapter adapter =  new ExtraPropertiesDynamicObjectAdapter(String.class, extension)
 
     def "can get and set properties"() {
         given:
@@ -67,11 +64,19 @@ public class ExtraPropertiesDynamicObjectAdapterTest extends Specification {
         and:
         !adapter.hasMethod("other")
     }
-    
-    def "getting or setting missing property throws MPE"() {
+
+    def "getting missing property throws MPE"() {
         when:
         adapter.getProperty("foo")
-        
+
+        then:
+        thrown(MissingPropertyException)
+    }
+
+    def "setting missing property throws MPE"() {
+        when:
+        adapter.setProperty("foo", 12)
+
         then:
         thrown(MissingPropertyException)
     }
@@ -82,17 +87,5 @@ public class ExtraPropertiesDynamicObjectAdapterTest extends Specification {
 
         then:
         thrown(groovy.lang.MissingMethodException)
-    }
-
-    static class NamedExtraPropertiesExtension extends DefaultExtraPropertiesExtension {
-        String name
-    }
-
-    def "has property 'properties'"() {
-        expect:
-        adapter.hasProperty("properties")
-
-        and:
-        new ExtraPropertiesDynamicObjectAdapter(delegate, new BeanDynamicObject(delegate), new NamedExtraPropertiesExtension()).hasProperty("name")
     }
 }

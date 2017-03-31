@@ -16,147 +16,269 @@
 package org.gradle.execution
 
 import org.gradle.api.Task
+import org.gradle.api.internal.TaskInternal
 import org.gradle.api.internal.project.ProjectInternal
 import org.gradle.api.internal.tasks.TaskContainerInternal
 import spock.lang.Specification
 
 class TaskNameResolverTest extends Specification {
+    def tasks = Mock(TaskContainerInternal)
+    def project = Mock(ProjectInternal)
+    def resolver = new TaskNameResolver()
+
+    def setup() {
+        _ * project.getTasks() >> tasks
+    }
+
     private final TaskNameResolver resolver = new TaskNameResolver()
 
-    def selectsTaskForSingleProjectWhenThereIsAnExactMatchOnName() {
-        ProjectInternal project = Mock()
-        TaskContainerInternal tasks = Mock()
-        _ * project.tasks >> tasks
-
-        Task task = task('task')
+    def "eagerly locates task with given name for single project"() {
+        def task = task('task')
 
         when:
-        def candidates = resolver.select('task', project)
+        def candidates = resolver.selectWithName('task', project, false)
 
         then:
-        1 * tasks.findByName('task') >> task
-        candidates.get('task') == [task] as Set
+        1 * tasks.discoverTasks()
+        1 * tasks.names >> (['task'] as SortedSet)
+        0 * tasks._
+
+        when:
+        def matches = asTasks(candidates)
+
+        then:
+        matches == [task]
+
+        and:
+        1 * tasks.getByName('task') >> task
+        0 * tasks._
     }
 
-    def selectsImplicitTaskForSingleProjectWhenThereIsAnExactMatchOnName() {
-        ProjectInternal project = Mock()
-        TaskContainerInternal tasks = Mock()
-        TaskContainerInternal implicitTasks = Mock()
-        _ * project.tasks >> tasks
-        _ * project.implicitTasks >> implicitTasks
+    def "returns null when no task with given name for single project"() {
+        given:
+        tasks.names >> (['not-a-task'] as SortedSet)
 
-        Task task = task('task')
+        expect:
+        resolver.selectWithName('task', project, false) == null
+    }
+
+    def "eagerly locates tasks with given name for multiple projects"() {
+        given:
+        def task1 = task('task')
+        def task2 = task('task')
+        def childTasks = Mock(TaskContainerInternal)
+        def childProject = Mock(ProjectInternal) {
+            _ * getTasks() >> childTasks
+            _ * getChildProjects() >> [:]
+        }
+
+        _ * project.childProjects >> [child: childProject]
 
         when:
-        def candidates = resolver.select('task', project)
+        def results = resolver.selectWithName('task', project, true)
 
         then:
+        1 * tasks.discoverTasks()
+        1 * childTasks.discoverTasks()
+        1 * tasks.names >> (['task'] as SortedSet)
+        1 * childTasks.names >> (['task'] as SortedSet)
+        1 * tasks.getByName('task') >> task1
+        1 * childTasks.getByName('task') >> task2
+        0 * tasks._
+        0 * childTasks._
+
+        when:
+        def matches = asTasks(results)
+
+        then:
+        matches == [task1, task2]
+
+        and:
+        0 * tasks._
+        0 * childTasks._
+    }
+
+    def "does not select tasks in sub projects when task implies sub projects"() {
+        given:
+        def task1 = task('task')
+        task1.impliesSubProjects >> true
+        def childTasks = Mock(TaskContainerInternal)
+        def childProject = Mock(ProjectInternal) {
+            _ * getTasks() >> childTasks
+            _ * getChildProjects() >> [:]
+        }
+
+        _ * project.childProjects >> [child: childProject]
+
+        when:
+        def results = resolver.selectWithName('task', project, true)
+
+        then:
+        1 * tasks.discoverTasks()
+        1 * tasks.names >> (['task'] as SortedSet)
+        1 * tasks.getByName('task') >> task1
+        0 * tasks._
+        0 * childTasks._
+
+        when:
+        def matches = asTasks(results)
+
+        then:
+        matches == [task1]
+
+        and:
+        0 * tasks._
+        0 * childTasks._
+    }
+
+    def "locates tasks in child projects with given name when missing in starting project"() {
+        given:
+        def task1 = task('task')
+        def childTasks = Mock(TaskContainerInternal)
+        def childProject = Mock(ProjectInternal) {
+            _ * getTasks() >> childTasks
+            _ * getChildProjects() >> [:]
+        }
+        _ * project.childProjects >> [child: childProject]
+
+        when:
+        def results = resolver.selectWithName('task', project, true)
+
+        then:
+        1 * tasks.discoverTasks()
+        1 * childTasks.discoverTasks()
+        1 * tasks.names >> (['not-a-task'] as SortedSet)
         1 * tasks.findByName('task') >> null
-        1 * implicitTasks.findByName('task') >> task
-        candidates.get('task') == [task] as Set
-    }
-
-    def selectsAllTasksForSingleProjectWhenThereIsNoExactMatchOnName() {
-        ProjectInternal project = Mock()
-        TaskContainerInternal tasks = Mock()
-        TaskContainerInternal implicitTasks = Mock()
-        _ * project.tasks >> tasks
-        _ * project.implicitTasks >> implicitTasks
-
-        Task task1 = task('task1')
-        Task task2 = task('task2')
-        Task hidden = task('task1')
+        1 * childTasks.names >> (['task'] as SortedSet)
+        1 * childTasks.getByName('task') >> task1
+        0 * tasks._
+        0 * childTasks._
 
         when:
-        def candidates = resolver.select('task', project)
+        def matches = asTasks(results)
 
         then:
-        1 * tasks.findByName('task') >> null
-        1 * implicitTasks.findByName('task') >> null
-        1 * tasks.iterator() >> [task1].iterator()
-        1 * implicitTasks.iterator() >> [task2, hidden].iterator()
-        candidates.get('task1') == [task1] as Set
-        candidates.get('task2') == [task2] as Set
+        matches == [task1]
+
+        and:
+        0 * tasks._
+        0 * childTasks._
     }
 
-    def selectsTasksForMultipleProjectsWhenThereIsAnExactMatchOnName() {
-        ProjectInternal project = Mock()
-        TaskContainerInternal tasks = Mock()
-        ProjectInternal childProject = Mock()
-        TaskContainerInternal childProjectTasks = Mock()
-        _ * project.tasks >> tasks
-        _ * project.subprojects >> ([childProject] as Set)
-        _ * childProject.tasks >> childProjectTasks
-
-        Task task1 = task('task')
-        Task task2 = task('task')
+    def "lazily locates all tasks for a single project"() {
+        given:
+        def task1 = task('task1')
 
         when:
-        def candidates = resolver.selectAll('task', project)
+        def result = resolver.selectAll(project, false)
 
         then:
-        1 * tasks.findByName('task') >> task1
-        1 * childProjectTasks.findByName('task') >> task2
-        candidates.get('task') == [task1, task2] as Set
-    }
+        result.keySet() == ['task1', 'task2'] as Set
 
-    def selectsImplicitTaskForMultipleProjectsWhenThereIsAnExactMatchOnName() {
-        ProjectInternal project = Mock()
-        TaskContainerInternal tasks = Mock()
-        TaskContainerInternal implicitTasks = Mock()
-        ProjectInternal childProject = Mock()
-        TaskContainerInternal childProjectTasks = Mock()
-        _ * project.tasks >> tasks
-        _ * project.implicitTasks >> implicitTasks
-        _ * project.subprojects >> ([childProject] as Set)
-        _ * childProject.tasks >> childProjectTasks
-
-        Task task1 = task('task')
-        Task task2 = task('task')
+        and:
+        1 * tasks.discoverTasks()
+        1 * tasks.names >> (['task1', 'task2'] as SortedSet)
+        0 * tasks._
 
         when:
-        def candidates = resolver.selectAll('task', project)
+        def matches = asTasks(result['task1'])
 
         then:
-        1 * tasks.findByName('task') >> null
-        1 * implicitTasks.findByName('task') >> task1
-        1 * childProjectTasks.findByName('task') >> task2
-        candidates.get('task') == [task1, task2] as Set
+        matches == [task1]
+
+        and:
+        1 * tasks.getByName('task1') >> task1
+        0 * tasks._
     }
 
-    def selectsAllTasksForMultipleProjectsWhenThereIsNoExactMatchOnName() {
-        ProjectInternal project = Mock()
-        TaskContainerInternal tasks = Mock()
-        TaskContainerInternal implicitTasks = Mock()
-        ProjectInternal childProject = Mock()
-        TaskContainerInternal childProjectTasks = Mock()
-        _ * project.tasks >> tasks
-        _ * project.implicitTasks >> implicitTasks
-        _ * project.subprojects >> ([childProject] as Set)
-        _ * childProject.tasks >> childProjectTasks
-
-        Task task1 = task('name1')
-        Task task2 = task('name2')
-        Task task3 = task('name1')
-        Task task4 = task('name2')
+    def "lazily locates all tasks for multiple projects"() {
+        given:
+        def task1 = task('task1')
+        def task2 = task('task1')
+        def childTasks = Mock(TaskContainerInternal)
+        def childProject = Mock(ProjectInternal) {
+            _ * getTasks() >> childTasks
+            _ * getChildProjects() >> [:]
+        }
+        _ * project.childProjects >> [child: childProject]
 
         when:
-        def candidates = resolver.selectAll('task', project)
+        def result = resolver.selectAll(project, true)
 
         then:
-        1 * tasks.findByName('task') >> null
-        1 * implicitTasks.findByName('task') >> null
-        1 * childProjectTasks.findByName('task') >> null
-        1 * tasks.iterator() >> [task1].iterator()
-        1 * implicitTasks.iterator() >> [task2].iterator()
-        1 * childProjectTasks.iterator() >> [task3, task4].iterator()
-        candidates.get('name1') == [task1, task3] as Set
-        candidates.get('name2') == [task2, task4] as Set
+        result.keySet() == ['task1', 'task2', 'task3'] as Set
+
+        and:
+        1 * tasks.discoverTasks()
+        1 * tasks.names >> (['task1', 'task2'] as SortedSet)
+        0 * tasks._
+        1 * childTasks.discoverTasks()
+        1 * childTasks.names >> (['task1', 'task3'] as SortedSet)
+        0 * childTasks._
+
+        when:
+        def matches = asTasks(result['task1'])
+
+        then:
+        matches == [task1, task2]
+
+        and:
+        1 * tasks.names >> (['task1', 'task2'] as SortedSet)
+        1 * tasks.getByName('task1') >> task1
+        1 * childTasks.names >> (['task1', 'task3'] as SortedSet)
+        1 * childTasks.getByName('task1') >> task2
+        0 * tasks._
+        0 * childTasks._
     }
 
-    def task(String name) {
-        Task task = Mock()
-        _ * task.name >> name
-        return task
+    def "does not visit sub-projects when task implies sub-projects"() {
+        given:
+        def task1 = task('task1')
+        task1.impliesSubProjects >> true
+        def childTasks = Mock(TaskContainerInternal)
+        def childProject = Mock(ProjectInternal) {
+            _ * getTasks() >> childTasks
+            _ * getChildProjects() >> [:]
+        }
+        _ * project.childProjects >> [child: childProject]
+
+        when:
+        def result = resolver.selectAll(project, true)
+
+        then:
+        result.keySet() == ['task1', 'task2', 'task3'] as Set
+
+        and:
+        1 * tasks.discoverTasks()
+        1 * tasks.names >> (['task1', 'task2'] as SortedSet)
+        0 * tasks._
+        1 * childTasks.discoverTasks()
+        1 * childTasks.names >> (['task1', 'task3'] as SortedSet)
+        0 * childTasks._
+
+        when:
+        def matches = asTasks(result['task1'])
+
+        then:
+        matches == [task1]
+
+        and:
+        1 * tasks.names >> (['task1', 'task2'] as SortedSet)
+        1 * tasks.getByName('task1') >> task1
+        0 * tasks._
+        0 * childTasks._
+    }
+
+    def task(String name, String description = "") {
+        Stub(TaskInternal) { TaskInternal task ->
+            _ * task.getName() >> name
+            _ * task.getDescription() >> description
+        }
+    }
+
+    List<Task> asTasks(TaskSelectionResult taskSelectionResult) {
+        def result = []
+        taskSelectionResult.collectTasks(result)
+        return result
     }
 }

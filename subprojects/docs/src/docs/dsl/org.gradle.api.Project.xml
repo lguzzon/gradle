@@ -38,9 +38,6 @@
                 <td>dependencies</td>
             </tr>
             <tr>
-                <td>dependsOnProjects</td>
-            </tr>
-            <tr>
                 <td>defaultTasks</td>
             </tr>
             <tr>
@@ -69,9 +66,6 @@
             </tr>
             <tr>
                 <td>path</td>
-            </tr>
-            <tr>
-                <td>plugins</td>
             </tr>
             <tr>
                 <td>project</td>
@@ -147,9 +141,6 @@
                 <td>buildscript</td>
             </tr>
             <tr>
-                <td>apply</td>
-            </tr>
-            <tr>
                 <td>file</td>
             </tr>
             <tr>
@@ -183,6 +174,9 @@
                 <td>copySpec</td>
             </tr>
             <tr>
+                <td>sync</td>
+            </tr>
+            <tr>
                 <td>javaexec</td>
             </tr>
             <tr>
@@ -198,19 +192,13 @@
                 <td>hasProperty</td>
             </tr>
             <tr>
+                <td>findProperty</td>
+            </tr>
+            <tr>
                 <td>task</td>
             </tr>
             <tr>
-                <td>dependsOn</td>
-            </tr>
-            <tr>
                 <td>evaluationDependsOn</td>
-            </tr>
-            <tr>
-                <td>childrenDependOnMe</td>
-            </tr>
-            <tr>
-                <td>dependsOnChildren</td>
             </tr>
             <tr>
                 <td>findProject</td>

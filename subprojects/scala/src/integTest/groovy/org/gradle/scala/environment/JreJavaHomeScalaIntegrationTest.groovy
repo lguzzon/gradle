@@ -16,21 +16,21 @@
 
 package org.gradle.scala.environment
 
-import org.gradle.integtests.fixtures.AbstractIntegrationSpec
-import org.gradle.integtests.fixtures.AvailableJavaHomes
+import org.gradle.integtests.fixtures.*
 import org.gradle.util.Requires
 import org.gradle.util.TestPrecondition
+import org.junit.Rule
 import spock.lang.IgnoreIf
-import spock.lang.Unroll
 
+@TargetCoverage({ScalaCoverage.DEFAULT})
 class JreJavaHomeScalaIntegrationTest extends AbstractIntegrationSpec {
 
+    @Rule public final ZincScalaCompileFixture zincScalaCompileFixture = new ZincScalaCompileFixture(executer, temporaryFolder)
 
-    @IgnoreIf({ AvailableJavaHomes.bestJreAlternative == null})
-    @Unroll
-    def "scala java cross compilation works in forking mode = #forkMode when JAVA_HOME is set to JRE"() {
+    @IgnoreIf({ AvailableJavaHomes.bestJre == null})
+    def "scala java cross compilation works when JAVA_HOME is set to JRE"() {
         given:
-        def jreJavaHome = AvailableJavaHomes.bestJreAlternative
+        def jreJavaHome = AvailableJavaHomes.bestJre
         file("src/main/scala/org/test/JavaClazz.java") << """
                     package org.test;
                     public class JavaClazz {
@@ -49,23 +49,17 @@ class JreJavaHomeScalaIntegrationTest extends AbstractIntegrationSpec {
                     }
 
                     dependencies {
-                        scalaTools 'org.scala-lang:scala-compiler:2.8.1'
-                        scalaTools 'org.scala-lang:scala-library:2.8.1'
-                        compile    'org.scala-lang:scala-library:2.8.1'
-                    }
-
-                    compileScala{
-                        options.fork = ${forkMode}
+                        compile 'org.scala-lang:scala-library:2.11.1'
                     }
                     """
         when:
-        executer.withEnvironmentVars("JAVA_HOME": jreJavaHome.absolutePath).withTasks("compileScala").run().output
+        executer.expectDeprecationWarning()
+        executer.expectDeprecationWarning()
+        executer.withEnvironmentVars("JAVA_HOME": jreJavaHome.absolutePath).withTasks("compileScala").run()
+
         then:
         file("build/classes/main/org/test/JavaClazz.class").exists()
         file("build/classes/main/org/test/ScalaClazz.class").exists()
-
-        where:
-        forkMode << [false, true]
     }
 
     @Requires(TestPrecondition.WINDOWS)
@@ -80,12 +74,10 @@ class JreJavaHomeScalaIntegrationTest extends AbstractIntegrationSpec {
                     }
 
                     dependencies {
-                        scalaTools 'org.scala-lang:scala-compiler:2.8.1'
-                        scalaTools 'org.scala-lang:scala-library:2.8.1'
-                        compile    'org.scala-lang:scala-library:2.8.1'
+                        compile 'org.scala-lang:scala-library:2.11.1'
                     }
                     """
-        def envVars = System.getenv().findAll { it.key != 'JAVA_HOME' || it.key != 'Path'}
+        def envVars = System.getenv().findAll { !(it.key in ['GRADLE_OPTS', 'JAVA_HOME', 'Path']) }
         envVars.put("Path", "C:\\Windows\\System32")
         when:
         executer.withEnvironmentVars(envVars).withTasks("compileScala").run()

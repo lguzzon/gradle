@@ -15,56 +15,58 @@
  */
 package org.gradle.api.internal.tasks.execution
 
-import spock.lang.Specification
-import org.gradle.api.internal.tasks.TaskStateInternal
+import org.gradle.api.InvalidUserDataException
 import org.gradle.api.internal.TaskInternal
 import org.gradle.api.internal.tasks.TaskExecuter
-import org.gradle.api.InvalidUserDataException
+import org.gradle.api.internal.tasks.TaskExecutionContext
+import org.gradle.api.internal.tasks.TaskStateInternal
 import org.gradle.api.tasks.TaskValidationException
+import spock.lang.Specification
 
 class ValidatingTaskExecuterTest extends Specification {
     final TaskExecuter target = Mock()
     final TaskInternal task = Mock()
     final TaskStateInternal state = Mock()
+    final TaskExecutionContext executionContext = Mock()
     final TaskValidator validator = Mock()
     final ValidatingTaskExecuter executer = new ValidatingTaskExecuter(target)
 
     def executesTaskWhenThereAreNoViolations() {
         when:
-        executer.execute(task, state)
+        executer.execute(task, state, executionContext)
 
         then:
         _ * task.validators >> [validator]
         1 * validator.validate(task, !null)
-        1 * target.execute(task, state)
-        0 * _._
+        1 * target.execute(task, state, executionContext)
+        0 * _
     }
 
     def failsTaskWhenThereIsAViolation() {
         when:
-        executer.execute(task, state)
+        executer.execute(task, state, executionContext)
 
         then:
         _ * task.validators >> [validator]
         1 * validator.validate(task, !null) >> { it[1] << 'failure' }
-        1 * state.executed(!null) >> {
+        1 * state.setOutcome(!null as Throwable) >> {
             def failure = it[0]
             assert failure instanceof TaskValidationException
             assert failure.message == "A problem was found with the configuration of $task."
             assert failure.cause instanceof InvalidUserDataException
             assert failure.cause.message == 'failure'
         }
-        0 * _._
+        0 * _
     }
 
     def failsTaskWhenThereAreMultipleViolations() {
         when:
-        executer.execute(task, state)
+        executer.execute(task, state, executionContext)
 
         then:
         _ * task.validators >> [validator]
         1 * validator.validate(task, !null) >> { it[1] << 'failure1'; it[1] << 'failure2' }
-        1 * state.executed(!null) >> {
+        1 * state.setOutcome(!null as Throwable) >> {
             def failure = it[0]
             assert failure instanceof TaskValidationException
             assert failure.message == "Some problems were found with the configuration of $task."
@@ -73,6 +75,6 @@ class ValidatingTaskExecuterTest extends Specification {
             assert failure.causes[1] instanceof InvalidUserDataException
             assert failure.causes[1].message == 'failure2'
         }
-        0 * _._
+        0 * _
     }
 }

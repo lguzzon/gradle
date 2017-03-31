@@ -33,10 +33,7 @@ import java.util.List;
  * functions that call the add and remove functions here. Lastly, implement ObserverNotification and have it call the aforementioned observer interface appropriately. Note: you should actually
  * implement ObserverNotification for each "message" you want to send. Example: One that would tell a view a node was added. One that would tell a view a node was deleted, etc. While you have multiple
  * notification classes, you only need 1 (or few) actual observer interfaces, containing all the possible functions called by all notifications.
- *
- * @author mhunsicker
  */
-
 public class ObserverLord<E> {
     private List<E> regularObservers = new ArrayList<E>();
     private List<E> eventQueueObservers = new ArrayList<E>();
@@ -120,8 +117,7 @@ public class ObserverLord<E> {
      * @param notification in,  notification sent to the observer
      */
     private void notifyObserversInEventQueueThread(final ObserverNotification<E> notification) {
-        if (eventQueueObservers.size() == 0) //if we have no event queue observsers, we're done
-        {
+        if (eventQueueObservers.size() == 0) { //if we have no event queue observsers, we're done
             return;
         }
 
@@ -155,8 +151,7 @@ public class ObserverLord<E> {
             E observer = iterator.next();
             try {
                 notification.notify(observer);
-            } catch (Exception e) //this is so an error in the notification doesn't stop the entire process.
-            {
+            } catch (Exception e) { //this is so an error in the notification doesn't stop the entire process.
                 logger.error("error notifying observers", e);
             }
         }

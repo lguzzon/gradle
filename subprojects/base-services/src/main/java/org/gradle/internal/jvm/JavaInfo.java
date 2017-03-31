@@ -16,18 +16,22 @@
 
 package org.gradle.internal.jvm;
 
-import java.io.File;
-import java.util.Map;
+import org.gradle.api.Nullable;
 
-/**
- * by Szczepan Faber, created at: 2/6/12
- */
+import java.io.File;
+
 public interface JavaInfo {
     /**
      * @return the executable
      * @throws JavaHomeException when executable cannot be found
      */
     File getJavaExecutable() throws JavaHomeException;
+
+    /**
+     * @return the executable
+     * @throws JavaHomeException when executable cannot be found
+     */
+    File getJavacExecutable() throws JavaHomeException;
 
     /**
      * @return the executable
@@ -49,18 +53,9 @@ public interface JavaInfo {
     File getJavaHome();
 
     /**
-     * Returns the runtime jar. May return null, for example when Jvm was created
-     * with custom jdk location.
-     */
-    File getRuntimeJar();
-
-    /**
      * Returns the tools jar. May return null, for example when Jvm was created via
      * with custom jre location or if jdk is not installed.
      */
+    @Nullable
     File getToolsJar();
-
-    Map<String, ?> getInheritableEnvironmentVariables(Map<String, ?> envVars);
-
-    boolean getSupportsAppleScript();
 }

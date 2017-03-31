@@ -15,20 +15,15 @@
  */
 package org.gradle.integtests.tooling.m5
 
-import org.gradle.integtests.tooling.fixture.MinTargetGradleVersion
-import org.gradle.integtests.tooling.fixture.MinToolingApiVersion
 import org.gradle.integtests.tooling.fixture.ToolingApiSpecification
 import org.gradle.tooling.BuildException
-import org.gradle.tooling.ProgressListener
 import org.gradle.tooling.model.GradleProject
 import org.gradle.tooling.model.Task
 import org.gradle.tooling.model.eclipse.EclipseProject
 
-@MinToolingApiVersion('1.0-milestone-5')
-@MinTargetGradleVersion('1.0-milestone-5')
 class ToolingApiBuildExecutionCrossVersionSpec extends ToolingApiSpecification {
     def "can build the set of tasks for a project"() {
-        dist.testFile('build.gradle') << '''
+        file('build.gradle') << '''
 task a {
    description = 'this is task a'
 }
@@ -40,18 +35,17 @@ task c
         GradleProject project = withConnection { connection -> connection.getModel(GradleProject.class) }
 
         then:
+        project.tasks*.name.toSet() == (["a", "b", "c"] + rootProjectImplicitTasksForGradleProjectModel).toSet()
         def taskA = project.tasks.find { it.name == 'a' }
         taskA != null
         taskA.path == ':a'
         taskA.description == 'this is task a'
         taskA.project == project
-        project.tasks.find { it.name == 'b' }
-        project.tasks.find { it.name == 'c' }
     }
 
     def "can execute a build for a project"() {
-        dist.testFile('settings.gradle') << 'rootProject.name="test"'
-        dist.testFile('build.gradle') << '''
+        file('settings.gradle') << 'rootProject.name="test"'
+        file('build.gradle') << '''
 apply plugin: 'java'
 '''
         when:
@@ -62,7 +56,7 @@ apply plugin: 'java'
         }
 
         then:
-        dist.testFile('build/libs/test.jar').assertIsFile()
+        file('build/libs/test.jar').assertIsFile()
 
         when:
         withConnection { connection ->
@@ -74,31 +68,25 @@ apply plugin: 'java'
         }
 
         then:
-        dist.testFile('build/libs/test.jar').assertDoesNotExist()
+        file('build/libs/test.jar').assertDoesNotExist()
     }
 
     def "receives progress while the build is executing"() {
-        dist.testFile('build.gradle') << '''
+        file('build.gradle') << '''
 System.out.println 'this is stdout'
 System.err.println 'this is stderr'
 '''
-        def progressMessages = []
-
         when:
-        withConnection { connection ->
-            def build = connection.newBuild()
-            build.addProgressListener({ event -> progressMessages << event.description } as ProgressListener)
-            build.run()
-        }
+        def progress = withBuild().progressMessages
 
         then:
-        progressMessages.size() >= 2
-        progressMessages.pop() == ''
-        progressMessages.every { it }
+        progress.size() >= 2
+        progress.pop() == ''
+        progress.every { it }
     }
 
     def "tooling api reports build failure"() {
-        dist.testFile('build.gradle') << 'broken'
+        file('build.gradle') << 'broken'
 
         when:
         withConnection { connection ->
@@ -112,7 +100,7 @@ System.err.println 'this is stderr'
     }
 
     def "can build the set of tasks for an Eclipse project"() {
-        dist.testFile('build.gradle') << '''
+        file('build.gradle') << '''
 task a {
    description = 'this is task a'
 }
@@ -121,7 +109,7 @@ task c
 '''
 
         when:
-        EclipseProject project = withConnection { connection -> connection.getModel(EclipseProject.class) }
+        EclipseProject project = loadToolingModel(EclipseProject)
 
         then:
         def taskA = project.gradleProject.tasks.find { it.name == 'a' }
@@ -134,7 +122,7 @@ task c
     }
 
     def "does not resolve dependencies when building the set of tasks for a project"() {
-        dist.testFile('build.gradle') << '''
+        file('build.gradle') << '''
 apply plugin: 'java'
 dependencies {
     compile files { throw new RuntimeException('broken') }

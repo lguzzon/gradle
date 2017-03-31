@@ -17,9 +17,11 @@ package org.gradle.launcher.daemon.server.exec;
 
 import org.gradle.api.logging.Logger;
 import org.gradle.api.logging.Logging;
-import org.gradle.launcher.daemon.protocol.CommandFailure;
+import org.gradle.launcher.daemon.protocol.Failure;
 import org.gradle.launcher.daemon.protocol.Result;
 import org.gradle.launcher.daemon.protocol.Success;
+import org.gradle.launcher.daemon.server.api.DaemonCommandAction;
+import org.gradle.launcher.daemon.server.api.DaemonCommandExecution;
 
 /**
  * Handles sending the result of the execution back to the client.
@@ -36,13 +38,13 @@ public class ReturnResult implements DaemonCommandAction {
         Result result;
         Throwable commandException = execution.getException();
         if (commandException != null) {
-            result = new CommandFailure(commandException);
+            result = new Failure(commandException);
         } else {
             result = new Success(execution.getResult());
         }
 
         LOGGER.debug("Daemon is dispatching the build result: {}", result);
-        execution.getConnection().dispatch(result);
+        execution.getConnection().completed(result);
     }
 
 }

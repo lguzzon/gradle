@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 package org.gradle.groovy.compile
-
+import org.gradle.internal.jvm.Jvm
 import spock.lang.Issue
 
 abstract class GroovyCompilerIntegrationSpec extends BasicGroovyCompilerIntegrationSpec {
@@ -67,5 +67,32 @@ abstract class GroovyCompilerIntegrationSpec extends BasicGroovyCompilerIntegrat
 
         then:
         noExceptionThrown()
+    }
+
+    // This is named funny to keep the path to the project
+    // under Windows's limits.  This checks that we can use
+    // ServletCategory as an extension class when compiling
+    // Groovy code.
+    @Issue("GRADLE-3235")
+    def gradle3235() {
+        if (versionLowerThan('2.0.5')) {
+            return
+        }
+
+        when:
+        run("test")
+
+        then:
+        noExceptionThrown()
+    }
+
+    def canJointCompileWithJavaCompilerExecutable() {
+        args("-PjdkHome=${Jvm.current().getJavaHome().absolutePath}")
+
+        expect:
+        succeeds("compileGroovy")
+        !errorOutput
+        file("build/classes/main/GroovyCode.class").exists()
+        file("build/classes/main/JavaCode.class").exists()
     }
 }

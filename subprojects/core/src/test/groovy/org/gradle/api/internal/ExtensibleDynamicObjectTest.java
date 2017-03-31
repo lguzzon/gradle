@@ -17,10 +17,10 @@ package org.gradle.api.internal;
 
 import groovy.lang.*;
 import groovy.lang.MissingMethodException;
-import org.gradle.api.internal.project.AbstractProject;
 import org.gradle.api.plugins.Convention;
-import org.gradle.testfixtures.ProjectBuilder;
-import org.gradle.util.HelperUtil;
+import org.gradle.internal.metaobject.BeanDynamicObject;
+import org.gradle.internal.metaobject.DynamicObject;
+import org.gradle.util.TestUtil;
 import org.junit.Test;
 
 import java.util.Map;
@@ -65,11 +65,11 @@ public class ExtensibleDynamicObjectTest {
         try {
             bean.setProperty("readOnlyProperty", "value");
             fail();
-        } catch (ReadOnlyPropertyException e) {
-            assertThat(e.getMessage(), equalTo("Cannot set the value of read-only property 'readOnlyProperty' on <bean>."));
+        } catch (GroovyRuntimeException e) {
+            assertThat(e.getMessage(), equalTo("Cannot set the value of read-only property 'readOnlyProperty' for <bean> of type " + Bean.class.getName() + "."));
         }
     }
-    
+
     @Test
     public void canSetWriteOnlyClassProperty() {
         Bean bean = new Bean();
@@ -85,7 +85,7 @@ public class ExtensibleDynamicObjectTest {
             bean.getProperty("writeOnlyProperty");
             fail();
         } catch (GroovyRuntimeException e) {
-            assertThat(e.getMessage(), equalTo("Cannot get the value of write-only property 'writeOnlyProperty' on <bean>."));
+            assertThat(e.getMessage(), equalTo("Cannot get the value of write-only property 'writeOnlyProperty' for <bean> of type " + Bean.class.getName() + "."));
         }
     }
 
@@ -100,6 +100,7 @@ public class ExtensibleDynamicObjectTest {
     @Test
     public void groovyObjectHasPropertiesDefinedByClassMetaInfo() {
         GroovyBean bean = new GroovyBean();
+        ExtensibleDynamicObjectTestHelper.decorateGroovyBean(bean);
         assertTrue(bean.hasProperty("groovyProperty"));
         assertTrue(bean.hasProperty("dynamicGroovyProperty"));
     }
@@ -117,30 +118,31 @@ public class ExtensibleDynamicObjectTest {
         GroovyBean bean = new GroovyBean();
         bean.setGroovyProperty("value");
 
-        assertThat(((Bean)bean).getProperty("groovyProperty"), equalTo((Object) "value"));
+        assertThat(((Bean) bean).getProperty("groovyProperty"), equalTo((Object) "value"));
 
         bean.setProperty("groovyProperty", "new value");
 
-        assertThat(((Bean)bean).getProperty("groovyProperty"), equalTo((Object) "new value"));
+        assertThat(((Bean) bean).getProperty("groovyProperty"), equalTo((Object) "new value"));
         assertThat(bean.getGroovyProperty(), equalTo((Object) "new value"));
     }
 
     @Test
     public void canGetAndSetGroovyDynamicProperty() {
         GroovyBean bean = new GroovyBean();
+        ExtensibleDynamicObjectTestHelper.decorateGroovyBean(bean);
 
-        assertThat(((Bean)bean).getProperty("dynamicGroovyProperty"), equalTo(null));
+        assertThat(((Bean) bean).getProperty("dynamicGroovyProperty"), equalTo(null));
 
         bean.setProperty("dynamicGroovyProperty", "new value");
 
-        assertThat(((Bean)bean).getProperty("dynamicGroovyProperty"), equalTo((Object) "new value"));
+        assertThat(((Bean) bean).getProperty("dynamicGroovyProperty"), equalTo((Object) "new value"));
     }
 
     @Test
     public void canGetButNotSetPropertiesOnJavaObjectFromGroovy() {
         ExtensibleDynamicObjectTestHelper.assertCanGetProperties(new Bean());
     }
-    
+
     @Test
     public void canGetAndSetPropertiesOnGroovyObjectFromGroovy() {
         ExtensibleDynamicObjectTestHelper.assertCanGetAndSetProperties(new GroovyBean());
@@ -148,12 +150,12 @@ public class ExtensibleDynamicObjectTest {
 
     @Test
     public void canGetAndSetPropertiesOnGroovyObjectFromJava() {
-        assertCanGetAndSetProperties(new GroovyBean());
+        assertCanGetAndSetProperties(new GroovyBean().getAsDynamicObject());
     }
 
     @Test
     public void canGetAndSetPropertiesOnJavaSubClassOfGroovyObjectFromJava() {
-        assertCanGetAndSetProperties(new DynamicBean());
+        assertCanGetAndSetProperties(new DynamicJavaBean().getAsDynamicObject());
     }
 
     private void assertCanGetAndSetProperties(DynamicObject bean) {
@@ -161,13 +163,11 @@ public class ExtensibleDynamicObjectTest {
         assertThat(bean.getProperty("readWriteProperty"), equalTo((Object) "value"));
         bean.setProperty("groovyProperty", "value");
         assertThat(bean.getProperty("groovyProperty"), equalTo((Object) "value"));
-        bean.setProperty("additional", "value");
-        assertThat(bean.getProperty("additional"), equalTo((Object) "value"));
     }
 
     @Test
     public void canGetAndSetPropertiesOnJavaSubClassOfGroovyObjectFromGroovy() {
-        ExtensibleDynamicObjectTestHelper.assertCanGetAndSetProperties(new DynamicBean());
+        ExtensibleDynamicObjectTestHelper.assertCanGetAndSetProperties(new DynamicJavaBean());
     }
 
     @Test
@@ -202,33 +202,33 @@ public class ExtensibleDynamicObjectTest {
     @Test
     public void hasPropertyDefinedByParent() {
         Bean parent = new Bean();
-        parent.setProperty("parentProperty", "value");
+        parent.defineProperty("parentProperty", "value");
 
         Bean bean = new Bean();
         assertFalse(bean.hasProperty("parentProperty"));
 
-        bean.setParent(parent);
+        bean.setParent(parent.getAsDynamicObject());
         assertTrue(bean.hasProperty("parentProperty"));
     }
 
     @Test
     public void canGetPropertyDefinedByParent() {
         Bean parent = new Bean();
-        parent.setProperty("parentProperty", "value");
+        parent.defineProperty("parentProperty", "value");
 
         Bean bean = new Bean();
-        bean.setParent(parent);
+        bean.setParent(parent.getAsDynamicObject());
 
         assertThat(bean.getProperty("parentProperty"), equalTo((Object) "value"));
     }
 
     @Test
-    public void cannotSetPropertyDefinedByParent() {
+    public void extraPropertyIsNotVisibleToParent() {
         Bean parent = new Bean();
 
         Bean bean = new Bean();
-        bean.setParent(parent);
-        bean.setProperty("parentProperty", "value");
+        bean.setParent(parent.getAsDynamicObject());
+        bean.defineProperty("parentProperty", "value");
 
         assertFalse(parent.hasProperty("parentProperty"));
     }
@@ -239,7 +239,7 @@ public class ExtensibleDynamicObjectTest {
 
         assertFalse(bean.hasProperty("additional"));
 
-        bean.setProperty("additional", "value");
+        bean.defineProperty("additional", "value");
         assertTrue(bean.hasProperty("additional"));
 
         bean.setProperty("additional", null);
@@ -247,20 +247,23 @@ public class ExtensibleDynamicObjectTest {
     }
 
     @Test
-    public void canGetAndSetAdditionalProperty() {
+    public void canGetAndSetExtraProperty() {
         Bean bean = new Bean();
 
-        bean.setProperty("additional", "value");
-        assertThat(bean.getProperty("additional"), equalTo((Object) "value"));
+        bean.defineProperty("additional", "value 1");
+        assertThat(bean.getProperty("additional"), equalTo((Object) "value 1"));
+
+        bean.setProperty("additional", "value 2");
+        assertThat(bean.getProperty("additional"), equalTo((Object) "value 2"));
     }
 
     @Test
     public void canGetAndSetPropertyDefinedByAdditionalObject() {
         Bean otherObject = new Bean();
-        otherObject.setProperty("otherObject", "value");
+        otherObject.defineProperty("otherObject", "value");
 
         Bean bean = new Bean();
-        bean.extensibleDynamicObject.addObject(otherObject, ExtensibleDynamicObject.Location.BeforeConvention);
+        bean.extensibleDynamicObject.addObject(otherObject.getAsDynamicObject(), ExtensibleDynamicObject.Location.BeforeConvention);
 
         assertTrue(bean.hasProperty("otherObject"));
         assertThat(bean.getProperty("otherObject"), equalTo((Object) "value"));
@@ -268,7 +271,7 @@ public class ExtensibleDynamicObjectTest {
 
         assertThat(otherObject.getProperty("otherObject"), equalTo((Object) "new value"));
     }
-    
+
     @Test
     public void classPropertyTakesPrecedenceOverAdditionalProperty() {
         Bean bean = new Bean();
@@ -285,9 +288,9 @@ public class ExtensibleDynamicObjectTest {
     }
 
     @Test
-    public void additionalPropertyTakesPrecedenceOverConventionProperty() {
+    public void extraPropertyTakesPrecedenceOverConventionProperty() {
         Bean bean = new Bean();
-        bean.setProperty("conventionProperty", "value");
+        bean.defineProperty("conventionProperty", "value");
 
         Convention convention = bean.extensibleDynamicObject.getConvention();
         ConventionBean conventionBean = new ConventionBean();
@@ -305,10 +308,10 @@ public class ExtensibleDynamicObjectTest {
     @Test
     public void conventionPropertyTakesPrecedenceOverParentProperty() {
         Bean parent = new Bean();
-        parent.setProperty("conventionProperty", "parent");
+        parent.defineProperty("conventionProperty", "parent");
 
         Bean bean = new Bean();
-        bean.setParent(parent);
+        bean.setParent(parent.getAsDynamicObject());
 
         Convention convention = bean.extensibleDynamicObject.getConvention();
         ConventionBean conventionBean = new ConventionBean();
@@ -321,14 +324,14 @@ public class ExtensibleDynamicObjectTest {
     @Test
     public void canGetAllProperties() {
         Bean parent = new Bean();
-        parent.setProperty("parentProperty", "parentProperty");
+        parent.defineProperty("parentProperty", "parentProperty");
         parent.setReadWriteProperty("ignore me");
         parent.doSetReadOnlyProperty("ignore me");
         Convention parentConvention = parent.extensibleDynamicObject.getConvention();
         parentConvention.getPlugins().put("parent", new ConventionBean());
 
         GroovyBean bean = new GroovyBean();
-        bean.setProperty("additional", "additional");
+        bean.defineProperty("additional", "additional");
         bean.setReadWriteProperty("readWriteProperty");
         bean.doSetReadOnlyProperty("readOnlyProperty");
         bean.setGroovyProperty("groovyProperty");
@@ -336,7 +339,7 @@ public class ExtensibleDynamicObjectTest {
         ConventionBean conventionBean = new ConventionBean();
         conventionBean.setConventionProperty("conventionProperty");
         convention.getPlugins().put("bean", conventionBean);
-        bean.setParent(parent);
+        bean.setParent(parent.getAsDynamicObject());
 
         Map<String, Object> properties = bean.getProperties();
         assertThat(properties.get("properties"), sameInstance((Object) properties));
@@ -353,7 +356,7 @@ public class ExtensibleDynamicObjectTest {
     public void canGetAllPropertiesFromGroovy() {
         ExtensibleDynamicObjectTestHelper.assertCanGetAllProperties(new Bean());
         ExtensibleDynamicObjectTestHelper.assertCanGetAllProperties(new GroovyBean());
-        ExtensibleDynamicObjectTestHelper.assertCanGetAllProperties(new DynamicBean());
+        ExtensibleDynamicObjectTestHelper.assertCanGetAllProperties(new DynamicJavaBean());
     }
 
     @Test
@@ -364,28 +367,64 @@ public class ExtensibleDynamicObjectTest {
             bean.getProperty("unknown");
             fail();
         } catch (MissingPropertyException e) {
-            assertThat(e.getMessage(), equalTo("Could not find property 'unknown' on <bean>."));
+            assertThat(e.getMessage(), equalTo("Could not get unknown property 'unknown' for <bean> of type " + Bean.class.getName() + "."));
         }
 
-        bean.setParent(new Bean(){
+        bean.setParent(new Bean() {
             @Override
             public String toString() {
                 return "<parent>";
             }
-        });
+        }.getAsDynamicObject());
 
         try {
             bean.getProperty("unknown");
             fail();
         } catch (MissingPropertyException e) {
-            assertThat(e.getMessage(), equalTo("Could not find property 'unknown' on <bean>."));
+            assertThat(e.getMessage(), equalTo("Could not get unknown property 'unknown' for <bean> of type " + Bean.class.getName() + "."));
         }
     }
 
     @Test
-    public void additionalPropertyWithNullValueIsNotTreatedAsUnknown() {
+    public void doesNotIncludeToStringInGetPropertyErrorMessageWhenItIsNotImplemented() {
+        DynamicObject bean = new ExtensibleDynamicObject(new Object(), Object.class, ThreadGlobalInstantiator.getOrCreate());
+
+        try {
+            bean.getProperty("unknown");
+            fail();
+        } catch (MissingPropertyException e) {
+            assertThat(e.getMessage(), equalTo("Could not get unknown property 'unknown' for object of type java.lang.Object."));
+        }
+    }
+
+    @Test
+    public void setPropertyFailsForUnknownProperty() {
         Bean bean = new Bean();
-        bean.setProperty("additional", null);
+
+        try {
+            bean.setProperty("unknown", 12);
+            fail();
+        } catch (MissingPropertyException e) {
+            assertThat(e.getMessage(), equalTo("Could not set unknown property 'unknown' for <bean> of type " + Bean.class.getName() + "."));
+        }
+    }
+
+    @Test
+    public void doesNotIncludeToStringInSetPropertyErrorMessageWhenItIsNotImplemented() {
+        DynamicObject bean = new ExtensibleDynamicObject(new Object(), Object.class, ThreadGlobalInstantiator.getOrCreate());
+
+        try {
+            bean.setProperty("unknown", "value");
+            fail();
+        } catch (MissingPropertyException e) {
+            assertThat(e.getMessage(), equalTo("Could not set unknown property 'unknown' for object of type java.lang.Object."));
+        }
+    }
+
+    @Test
+    public void extraPropertyWithNullValueIsNotTreatedAsUnknown() {
+        Bean bean = new Bean();
+        bean.defineProperty("additional", null);
         assertThat(bean.getProperty("additional"), nullValue());
     }
 
@@ -393,28 +432,29 @@ public class ExtensibleDynamicObjectTest {
     public void canInvokeMethodDefinedByClass() {
         Bean bean = new Bean();
         assertTrue(bean.hasMethod("javaMethod", "a", "b"));
-        assertThat(bean.invokeMethod("javaMethod", "a", "b"), equalTo((Object) "java:a.b"));
+        assertThat(bean.getAsDynamicObject().invokeMethod("javaMethod", "a", "b"), equalTo((Object) "java:a.b"));
     }
 
     @Test
     public void canInvokeMethodDefinedByMetaClass() {
         Bean bean = new GroovyBean();
+        ExtensibleDynamicObjectTestHelper.decorateGroovyBean(bean);
 
         assertTrue(bean.hasMethod("groovyMethod", "a", "b"));
-        assertThat(bean.invokeMethod("groovyMethod", "a", "b"), equalTo((Object) "groovy:a.b"));
+        assertThat(bean.getAsDynamicObject().invokeMethod("groovyMethod", "a", "b"), equalTo((Object) "groovy:a.b"));
 
         assertTrue(bean.hasMethod("dynamicGroovyMethod", "a", "b"));
-        assertThat(bean.invokeMethod("dynamicGroovyMethod", "a", "b"), equalTo((Object) "dynamicGroovy:a.b"));
+        assertThat(bean.getAsDynamicObject().invokeMethod("dynamicGroovyMethod", "a", "b"), equalTo((Object) "dynamicGroovy:a.b"));
     }
 
     @Test
     public void canInvokeMethodDefinedByScriptObject() {
         Bean bean = new Bean();
-        Script script = HelperUtil.createScript("def scriptMethod(a, b) { \"script:$a.$b\" } ");
+        Script script = TestUtil.createScript("def scriptMethod(a, b) { \"script:$a.$b\" } ");
         bean.extensibleDynamicObject.addObject(new BeanDynamicObject(script), ExtensibleDynamicObject.Location.BeforeConvention);
 
         assertTrue(bean.hasMethod("scriptMethod", "a", "b"));
-        assertThat(bean.invokeMethod("scriptMethod", "a", "b").toString(), equalTo((Object) "script:a.b"));
+        assertThat(bean.getAsDynamicObject().invokeMethod("scriptMethod", "a", "b").toString(), equalTo((Object) "script:a.b"));
     }
 
     @Test
@@ -426,7 +466,7 @@ public class ExtensibleDynamicObjectTest {
 
         convention.getPlugins().put("bean", new ConventionBean());
         assertTrue(bean.hasMethod("conventionMethod", "a", "b"));
-        assertThat(bean.invokeMethod("conventionMethod", "a", "b"), equalTo((Object) "convention:a.b"));
+        assertThat(bean.getAsDynamicObject().invokeMethod("conventionMethod", "a", "b"), equalTo((Object) "convention:a.b"));
     }
 
     @Test
@@ -439,11 +479,11 @@ public class ExtensibleDynamicObjectTest {
         Bean bean = new Bean();
 
         assertFalse(bean.hasMethod("parentMethod", "a", "b"));
-        
-        bean.setParent(parent);
+
+        bean.setParent(parent.getAsDynamicObject());
 
         assertTrue(bean.hasMethod("parentMethod", "a", "b"));
-        assertThat(bean.invokeMethod("parentMethod", "a", "b"), equalTo((Object) "parent:a.b"));
+        assertThat(bean.getAsDynamicObject().invokeMethod("parentMethod", "a", "b"), equalTo((Object) "parent:a.b"));
     }
 
     @Test
@@ -451,7 +491,7 @@ public class ExtensibleDynamicObjectTest {
         Bean bean = new Bean();
         Convention convention = bean.extensibleDynamicObject.getConvention();
         convention.getPlugins().put("bean", new ConventionBean());
-        ExtensibleDynamicObjectTestHelper.assertCanCallMethods(bean);
+        new ExtensibleDynamicObjectTestHelper().assertCanCallMethods(bean);
     }
 
     @Test
@@ -459,32 +499,40 @@ public class ExtensibleDynamicObjectTest {
         GroovyBean bean = new GroovyBean();
         Convention convention = bean.extensibleDynamicObject.getConvention();
         convention.getPlugins().put("bean", new ConventionBean());
-        ExtensibleDynamicObjectTestHelper.assertCanCallMethods(bean);
+        new ExtensibleDynamicObjectTestHelper().assertCanCallMethods(bean);
     }
 
     @Test
     public void canInvokeMethodsOnJavaSubClassOfGroovyObjectFromGroovy() {
-        DynamicBean bean = new DynamicBean();
-        Convention convention = bean.extensibleDynamicObject.getConvention();
+        // This doesn't work.
+        // It used to because at the bottom of the hierarchy chain the object implemented methodMissing().
+        // However, our normal “decorated” classes do not do this so it is not realistic.
+
+        // Groovy does something very strange here.
+        // For some reason (probably because the class is Java), it won't employ any dynamism.
+        // Even implementing invokeMethod at the Java level has no effect.
+
+        DynamicJavaBean javaBean = new DynamicJavaBean();
+        Convention convention = javaBean.extensibleDynamicObject.getConvention();
         convention.getPlugins().put("bean", new ConventionBean());
-        ExtensibleDynamicObjectTestHelper.assertCanCallMethods(bean);
+        new ExtensibleDynamicObjectTestHelper().assertCanCallMethods(javaBean);
     }
 
     @Test
     public void canInvokeClosurePropertyAsAMethod() {
         Bean bean = new Bean();
-        bean.setProperty("someMethod", HelperUtil.toClosure("{ param -> param.toLowerCase() }"));
+        bean.defineProperty("someMethod", TestUtil.toClosure("{ param -> param.toLowerCase() }"));
         assertThat(bean.invokeMethod("someMethod", "Param"), equalTo((Object) "param"));
     }
-    
+
     @Test
     public void invokeMethodFailsForUnknownMethod() {
         Bean bean = new Bean();
         try {
-            bean.invokeMethod("unknown", "a", 12);
+            bean.getAsDynamicObject().invokeMethod("unknown", "a", 12);
             fail();
         } catch (MissingMethodException e) {
-            assertThat(e.getMessage(), equalTo("Could not find method unknown() for arguments [a, 12] on <bean>."));
+            assertThat(e.getMessage(), equalTo("Could not find method unknown() for arguments [a, 12] on <bean> of type " + Bean.class.getName() + "."));
         }
     }
 
@@ -532,7 +580,7 @@ public class ExtensibleDynamicObjectTest {
         };
 
         try {
-            bean.invokeMethod("failure");
+            bean.getAsDynamicObject().invokeMethod("failure");
             fail();
         } catch (Exception e) {
             assertThat(e, sameInstance((Exception) failure));
@@ -540,9 +588,9 @@ public class ExtensibleDynamicObjectTest {
     }
 
     @Test
-    public void additionalPropertiesAreInherited() {
+    public void extraPropertiesAreInherited() {
         Bean bean = new Bean();
-        bean.setProperty("additional", "value");
+        bean.defineProperty("additional", "value");
 
         DynamicObject inherited = bean.getInheritable();
         assertTrue(inherited.hasProperty("additional"));
@@ -557,7 +605,7 @@ public class ExtensibleDynamicObjectTest {
         DynamicObject inherited = bean.getInheritable();
         assertFalse(inherited.hasProperty("additional"));
 
-        bean.setProperty("additional", "value");
+        bean.defineProperty("additional", "value");
         assertTrue(inherited.hasProperty("additional"));
         assertThat(inherited.getProperty("additional"), equalTo((Object) "value"));
     }
@@ -565,9 +613,9 @@ public class ExtensibleDynamicObjectTest {
     @Test
     public void additionalObjectPropertiesAreInherited() {
         Bean other = new Bean();
-        other.setProperty("other", "value");
+        other.defineProperty("other", "value");
         Bean bean = new Bean();
-        bean.extensibleDynamicObject.addObject(other, ExtensibleDynamicObject.Location.BeforeConvention);
+        bean.extensibleDynamicObject.addObject(other.getAsDynamicObject(), ExtensibleDynamicObject.Location.BeforeConvention);
 
         DynamicObject inherited = bean.getInheritable();
         assertTrue(inherited.hasProperty("other"));
@@ -578,13 +626,13 @@ public class ExtensibleDynamicObjectTest {
     @Test
     public void inheritedAdditionalObjectPropertiesTrackChanges() {
         Bean other = new Bean();
-        other.setProperty("other", "value");
+        other.defineProperty("other", "value");
         Bean bean = new Bean();
 
         DynamicObject inherited = bean.getInheritable();
         assertFalse(inherited.hasProperty("other"));
 
-        bean.extensibleDynamicObject.addObject(other, ExtensibleDynamicObject.Location.BeforeConvention);
+        bean.extensibleDynamicObject.addObject(other.getAsDynamicObject(), ExtensibleDynamicObject.Location.BeforeConvention);
 
         assertTrue(inherited.hasProperty("other"));
         assertThat(inherited.getProperty("other"), equalTo((Object) "value"));
@@ -623,9 +671,9 @@ public class ExtensibleDynamicObjectTest {
     @Test
     public void parentPropertiesAreInherited() {
         Bean parent = new Bean();
-        parent.setProperty("parentProperty", "value");
+        parent.defineProperty("parentProperty", "value");
         Bean bean = new Bean();
-        bean.setParent(parent);
+        bean.setParent(parent.getAsDynamicObject());
 
         DynamicObject inherited = bean.getInheritable();
         assertTrue(inherited.hasProperty("parentProperty"));
@@ -646,7 +694,7 @@ public class ExtensibleDynamicObjectTest {
     @Test
     public void cannotSetInheritedProperties() {
         Bean bean = new Bean();
-        bean.setProperty("additional", "value");
+        bean.defineProperty("additional", "value");
 
         DynamicObject inherited = bean.getInheritable();
         try {
@@ -675,7 +723,7 @@ public class ExtensibleDynamicObjectTest {
         convention.getPlugins().put("convention", new ConventionBean());
 
         Bean bean = new Bean();
-        bean.extensibleDynamicObject.addObject(other, ExtensibleDynamicObject.Location.BeforeConvention);
+        bean.extensibleDynamicObject.addObject(other.getAsDynamicObject(), ExtensibleDynamicObject.Location.BeforeConvention);
 
         DynamicObject inherited = bean.getInheritable();
         assertTrue(inherited.hasMethod("conventionMethod", "a", "b"));
@@ -688,7 +736,7 @@ public class ExtensibleDynamicObjectTest {
         Convention convention = parent.extensibleDynamicObject.getConvention();
         convention.getPlugins().put("convention", new ConventionBean());
         Bean bean = new Bean();
-        bean.setParent(parent);
+        bean.setParent(parent.getAsDynamicObject());
 
         DynamicObject inherited = bean.getInheritable();
         assertTrue(inherited.hasMethod("conventionMethod", "a", "b"));
@@ -703,63 +751,43 @@ public class ExtensibleDynamicObjectTest {
         DynamicObject inherited = bean.getInheritable();
         assertFalse(inherited.hasMethod("javaMethod", "a", "b"));
     }
-    
+
     @Test
     public void canGetObjectAsDynamicObject() {
         Bean bean = new Bean();
-        assertThat(DynamicObjectUtil.asDynamicObject(bean), sameInstance((DynamicObject) bean));
-
-        AbstractProject project = (AbstractProject)ProjectBuilder.builder().build();
-        assertThat(DynamicObjectUtil.asDynamicObject(project), sameInstance(project.getAsDynamicObject()));
+        assertThat(DynamicObjectUtil.asDynamicObject(bean), sameInstance(bean.getAsDynamicObject()));
 
         assertThat(DynamicObjectUtil.asDynamicObject(new Object()), instanceOf(DynamicObject.class));
     }
 
     @Test
-    public void canGetAndSetGroovyDynamicProperties() {
-        DynamicObject object = new BeanDynamicObject(new DynamicGroovyBean());
-        object.setProperty("foo", "bar");
-        assertThat((String)object.getProperty("foo"), equalTo("bar"));
-
-        try {
-            object.getProperty("additional");
-            fail();
-        } catch (MissingPropertyException e) {
-            assertThat(e.getMessage(), equalTo("No such property: additional for class: org.gradle.api.internal.DynamicGroovyBean"));
-        }
-
-        try {
-            object.setProperty("additional", "foo");
-            fail();
-        } catch (MissingPropertyException e) {
-            assertThat(e.getMessage(), equalTo("No such property: additional for class: org.gradle.api.internal.DynamicGroovyBean"));
-        }
-    }
-
-    @Test
     public void canCallGroovyDynamicMethods() {
-        DynamicObject object = new BeanDynamicObject(new DynamicGroovyBean());
-        Integer doubled = (Integer)object.invokeMethod("bar", 1);
+        DynamicGroovyBean bean = new DynamicGroovyBean();
+        DynamicObject object = new ExtensibleDynamicObject(bean, DynamicGroovyBean.class, ThreadGlobalInstantiator.getOrCreate());
+        Integer doubled = (Integer) object.invokeMethod("bar", 1);
         assertThat(doubled, equalTo(2));
 
         try {
             object.invokeMethod("xxx", 1, 2, 3);
             fail();
         } catch (MissingMethodException e) {
-            assertThat(e.getMessage(), startsWith("No signature of method: org.gradle.api.internal.DynamicGroovyBean.xxx() is applicable for argument types: (java.lang.Integer, java.lang.Integer, java.lang.Integer) values: [1, 2, 3]\nPossible solutions:"));
+            assertThat(e.getMessage(), equalTo("Could not find method xxx() for arguments [1, 2, 3] on object of type " + DynamicGroovyBean.class.getName() + "."));
         }
     }
 
-    public static class Bean implements DynamicObject {
+    public static class Bean extends GroovyObjectSupport implements DynamicObjectAware {
         private String readWriteProperty;
-        private String readOnlyProperty;
+        private String _readOnlyProperty;
         private String writeOnlyProperty;
         private Integer differentTypesProperty;
         final ExtensibleDynamicObject extensibleDynamicObject;
-        private Convention convention;
 
         public Bean() {
-            extensibleDynamicObject = new ExtensibleDynamicObject(this, ThreadGlobalInstantiator.getOrCreate());
+            extensibleDynamicObject = new ExtensibleDynamicObject(this, Bean.class, ThreadGlobalInstantiator.getOrCreate());
+        }
+
+        public DynamicObject getAsDynamicObject() {
+            return extensibleDynamicObject;
         }
 
         @Override
@@ -772,11 +800,11 @@ public class ExtensibleDynamicObjectTest {
         }
 
         public String getReadOnlyProperty() {
-            return readOnlyProperty;
+            return _readOnlyProperty;
         }
 
         public void doSetReadOnlyProperty(String readOnlyProperty) {
-            this.readOnlyProperty = readOnlyProperty;
+            this._readOnlyProperty = readOnlyProperty;
         }
 
         public String doGetWriteOnlyProperty() {
@@ -806,7 +834,7 @@ public class ExtensibleDynamicObjectTest {
         public String javaMethod(String a, String b) {
             return String.format("java:%s.%s", a, b);
         }
-        
+
         public Object getProperty(String name) {
             return extensibleDynamicObject.getProperty(name);
         }
@@ -827,24 +855,20 @@ public class ExtensibleDynamicObjectTest {
             return extensibleDynamicObject.hasMethod(name, arguments);
         }
 
-        public Object invokeMethod(String name, Object... arguments) {
-            return extensibleDynamicObject.invokeMethod(name, arguments);
-        }
-
-        public Object methodMissing(String name, Object params) {
-            return extensibleDynamicObject.invokeMethod(name, (Object[]) params);
-        }
-
-        public Object propertyMissing(String name) {
-            return getProperty(name);
+        public Object invokeMethod(String name, Object args) {
+            return extensibleDynamicObject.invokeMethod(name, (args instanceof Object[]) ? (Object[]) args : new Object[]{args});
         }
 
         public DynamicObject getInheritable() {
             return extensibleDynamicObject.getInheritable();
         }
+
+        public void defineProperty(String name, Object value) {
+            extensibleDynamicObject.getConvention().getExtraProperties().set(name, value);
+        }
     }
 
-    private static class DynamicBean extends GroovyBean {
+    private static class DynamicJavaBean extends GroovyBean {
     }
 
     private static class ConventionBean {

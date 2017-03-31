@@ -16,6 +16,7 @@
 package org.gradle.tooling.model.eclipse;
 
 import org.gradle.tooling.model.DomainObjectSet;
+import org.gradle.tooling.model.HasGradleProject;
 import org.gradle.tooling.model.HierarchicalElement;
 import org.gradle.tooling.model.UnsupportedMethodException;
 
@@ -23,8 +24,11 @@ import java.io.File;
 
 /**
  * Represents the basic information about an Eclipse project.
+ *
+ * @since 1.0-milestone-3
  */
-public interface HierarchicalEclipseProject extends HierarchicalElement {
+public interface HierarchicalEclipseProject extends HierarchicalElement, HasGradleProject {
+
     /**
      * {@inheritDoc}
      */
@@ -39,6 +43,7 @@ public interface HierarchicalEclipseProject extends HierarchicalElement {
      * Returns the project dependencies for this project.
      *
      * @return The project dependencies. Returns an empty set if the project has no project dependencies.
+     * @since 1.0-milestone-3
      */
     DomainObjectSet<? extends EclipseProjectDependency> getProjectDependencies();
 
@@ -46,6 +51,7 @@ public interface HierarchicalEclipseProject extends HierarchicalElement {
      * Returns the source directories for this project.
      *
      * @return The source directories. Returns an empty set if the project has no source directories.
+     * @since 1.0-milestone-3
      */
     DomainObjectSet<? extends EclipseSourceDirectory> getSourceDirectories();
 
@@ -54,17 +60,16 @@ public interface HierarchicalEclipseProject extends HierarchicalElement {
      *
      * @return The linked resources.
      * @since 1.0-milestone-4
-     * @throws org.gradle.tooling.model.UnsupportedMethodException
-     *  When the target Gradle version does not support this information.
-     *  You can safely catch ignore this exception and query the model for other information.
      */
-    DomainObjectSet<? extends EclipseLinkedResource> getLinkedResources() throws UnsupportedMethodException;
+    DomainObjectSet<? extends EclipseLinkedResource> getLinkedResources();
 
     /**
      * Returns the project directory for this project.
      *
      * @return The project directory.
+     * @since 1.0-milestone-9
+     * @throws UnsupportedMethodException For Gradle versions older than 1.0-milestone-9, where this method is not supported.
      */
-    File getProjectDirectory();
+    File getProjectDirectory() throws UnsupportedMethodException;
 
 }

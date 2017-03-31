@@ -15,10 +15,11 @@
  */
 package org.gradle.build.docs
 
+import groovy.xml.dom.DOMCategory
 import org.w3c.dom.Element
 import org.w3c.dom.Node
 
-class BuildableDOMCategory {
+class BuildableDOMCategory extends DOMCategory {
     public static void setText(Element element, String value) {
         while (element.hasChildNodes()) {
             element.removeChild(element.getFirstChild())
@@ -69,7 +70,7 @@ class BuildableDOMCategory {
         parent.insertBefore(n, sibling)
     }
 
-    public static void addAfter(Element sibling, Closure cl) {
+    public static Object addAfter(Element sibling, Closure cl) {
         DomBuilder builder = new DomBuilder(sibling.ownerDocument, null)
         cl.delegate = builder
         cl.call()
@@ -78,5 +79,6 @@ class BuildableDOMCategory {
         builder.elements.each { element ->
             parent.insertBefore(element, next)
         }
+        return builder.elements.size() == 1 ? builder.elements[0] : builder.elements
     }
 }

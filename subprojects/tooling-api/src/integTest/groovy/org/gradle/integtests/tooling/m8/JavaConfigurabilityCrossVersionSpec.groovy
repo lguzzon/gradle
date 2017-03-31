@@ -16,22 +16,18 @@
 
 package org.gradle.integtests.tooling.m8
 
-import org.gradle.integtests.tooling.fixture.MinTargetGradleVersion
-import org.gradle.integtests.tooling.fixture.MinToolingApiVersion
 import org.gradle.integtests.tooling.fixture.ToolingApiSpecification
 import org.gradle.tooling.model.GradleProject
 import org.gradle.tooling.model.build.BuildEnvironment
 import spock.lang.Issue
 import spock.lang.Timeout
 
-@MinToolingApiVersion('1.0-milestone-8')
-@MinTargetGradleVersion('1.0-milestone-8')
 class JavaConfigurabilityCrossVersionSpec extends ToolingApiSpecification {
 
     def setup() {
         //this test does not make any sense in embedded mode
         //as we don't own the process
-        toolingApi.isEmbedded = false
+        toolingApi.requireDaemons()
     }
 
     def "configures the java settings"() {
@@ -44,6 +40,7 @@ class JavaConfigurabilityCrossVersionSpec extends ToolingApiSpecification {
         }
 
         then:
+        env.java.javaHome
         env.java.jvmArguments.contains "-Xms13m"
         env.java.jvmArguments.contains "-Xmx333m"
     }
@@ -59,20 +56,21 @@ class JavaConfigurabilityCrossVersionSpec extends ToolingApiSpecification {
 
         then:
         env.java.javaHome
-        !env.java.jvmArguments.empty
+        env.java.jvmArguments.contains("-Xmx1024m")
+        env.java.jvmArguments.contains("-XX:+HeapDumpOnOutOfMemoryError")
     }
 
     def "tooling api provided jvm args take precedence over gradle.properties"() {
-        dist.file('build.gradle') << """
-assert java.lang.management.ManagementFactory.runtimeMXBean.inputArguments.contains('-Xmx23m')
+        file('build.gradle') << """
+assert java.lang.management.ManagementFactory.runtimeMXBean.inputArguments.contains('-Xmx53m')
 assert System.getProperty('some-prop') == 'BBB'
 """
-        dist.file('gradle.properties') << "org.gradle.jvmargs=-Dsome-prop=AAA -Xmx16m"
+        file('gradle.properties') << "org.gradle.jvmargs=-Dsome-prop=AAA -Xmx16m"
 
         when:
         def model = withConnection {
             it.model(GradleProject.class)
-                .setJvmArguments('-Dsome-prop=BBB', '-Xmx23m')
+                .setJvmArguments('-Dsome-prop=BBB', '-Xmx53m')
                 .get()
         }
 
@@ -82,7 +80,7 @@ assert System.getProperty('some-prop') == 'BBB'
 
     def "customized java args are reflected in the inputArguments and the build model"() {
         given:
-        dist.file('build.gradle') <<
+        file('build.gradle') <<
                 "project.description = java.lang.management.ManagementFactory.runtimeMXBean.inputArguments.join('##')"
 
         when:

@@ -7,6 +7,12 @@
                     <td>Name</td>
                 </tr>
             </thead>
+            <tr>
+                <td>components</td>
+            </tr>
+            <tr>
+                <td>modules</td>
+            </tr>
         </table>
     </section>
     <section>
@@ -33,7 +39,19 @@
                 <td>gradleApi</td>
             </tr>
             <tr>
+                <td>gradleTestKit</td>
+            </tr>
+            <tr>
                 <td>localGroovy</td>
+            </tr>
+            <tr>
+                <td>components</td>
+            </tr>
+            <tr>
+                <td>modules</td>
+            </tr>
+            <tr>
+                <td>createArtifactResolutionQuery</td>
             </tr>
         </table>
     </section>

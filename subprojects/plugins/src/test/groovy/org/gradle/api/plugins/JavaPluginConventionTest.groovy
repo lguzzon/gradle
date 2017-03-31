@@ -16,42 +16,42 @@
 
 package org.gradle.api.plugins
 
+import org.gradle.api.Action
 import org.gradle.api.JavaVersion
+import org.gradle.api.Project
 import org.gradle.api.internal.file.FileResolver
-import org.gradle.api.internal.project.DefaultProject
 import org.gradle.api.internal.tasks.DefaultSourceSetContainer
+import org.gradle.api.java.archives.Manifest
 import org.gradle.api.java.archives.internal.DefaultManifest
-import org.gradle.util.HelperUtil
+import org.gradle.internal.reflect.Instantiator
+import org.gradle.test.fixtures.file.TestFile
+import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
 import org.gradle.util.JUnit4GroovyMockery
-import org.gradle.util.TemporaryFolder
-import org.gradle.util.TestFile
+import org.gradle.util.TestUtil
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
-import static org.hamcrest.Matchers.*
+
+import static org.hamcrest.Matchers.equalTo
+import static org.hamcrest.Matchers.instanceOf
 import static org.junit.Assert.assertEquals
 import static org.junit.Assert.assertThat
 
-/**
- * @author Hans Dockter
- */
 class JavaPluginConventionTest {
     private final JUnit4GroovyMockery context = new JUnit4GroovyMockery()
-    private DefaultProject project = HelperUtil.createRootProject()
-    private File testDir = project.projectDir
+    @Rule
+    public TestNameTestDirectoryProvider tmpDir = new TestNameTestDirectoryProvider()
+    private final Project project = TestUtil.create(tmpDir).rootProject()
+    private Instantiator instantiator = project.services.get(Instantiator)
     private JavaPluginConvention convention
 
-    @Rule
-    public final TemporaryFolder tmpDir = new TemporaryFolder()
-
     @Before public void setUp() {
-        project.plugins.apply(ReportingBasePlugin)
-        convention = new JavaPluginConvention(project)
+        project.pluginManager.apply(ReportingBasePlugin)
+        convention = new JavaPluginConvention(project, instantiator)
     }
 
     @Test public void defaultValues() {
         assertThat(convention.sourceSets, instanceOf(DefaultSourceSetContainer))
-        assertThat(convention.manifest, notNullValue())
         assertEquals('dependency-cache', convention.dependencyCacheDirName)
         assertEquals('docs', convention.docsDirName)
         assertEquals('test-results', convention.testResultsDirName)
@@ -73,7 +73,7 @@ class JavaPluginConventionTest {
         }
         assertThat(convention.sourceSets.main.output.classesDir, equalTo(project.file(dir)))
     }
-    
+
     @Test public void testDefaultDirs() {
         checkDirs()
     }
@@ -93,10 +93,10 @@ class JavaPluginConventionTest {
     @Test public void testTestReportDirIsCalculatedRelativeToReportsDir() {
         assertEquals(new File(project.buildDir, 'reports/tests'), convention.testReportDir)
 
-        project.reportsDirName = 'other-reports-dir'
+        project.reporting.baseDir = 'other-reports-dir'
         convention.testReportDirName = 'other-test-dir'
 
-        assertEquals(new File(project.buildDir, 'other-reports-dir/other-test-dir'), convention.testReportDir)
+        assertEquals(new File(project.projectDir, 'other-reports-dir/other-test-dir'), convention.testReportDir)
     }
 
     @Test public void testTargetCompatibilityDefaultsToSourceCompatibilityWhenNotSet() {
@@ -111,6 +111,14 @@ class JavaPluginConventionTest {
         convention.sourceCompatibility = 6
         assertEquals(JavaVersion.VERSION_1_6, convention.sourceCompatibility)
         assertEquals(JavaVersion.VERSION_1_2, convention.targetCompatibility)
+
+        convention.targetCompatibility = JavaVersion.VERSION_1_3
+        assertEquals(JavaVersion.VERSION_1_6, convention.sourceCompatibility)
+        assertEquals(JavaVersion.VERSION_1_3, convention.targetCompatibility)
+
+        convention.sourceCompatibility = JavaVersion.VERSION_1_7
+        assertEquals(JavaVersion.VERSION_1_7, convention.sourceCompatibility)
+        assertEquals(JavaVersion.VERSION_1_3, convention.targetCompatibility)
     }
 
     @Test
@@ -126,6 +134,15 @@ class JavaPluginConventionTest {
         assertThat(manifest, instanceOf(DefaultManifest.class))
         DefaultManifest mergedManifest = manifest.effectiveManifest
         assertThat(mergedManifest.attributes, equalTo([key1: 'value1', key2: 'value2', 'Manifest-Version': '1.0']))
+    }
+
+    @Test
+    void "can configure manifest with an action"() {
+        def manifest = convention.manifest({ Manifest manifest ->
+            manifest.attributes key: 'value'
+        } as Action<Manifest>)
+        Manifest mergedManifest = manifest.effectiveManifest
+        assertThat(mergedManifest.attributes, equalTo([key: 'value', 'Manifest-Version': '1.0']))
     }
 
     @Test

@@ -20,23 +20,28 @@ package org.gradle.groovy.scripts
 
 import org.codehaus.groovy.control.CompilerConfiguration
 import org.gradle.api.initialization.dsl.ScriptHandler
-import org.gradle.api.internal.project.DefaultProject
-import org.gradle.internal.service.ServiceRegistry
+import org.gradle.api.internal.file.FileLookup
+import org.gradle.api.internal.file.collections.DirectoryFileTreeFactory
+import org.gradle.api.internal.project.ProjectInternal
 import org.gradle.api.logging.LoggingManager
-import org.gradle.logging.StandardOutputCapture
-import org.gradle.util.HelperUtil
+import org.gradle.internal.logging.StandardOutputCapture
+import org.gradle.internal.reflect.Instantiator
+import org.gradle.internal.service.ServiceRegistry
+import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
 import org.gradle.util.JUnit4GroovyMockery
+import org.gradle.util.TestUtil
 import org.jmock.integration.junit4.JMock
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import static org.junit.Assert.*
 
-/**
- * @author Hans Dockter
- */
+import static org.junit.Assert.assertEquals
+
 @RunWith(JMock)
 class DefaultScriptTest {
     private final JUnit4GroovyMockery context = new JUnit4GroovyMockery()
+    @Rule
+    final TestNameTestDirectoryProvider temporaryFolder = TestNameTestDirectoryProvider.newInstance()
 
     @Test public void testApplyMetaData() {
         ServiceRegistry serviceRegistryMock = context.mock(ServiceRegistry.class)
@@ -47,16 +52,22 @@ class DefaultScriptTest {
             will(returnValue(context.mock(StandardOutputCapture.class)))
             allowing(serviceRegistryMock).get(LoggingManager.class)
             will(returnValue(context.mock(LoggingManager.class)))
+            allowing(serviceRegistryMock).get(Instantiator)
+            will(returnValue(context.mock(Instantiator)))
+            allowing(serviceRegistryMock).get(FileLookup)
+            will(returnValue(context.mock(FileLookup)))
+            allowing(serviceRegistryMock).get(DirectoryFileTreeFactory)
+            will(returnValue(context.mock(DirectoryFileTreeFactory)))
         }
 
         DefaultScript script = new GroovyShell(createBaseCompilerConfiguration()).parse(testScriptText)
-        DefaultProject testProject = HelperUtil.createRootProject()
-        testProject.custom = 'true'
+        ProjectInternal testProject = TestUtil.create(temporaryFolder).rootProject()
+        testProject.ext.custom = 'true'
         script.setScriptSource(new StringScriptSource('script', '//'))
         script.init(testProject, serviceRegistryMock)
         script.run();
         assertEquals("scriptMethod", script.scriptMethod())
-        assertEquals(testProject.path + "mySuffix", script.scriptProperty)
+        assertEquals("a", script.newProperty)
     }
 
     private CompilerConfiguration createBaseCompilerConfiguration() {
@@ -70,12 +81,11 @@ class DefaultScriptTest {
 // We leave out the path to check import adding
 getName() // call a project method
 assert hasProperty('custom')
-repositories { } 
+repositories { }
 def scriptMethod() { 'scriptMethod' }
-scriptProperty = project.path + 'mySuffix'
 String internalProp = 'a'
 assert internalProp == 'a'
-newProperty = 'a'
+ext.newProperty = 'a'
 assert newProperty == 'a'
 assert newProperty == project.newProperty
 '''

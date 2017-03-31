@@ -14,80 +14,64 @@
  * limitations under the License.
  */
 
-package org.gradle.tooling.internal.consumer.loader;
+package org.gradle.tooling.internal.consumer.loader
 
-
-import java.util.concurrent.locks.Lock
-import java.util.concurrent.locks.ReentrantLock
-import org.gradle.logging.ProgressLogger
-import org.gradle.logging.ProgressLoggerFactory
-import org.gradle.tests.fixtures.ConcurrentTestUtil
+import org.gradle.initialization.BuildCancellationToken
+import org.gradle.internal.logging.progress.ProgressLogger
+import org.gradle.internal.logging.progress.ProgressLoggerFactory
+import org.gradle.test.fixtures.concurrent.ConcurrentSpec
+import org.gradle.tooling.internal.consumer.ConnectionParameters
 import org.gradle.tooling.internal.consumer.Distribution
-import spock.lang.Specification
+import org.gradle.tooling.internal.consumer.connection.ConsumerConnection
+import org.gradle.tooling.internal.protocol.InternalBuildProgressListener
 
-/**
- * by Szczepan Faber, created at: 12/15/11
- */
-public class SynchronizedToolingImplementationLoaderTest extends Specification {
+public class SynchronizedToolingImplementationLoaderTest extends ConcurrentSpec {
 
     def factory = Mock(ProgressLoggerFactory)
     def distro = Mock(Distribution)
     def logger = Mock(ProgressLogger)
+    def params = Mock(ConnectionParameters)
+    def cancellationToken = Mock(BuildCancellationToken)
+    def target = Mock(ToolingImplementationLoader)
+    def loader = new SynchronizedToolingImplementationLoader(target)
 
-    def loader = new SynchronizedToolingImplementationLoader(Mock(ToolingImplementationLoader))
-
-    def setup() {
-        loader.lock = Mock(Lock)
-    }
-
-    def "reports progress when busy"() {
+    def "blocks and reports progress when busy"() {
         when:
-        loader.create(distro, factory, true)
+        start {
+            loader.create(distro, factory, _ as InternalBuildProgressListener, params, cancellationToken)
+        }
+        async {
+            thread.blockUntil.busy
+            loader.create(distro, factory, _ as InternalBuildProgressListener, params, cancellationToken)
+        }
 
-        then: "stubs"
-        1 * loader.lock.tryLock() >> false
+        then:
+        instant.idle < instant.created
+        1 * target.create(distro, factory, _ as InternalBuildProgressListener, params, cancellationToken) >> {
+            instant.busy
+            thread.block()
+            instant.idle
+            Stub(ConsumerConnection)
+        }
+        1 * target.create(distro, factory, _ as InternalBuildProgressListener, params, cancellationToken) >> {
+            instant.created
+            Stub(ConsumerConnection)
+        }
+
+        and:
         1 * factory.newOperation(_ as Class) >> logger
-
-        then:
         1 * logger.setDescription(_ as String)
-        then:
         1 * logger.started()
-        then:
-        1 * loader.lock.lock()
-        then:
-        1 * loader.delegate.create(distro, factory, true)
-        then:
         1 * logger.completed()
-        1 * loader.lock.unlock()
         0 * _
     }
 
     def "does not report progress when appropriate"() {
         when:
-        loader.create(distro, factory, true)
+        loader.create(distro, factory, _ as InternalBuildProgressListener, params, cancellationToken)
 
         then:
-        1 * loader.lock.tryLock() >> true
-        then:
-        1 * loader.delegate.create(distro, factory, true)
-        then:
-        1 * loader.lock.unlock()
+        1 * target.create(distro, factory, _ as InternalBuildProgressListener, params, cancellationToken)
         0 * _
-    }
-
-    def concurrent = new ConcurrentTestUtil()
-
-    def "is thread safe"() {
-        given:
-        loader.lock = new ReentrantLock()
-        factory.newOperation(_ as Class) >> logger
-
-        when:
-        5.times {
-            concurrent.start { loader.create(distro, factory, true) }
-        }
-
-        then:
-        concurrent.finished()
     }
 }

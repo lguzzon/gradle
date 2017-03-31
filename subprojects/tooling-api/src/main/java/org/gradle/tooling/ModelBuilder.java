@@ -15,14 +15,10 @@
  */
 package org.gradle.tooling;
 
-import org.gradle.tooling.model.Model;
-
-import java.io.File;
-import java.io.InputStream;
-import java.io.OutputStream;
+import org.gradle.api.Incubating;
 
 /**
- * A {@code ModelBuilder} allows you to fetch a snapshot of the model for a project.
+ * A {@code ModelBuilder} allows you to fetch a snapshot of some model for a project or a build.
  * Instances of {@code ModelBuilder} are not thread-safe.
  * <p>
  * You use a {@code ModelBuilder} as follows:
@@ -64,64 +60,61 @@ import java.io.OutputStream;
  * </pre>
  *
  * @param <T> The type of model to build
+ * @since 1.0-milestone-3
  */
-public interface ModelBuilder<T extends Model> extends LongRunningOperation {
+public interface ModelBuilder<T> extends ConfigurableLauncher<ModelBuilder<T>> {
 
     /**
-     * {@inheritDoc}
+     * Specifies the tasks to execute before building the model.
+     *
+     * If not configured, null, or an empty array is passed, then no tasks will be executed.
+     *
+     * @param tasks The paths of the tasks to be executed. Relative paths are evaluated relative to the project for which this launcher was created.
+     * @return this
+     * @since 1.2
      */
-    ModelBuilder<T> withArguments(String ... arguments);
+    @Incubating
+    ModelBuilder<T> forTasks(String... tasks);
 
     /**
-     * {@inheritDoc}
+     * Specifies the tasks to execute before building the model.
+     *
+     * If not configured, null, or an empty array is passed, then no tasks will be executed.
+     *
+     * @param tasks The paths of the tasks to be executed. Relative paths are evaluated relative to the project for which this launcher was created.
+     * @return this
+     * @since 2.6
      */
-    ModelBuilder<T> setStandardOutput(OutputStream outputStream);
-
-    /**
-     * {@inheritDoc}
-     */
-    ModelBuilder<T> setStandardError(OutputStream outputStream);
-
-    /**
-     * {@inheritDoc}
-     */
-    ModelBuilder<T> setStandardInput(InputStream inputStream);
-
-    /**
-     * {@inheritDoc}
-     */
-    ModelBuilder<T> setJavaHome(File javaHome);
-
-    /**
-     * {@inheritDoc}
-     */
-    ModelBuilder<T> setJvmArguments(String... jvmArguments);
-
-    /**
-     * {@inheritDoc}
-     */
-    ModelBuilder<T> addProgressListener(ProgressListener listener);
+    @Incubating
+    ModelBuilder<T> forTasks(Iterable<String> tasks);
 
     /**
      * Fetch the model, blocking until it is available.
      *
      * @return The model.
-     * @throws UnsupportedVersionException When the target Gradle version does not support the features required to build this model.
+     * @throws UnsupportedVersionException When the target Gradle version does not support building models.
+     * @throws UnknownModelException When the target Gradle version or build does not support the requested model.
      * @throws org.gradle.tooling.exceptions.UnsupportedOperationConfigurationException
-     *          when you have configured the long running operation with a settings
-     *          like: {@link #setStandardInput(java.io.InputStream)}, {@link #setJavaHome(java.io.File)},
-     *          {@link #setJvmArguments(String...)} but those settings are not supported on the target Gradle.
+     *          When the target Gradle version does not support some requested configuration option such as {@link #withArguments(String...)}.
+     * @throws org.gradle.tooling.exceptions.UnsupportedBuildArgumentException When there is a problem with build arguments provided by {@link #withArguments(String...)}.
      * @throws BuildException On some failure executing the Gradle build.
+     * @throws BuildCancelledException When the operation was cancelled before it completed successfully.
      * @throws GradleConnectionException On some other failure using the connection.
      * @throws IllegalStateException When the connection has been closed or is closing.
+     * @since 1.0-milestone-3
      */
-    T get() throws GradleConnectionException;
+    T get() throws GradleConnectionException, IllegalStateException;
 
     /**
-     * Starts fetching the build. This method returns immediately, and the result is later passed to the given handler.
+     * Starts fetching the model, passing the result to the given handler when complete. This method returns immediately, and the result is later passed to the given
+     * handler's {@link ResultHandler#onComplete(Object)} method.
+     *
+     * <p>If the operation fails, the handler's {@link ResultHandler#onFailure(GradleConnectionException)}
+     * method is called with the appropriate exception. See {@link #get()} for a description of the various exceptions that the operation may fail with.
      *
      * @param handler The handler to supply the result to.
      * @throws IllegalStateException When the connection has been closed or is closing.
+     * @since 1.0-milestone-3
      */
     void get(ResultHandler<? super T> handler) throws IllegalStateException;
 }

@@ -23,7 +23,7 @@ import org.junit.Test
 
 class ConfigurationHooksIntegrationTest extends AbstractIdeIntegrationTest {
     @Rule
-    public final TestResources testResources = new TestResources()
+    public final TestResources testResources = new TestResources(testDirectoryProvider)
 
     @Test
     void triggersBeforeAndWhenConfigurationHooks() {
@@ -58,9 +58,11 @@ idea {
     }
 }
 
-tasks.idea << {
-    assert beforeConfiguredObjects == 3 : "beforeConfigured() hooks shoold be fired for domain model objects"
-    assert whenConfiguredObjects == 3 : "whenConfigured() hooks shoold be fired for domain model objects"
+tasks.idea {
+    doLast {
+        assert beforeConfiguredObjects == 3 : "beforeConfigured() hooks shoold be fired for domain model objects"
+        assert whenConfiguredObjects == 3 : "whenConfigured() hooks shoold be fired for domain model objects"
+    }
 }
 '''
     }

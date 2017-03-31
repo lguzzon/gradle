@@ -44,7 +44,7 @@ class MainTest extends Specification {
         
     final String[] args = ['arg']
     
-    final Main main = new Main(args) {
+    final Main main = new Main() {
         protected ExecutionCompleter createCompleter() {
             [complete: { completedSuccessfully = true }, completeWithFailure: { completedWithFailure = true; failure = it }] as ExecutionCompleter
         }
@@ -79,8 +79,8 @@ class MainTest extends Specification {
         main.run()
 
         then:
-        outputs.stdErr.contains('internal error')
-        outputs.stdErr.contains('java.lang.RuntimeException: broken')
+        outputs.stdErr.contains('FAILURE: Build failed with an exception')
+        outputs.stdErr.contains('broken')
         completedWithFailure
         failure == thrownFailure
     }
@@ -94,8 +94,8 @@ class MainTest extends Specification {
         main.run()
 
         then:
-        outputs.stdErr.contains('internal error')
-        outputs.stdErr.contains('java.lang.RuntimeException: broken')
+        outputs.stdErr.contains('FAILURE: Build failed with an exception')
+        outputs.stdErr.contains('broken')
         completedWithFailure
         failure == thrownFailure
     }

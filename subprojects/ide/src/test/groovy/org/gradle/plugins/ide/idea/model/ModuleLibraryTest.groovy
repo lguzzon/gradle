@@ -17,9 +17,6 @@ package org.gradle.plugins.ide.idea.model
 
 import spock.lang.Specification
 
-/**
- * @author Hans Dockter
- */
 class ModuleLibraryTest extends Specification {
     def equality() {
         expect:
@@ -43,12 +40,12 @@ class ModuleLibraryTest extends Specification {
         new ModuleLibrary([] as Set, [] as Set, [] as Set, [] as Set, scope)
     }
 
-    def shouldExportForCompileAndRuntimeScope() {
+    def shouldNotExportDependencies() {
         expect:
-        createModuleLibraryWithScope("COMPILE").exported
-        createModuleLibraryWithScope("RUNTIME").exported
-        createModuleLibraryWithScope("").exported
-        createModuleLibraryWithScope(null).exported
+        !(createModuleLibraryWithScope("COMPILE").exported)
+        !(createModuleLibraryWithScope("RUNTIME").exported)
+        !(createModuleLibraryWithScope("").exported)
+        !(createModuleLibraryWithScope(null).exported)
         !(createModuleLibraryWithScope("TEST").exported)
     }
 }

@@ -14,10 +14,13 @@
  * limitations under the License.
  */
 package org.gradle.util
-
+import org.gradle.api.JavaVersion
 import org.gradle.internal.os.OperatingSystem
 
-enum TestPrecondition {
+import javax.tools.ToolProvider
+
+enum TestPrecondition implements org.gradle.internal.Factory<Boolean> {
+    NULL_REQUIREMENT({ true }),
     SWING({
         !UNKNOWN_OS.fulfilled
     }),
@@ -54,6 +57,9 @@ enum TestPrecondition {
     NO_FILE_LOCK_ON_OPEN({
         MAC_OS_X.fulfilled || LINUX.fulfilled
     }),
+    MANDATORY_FILE_LOCKING({
+        OperatingSystem.current().windows
+    }),
     WINDOWS({
         OperatingSystem.current().windows
     }),
@@ -66,27 +72,83 @@ enum TestPrecondition {
     LINUX({
         OperatingSystem.current().linux
     }),
+    NOT_LINUX({
+        !LINUX.fulfilled
+    }),
     UNIX({
         OperatingSystem.current().unix
+    }),
+    UNIX_DERIVATIVE({
+        MAC_OS_X.fulfilled || LINUX.fulfilled || UNIX.fulfilled
     }),
     UNKNOWN_OS({
         OperatingSystem.current().name == "unknown operating system"
     }),
-    JDK5({
-        System.getProperty("java.version").startsWith("1.5")
+    NOT_UNKNOWN_OS({
+        !UNKNOWN_OS.fulfilled
     }),
-    JDK6({
-        System.getProperty("java.version").startsWith("1.6")
+    JDK7_OR_EARLIER({
+        JavaVersion.current() <= JavaVersion.VERSION_1_7
     }),
-    JDK7({
-        System.getProperty("java.version").startsWith("1.7")
+    JDK9_OR_LATER({
+        JavaVersion.current() >= JavaVersion.VERSION_1_9
     }),
-    NOT_JDK7({
-        !JDK7.fulfilled
+    JDK8_OR_LATER({
+        JavaVersion.current() >= JavaVersion.VERSION_1_8
+    }),
+    JDK8_OR_EARLIER({
+        JavaVersion.current() <= JavaVersion.VERSION_1_8
     }),
     JDK7_POSIX({
-        JDK7.fulfilled && NOT_WINDOWS.fulfilled
-    });
+        NOT_WINDOWS.fulfilled
+    }),
+    NOT_JDK_IBM({
+        !JDK_IBM.fulfilled
+    }),
+    FIX_TO_WORK_ON_JAVA9({
+        JDK8_OR_EARLIER.fulfilled
+    }),
+    JDK_IBM({
+        System.getProperty('java.vm.vendor') == 'IBM Corporation'
+    }),
+    JDK_ORACLE({
+        System.getProperty('java.vm.vendor') == 'Oracle Corporation'
+    }),
+    JDK({
+        ToolProvider.systemJavaCompiler != null
+    }),
+    ONLINE({
+        try {
+            new URL("http://google.com").openConnection().getInputStream().close()
+            true
+        } catch (IOException) {
+            false
+        }
+    }),
+    CAN_INSTALL_EXECUTABLE({
+        FILE_PERMISSIONS.fulfilled || WINDOWS.fulfilled
+    }),
+    OBJECTIVE_C_SUPPORT({
+        NOT_WINDOWS.fulfilled && NOT_UNKNOWN_OS.fulfilled
+    }),
+    SMART_TERMINAL({
+        System.getenv("TERM")?.toUpperCase() != "DUMB"
+    }),
+    PULL_REQUEST_BUILD({
+        if (System.getenv("TRAVIS")?.toUpperCase() == "TRUE") {
+            return true
+        }
+        if (System.getenv("PULL_REQUEST_BUILD")?.toUpperCase() == "TRUE") {
+            return true
+        }
+        return false
+    }),
+    NOT_PULL_REQUEST_BUILD({
+        !PULL_REQUEST_BUILD.fulfilled
+    }),
+    KOTLIN_SCRIPT({
+        FIX_TO_WORK_ON_JAVA9.fulfilled && NOT_JDK_IBM.fulfilled
+    })
 
     /**
      * A predicate for testing whether the precondition is fulfilled.
@@ -102,6 +164,11 @@ enum TestPrecondition {
      */
     boolean isFulfilled() {
         predicate()
+    }
+
+    @Override
+    Boolean create() {
+        return isFulfilled()
     }
 }
 

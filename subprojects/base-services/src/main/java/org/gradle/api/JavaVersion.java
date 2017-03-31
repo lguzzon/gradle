@@ -15,7 +15,7 @@
  */
 package org.gradle.api;
 
-import org.gradle.internal.SystemProperties;
+import com.google.common.annotations.VisibleForTesting;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -24,12 +24,16 @@ import java.util.regex.Pattern;
  * An enumeration of Java versions.
  */
 public enum JavaVersion {
-    VERSION_1_1(false), VERSION_1_2(false), VERSION_1_3(false), VERSION_1_4(false), VERSION_1_5(true), VERSION_1_6(true), VERSION_1_7(true), VERSION_1_8(true);
-
+    VERSION_1_1(false), VERSION_1_2(false), VERSION_1_3(false), VERSION_1_4(false), VERSION_1_5(true), VERSION_1_6(true), VERSION_1_7(true), VERSION_1_8(true), VERSION_1_9(true);
+    private static JavaVersion currentJavaVersion;
     private final boolean hasMajorVersion;
+    private final String versionName;
+    private final String majorVersion;
 
-    private JavaVersion(boolean hasMajorVersion) {
+    JavaVersion(boolean hasMajorVersion) {
         this.hasMajorVersion = hasMajorVersion;
+        this.versionName = name().substring("VERSION_".length()).replace('_', '.');
+        this.majorVersion = name().substring(10);
     }
 
     /**
@@ -48,16 +52,20 @@ public enum JavaVersion {
         }
 
         String name = value.toString();
-        if (name.matches("\\d")) {
-            int index = Integer.parseInt(name) - 1;
+        Matcher matcher = Pattern.compile("(\\d)(-.+)?").matcher(name);
+        if (matcher.matches()) {
+            int index = Integer.parseInt(matcher.group(1)) - 1;
             if (index < values().length && values()[index].hasMajorVersion) {
                 return values()[index];
             }
         }
 
-        Matcher matcher = Pattern.compile("1\\.(\\d)(\\D.*)?").matcher(name);
+        matcher = Pattern.compile("1\\.(\\d)(\\D.+)?").matcher(name);
         if (matcher.matches()) {
-            return values()[Integer.parseInt(matcher.group(1)) - 1];
+            int versionIdx = Integer.parseInt(matcher.group(1)) - 1;
+            if (versionIdx >= 0 && versionIdx < values().length) {
+                return values()[versionIdx];
+            }
         }
         throw new IllegalArgumentException(String.format("Could not determine java version from '%s'.", name));
     }
@@ -68,7 +76,30 @@ public enum JavaVersion {
      * @return The version of the current JVM.
      */
     public static JavaVersion current() {
-        return toVersion(SystemProperties.getJavaVersion());
+        if (currentJavaVersion == null) {
+            currentJavaVersion = toVersion(System.getProperty("java.version"));
+        }
+        return currentJavaVersion;
+    }
+
+    @VisibleForTesting
+    static void resetCurrent() {
+        currentJavaVersion = null;
+    }
+
+    public static JavaVersion forClassVersion(int classVersion) {
+        int index = classVersion - 45; //class file versions: 1.1 == 45, 1.2 == 46...
+        if (index >= 0 && index < values().length) {
+            return values()[index];
+        }
+        throw new IllegalArgumentException(String.format("Could not determine java version from '%d'.", classVersion));
+    }
+
+    public static JavaVersion forClass(byte[] classData) {
+        if (classData.length<8) {
+            throw new IllegalArgumentException("Invalid class format. Should contain at least 8 bytes");
+        }
+        return forClassVersion(classData[7] & 0xFF);
     }
 
     public boolean isJava5() {
@@ -87,20 +118,28 @@ public enum JavaVersion {
         return this == VERSION_1_8;
     }
 
+    private boolean isJava9() {
+        return this == VERSION_1_9;
+    }
+
     public boolean isJava5Compatible() {
-        return isJava5() || isJava6Compatible();
+        return this.compareTo(VERSION_1_5) >= 0;
     }
 
     public boolean isJava6Compatible() {
-        return isJava6() || isJava7Compatible();
+        return this.compareTo(VERSION_1_6) >= 0;
     }
 
     public boolean isJava7Compatible() {
-        return isJava7() || isJava8Compatible();
+        return this.compareTo(VERSION_1_7) >= 0;
     }
 
     public boolean isJava8Compatible() {
-        return isJava8();
+        return this.compareTo(VERSION_1_8) >= 0;
+    }
+
+    public boolean isJava9Compatible() {
+        return this.compareTo(VERSION_1_9) >= 0;
     }
 
     @Override
@@ -109,6 +148,10 @@ public enum JavaVersion {
     }
 
     private String getName() {
-        return name().substring("VERSION_".length()).replace('_', '.');
+        return versionName;
+    }
+
+    public String getMajorVersion() {
+        return majorVersion;
     }
 }

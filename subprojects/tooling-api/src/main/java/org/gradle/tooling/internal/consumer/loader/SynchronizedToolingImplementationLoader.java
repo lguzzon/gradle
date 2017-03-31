@@ -16,30 +16,31 @@
 
 package org.gradle.tooling.internal.consumer.loader;
 
-import org.gradle.logging.ProgressLogger;
-import org.gradle.logging.ProgressLoggerFactory;
+import org.gradle.initialization.BuildCancellationToken;
+import org.gradle.internal.concurrent.CompositeStoppable;
+import org.gradle.internal.logging.progress.ProgressLogger;
+import org.gradle.internal.logging.progress.ProgressLoggerFactory;
+import org.gradle.tooling.internal.consumer.ConnectionParameters;
 import org.gradle.tooling.internal.consumer.Distribution;
 import org.gradle.tooling.internal.consumer.connection.ConsumerConnection;
+import org.gradle.tooling.internal.protocol.InternalBuildProgressListener;
 
+import java.io.Closeable;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
-/**
- * by Szczepan Faber, created at: 12/6/11
- */
-public class SynchronizedToolingImplementationLoader implements ToolingImplementationLoader {
-
-    Lock lock = new ReentrantLock();
+public class SynchronizedToolingImplementationLoader implements ToolingImplementationLoader, Closeable {
+    private final Lock lock = new ReentrantLock();
     private final ToolingImplementationLoader delegate;
 
     public SynchronizedToolingImplementationLoader(ToolingImplementationLoader delegate) {
         this.delegate = delegate;
     }
 
-    public ConsumerConnection create(Distribution distribution, ProgressLoggerFactory progressLoggerFactory, boolean verboseLogging) {
+    public ConsumerConnection create(Distribution distribution, ProgressLoggerFactory progressLoggerFactory, InternalBuildProgressListener progressListener, ConnectionParameters connectionParameters, BuildCancellationToken cancellationToken) {
         if (lock.tryLock()) {
             try {
-                return delegate.create(distribution, progressLoggerFactory, verboseLogging);
+                return delegate.create(distribution, progressLoggerFactory, progressListener, connectionParameters, cancellationToken);
             } finally {
                 lock.unlock();
             }
@@ -49,10 +50,19 @@ public class SynchronizedToolingImplementationLoader implements ToolingImplement
         logger.started();
         lock.lock();
         try {
-            return delegate.create(distribution, progressLoggerFactory, verboseLogging);
+            return delegate.create(distribution, progressLoggerFactory, progressListener, connectionParameters, cancellationToken);
         } finally {
             lock.unlock();
             logger.completed();
+        }
+    }
+
+    public void close() {
+        lock.lock();
+        try {
+            CompositeStoppable.stoppable(delegate).stop();
+        } finally {
+            lock.unlock();
         }
     }
 }

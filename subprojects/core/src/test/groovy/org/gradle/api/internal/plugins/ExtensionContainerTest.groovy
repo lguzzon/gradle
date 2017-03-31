@@ -14,19 +14,18 @@
  * limitations under the License.
  */
 
-package org.gradle.api.internal.plugins;
-
+package org.gradle.api.internal.plugins
 
 import org.gradle.api.UnknownDomainObjectException
 import org.gradle.api.internal.ThreadGlobalInstantiator
 import org.gradle.api.plugins.ExtensionAware
 import org.gradle.api.plugins.ExtraPropertiesExtension
+import org.gradle.api.reflect.TypeOf
 import spock.lang.Specification
 
-/**
- * @author: Szczepan Faber, created at: 6/24/11
- */
-public class ExtensionContainerTest extends Specification {
+import static org.gradle.api.reflect.TypeOf.typeOf
+
+class ExtensionContainerTest extends Specification {
 
     def container = new DefaultConvention(ThreadGlobalInstantiator.getOrCreate())
     def extension = new FooExtension()
@@ -37,13 +36,14 @@ public class ExtensionContainerTest extends Specification {
     }
 
     class BarExtension {}
+
     class SomeExtension {}
 
     def "has dynamic extension"() {
         expect:
         container.getByName(ExtraPropertiesExtension.EXTENSION_NAME) == container.extraProperties
     }
-    
+
     def "extension can be accessed and configured"() {
         when:
         container.add("foo", extension)
@@ -107,6 +107,13 @@ public class ExtensionContainerTest extends Specification {
         then:
         IllegalArgumentException e2 = thrown()
         e2.message == "There's an extension registered with name 'foo'. You should not reassign it via a property setter."
+
+        when:
+        container.create('foo', Thing, 'bar')
+
+        then:
+        IllegalArgumentException e3 = thrown()
+        e3.message == "Cannot add extension with name 'foo', as there is an extension already registered with that name."
     }
 
     def "knows registered extensions"() {
@@ -144,7 +151,7 @@ public class ExtensionContainerTest extends Specification {
 
         then:
         def ex = thrown(UnknownDomainObjectException)
-        ex.message == "Extension of type 'SomeExtension' does not exist. Currently registered extension types: [${DefaultExtraPropertiesExtension.simpleName}, FooExtension]"
+        ex.message == "Extension of type 'ExtensionContainerTest.SomeExtension' does not exist. Currently registered extension types: [${ExtraPropertiesExtension.simpleName}, ExtensionContainerTest.FooExtension]"
     }
 
     def "types can be retrieved by interface and super types"() {
@@ -162,7 +169,7 @@ public class ExtensionContainerTest extends Specification {
         container.findByType(Parent) == child
         container.getByType(Parent) == child
     }
-    
+
     def "can create ExtensionAware extensions"() {
         given:
         container.add("foo", Parent)
@@ -170,14 +177,80 @@ public class ExtensionContainerTest extends Specification {
 
         expect:
         extension instanceof ExtensionAware
-        
+
         when:
         extension.extensions.create("thing", Thing, "bar")
-        
+
         then:
         extension.thing.name == "bar"
     }
 
+    def "can hide implementation type of extensions"() {
+        given:
+        container.create Parent, 'foo', Child
+        container.create Capability, 'bar', Impl
+
+        expect:
+        container.findByType(Parent) != null
+        container.findByType(Child) == null
+
+        and:
+        container.findByType(Capability) != null
+        container.findByType(Impl) == null
+    }
+
+    def "can register extension with generic public type"() {
+        given:
+        def extension = []
+
+        when:
+        container.add new TypeOf<List<String>>() {}, 'foo', extension
+
+        then:
+        container.findByType(List) is extension
+        container.findByType(new TypeOf<List<String>>() {}) is extension
+    }
+
+    def "can distinguish unrelated generic type arguments"() {
+        given:
+        def parents = []
+        def capabilities = []
+
+        when:
+        container.add new TypeOf<List<Parent>>() {}, "parents", parents
+        container.add new TypeOf<List<Capability>>() {}, "capabilities", capabilities
+
+        then:
+        container.getByType(new TypeOf<List<Parent>>() {}) is parents
+        container.getByType(new TypeOf<List<Capability>>() {}) is capabilities
+    }
+
+    def "can distinguish related generic type arguments"() {
+        given:
+        def parents = []
+        def children = []
+
+        when:
+        container.add new TypeOf<List<Parent>>() {}, "parents", parents
+        container.add new TypeOf<List<Child>>() {}, "children", children
+
+        then:
+        container.getByType(new TypeOf<List<Parent>>() {}) is parents
+        container.getByType(new TypeOf<List<Child>>() {}) is children
+    }
+
+    def "can get extensions schema"() {
+        given:
+        container.create Parent, 'foo', Child
+        container.create Capability, 'bar', Impl
+        container.add new TypeOf<List<String>>() {}, 'baz', []
+
+        expect:
+        container.schema == [ext: typeOf(ExtraPropertiesExtension),
+                             foo: typeOf(Parent),
+                             bar: typeOf(Capability),
+                             baz: new TypeOf<List<String>>() {}]
+    }
 }
 
 interface Capability {}
@@ -191,5 +264,4 @@ class Thing {
     Thing(String name) {
         this.name = name
     }
-
 }

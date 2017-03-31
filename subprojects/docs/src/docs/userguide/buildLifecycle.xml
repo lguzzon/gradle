@@ -15,9 +15,9 @@
   -->
 <chapter id='build_lifecycle'>
     <title>The Build Lifecycle</title>
-    <para>We said earlier, that the core of Gradle is a language for dependency based programming. In Gradle terms this
+    <para>We said earlier that the core of Gradle is a language for dependency based programming. In Gradle terms this
         means that you can define tasks and dependencies between tasks. Gradle guarantees that these tasks are executed
-        in the order of their dependencies, and that each task is executed only once. Those tasks form a
+        in the order of their dependencies, and that each task is executed only once. These tasks form a
         <ulink url='http://en.wikipedia.org/wiki/Directed_acyclic_graph'>Directed Acyclic Graph</ulink>. There are
         build tools that build up such a dependency graph as they execute their tasks. Gradle builds the complete
         dependency graph <emphasis>before</emphasis> any task is executed. This lies at the heart of Gradle and makes
@@ -26,7 +26,7 @@
     <para>Your build scripts configure this dependency graph. Therefore they are strictly speaking <emphasis>build
         configuration scripts</emphasis>.
     </para>
-    <section id='sec:build_phases'>
+    <section id="sec:build_phases">
         <title>Build phases</title>
         <para>A Gradle build has three distinct phases.
         </para>
@@ -43,8 +43,10 @@
             <varlistentry>
                 <term>Configuration</term>
                 <listitem>
-                    <para>The build scripts of <emphasis>all</emphasis> projects which are part of the build are
-                        executed. This configures the project objects.
+                    <para>During this phase the project objects are configured.
+                        The build scripts of <emphasis>all</emphasis> projects which are part of the build are
+                        executed. Gradle 1.4 introduced an <link linkend="feature_lifecycle">incubating</link> opt-in feature called <firstterm>configuration on demand</firstterm>.
+                        In this mode, Gradle configures only relevant projects (see <xref linkend="sec:configuration_on_demand"/>).
                     </para>
                 </listitem>
             </varlistentry>
@@ -60,43 +62,43 @@
             </varlistentry>
         </variablelist>
     </section>
-    <section id='sec:settings_file'>
+    <section id="sec:settings_file">
         <title>Settings file</title>
         <para>Beside the build script files, Gradle defines a settings file. The settings file is determined by Gradle
             via a naming convention. The default name for this file is <filename>settings.gradle</filename>. Later in
-            this chapter we explain, how Gradle looks for a settings file.
+            this chapter we explain how Gradle looks for a settings file.
         </para>
-        <para>The settings file gets executed during the initialization phase. A multiproject build must have a
+        <para>The settings file is executed during the initialization phase. A multiproject build must have a
             <filename>settings.gradle</filename>
-            file in the root project of the multiproject hierarchy. It is required because in the
-            settings file it is defined, which projects are taking part in the multi-project build (see
+            file in the root project of the multiproject hierarchy. It is required because the
+            settings file defines which projects are taking part in the multi-project build (see
             <xref linkend='multi_project_builds'/>). For a single-project build, a settings file is optional.
-            You might need it for example, to add libraries to your build script classpath (see <xref
+            Besides defining the included projects, you might need it to add libraries to your build script classpath (see <xref
                     linkend='organizing_build_logic'/>). Let's first do some introspection with a single project
             build:
         </para>
         <sample id="buildlifecycle" dir="userguide/buildlifecycle/basic" title="Single project build">
             <sourcefile file="settings.gradle"/>
             <sourcefile file="build.gradle"/>
-            <output args="test"/>
+            <output args="test testBoth"/>
         </sample>
         <para>For a build script, the property access and method calls are delegated to a project object. Similarly
-            property access and method calls within the settings file is delegated to a settings object. Have a look at
-            <apilink class='org.gradle.api.initialization.Settings'/>.
+            property access and method calls within the settings file is delegated to a settings object. Look at
+            the <apilink class='org.gradle.api.initialization.Settings'/> class in the API documentation for more information.
         </para>
     </section>
-    <section id='sec:multi_project_builds'>
+    <section id="sec:multi_project_builds">
         <title>Multi-project builds</title>
         <para>A multi-project build is a build where you build more than one project during a single execution of
             Gradle. You have to declare the projects taking part in the multiproject build in the settings file. There
             is much more to say about multi-project builds in the chapter dedicated to this topic (see <xref
                     linkend='multi_project_builds'/>).
         </para>
-        <section id='sub:project_locations'>
+        <section id="sub:project_locations">
             <title>Project locations</title>
             <para>Multi-project builds are always represented by a tree with a single root. Each element in the tree
                 represents a project. A project has a path which denotes the position
-                of the project in the multi-project build tree. In majority of cases the project path is consistent with
+                of the project in the multi-project build tree. In most cases the project path is consistent with
                 the physical location of the project in the file system. However, this behavior is configurable.
                 The project tree is created in the <filename>settings.gradle</filename> file.
                 By default it is assumed that the location of the settings
@@ -104,36 +106,36 @@
                 in the settings file.
             </para>
         </section>
-        <section id='sub:building_the_tree'>
+        <section id="sub:building_the_tree">
             <title>Building the tree</title>
             <para>In the settings file you can use a set of methods to build the project tree. Hierarchical and flat
                 physical layouts get special support.
             </para>
-            <section>
+            <section id="sec:hierarchical_layouts">
                 <title>Hierarchical layouts</title>
                 <sample id="standardLayouts" dir="userguide/multiproject/standardLayouts" title="Hierarchical layout">
                     <sourcefile file="settings.gradle" snippet="hierarchical-layout"/>
                 </sample>
                 <para>The <literal>include</literal> method takes project paths as arguments.
                     The project path is assumed to be equal to the relative physical file system path.
-                    For example a path 'services:api' by default is mapped to a folder 'services/api'
-                    (relative from the project root). You only need to specify the leafs of the tree.
-                    This means that the inclusion of path 'services:hotels:api' will result in creating 3 projects:
+                    For example, a path 'services:api' is mapped by default to a folder 'services/api'
+                    (relative from the project root). You only need to specify the leaves of the tree.
+                    This means that the inclusion of the path 'services:hotels:api' will result in creating 3 projects:
                     'services', 'services:hotels' and 'services:hotels:api'.
                 </para>
             </section>
-            <section>
+            <section id="sec:flat_layouts">
                 <title>Flat layouts</title>
                 <sample id="standardLayouts" dir="userguide/multiproject/standardLayouts" title="Flat layout">
                     <sourcefile file="settings.gradle" snippet="flat-layout"/>
                 </sample>
-                <para>The <literal>includeFlat</literal> method takes directory names as an argument. Those directories
-                    need to exist at the same level as the root project directory. The location of those directories
+                <para>The <literal>includeFlat</literal> method takes directory names as an argument. These directories
+                    need to exist as siblings of the root project directory. The location of these directories
                     are considered as child projects of the root project in the multi-project tree.
                 </para>
             </section>
         </section>
-        <section id='sub:modifying_element_of_the_project_tree'>
+        <section id="sub:modifying_element_of_the_project_tree">
             <title>Modifying elements of the project tree</title>
             <para>The multi-project tree created in the settings file is made up of so called <firstterm>project descriptors</firstterm>.
                 You can modify these descriptors in the settings file at any time. To access a descriptor you can do:
@@ -146,34 +148,33 @@
             <sample id="customLayout" dir="userguide/multiproject/customLayout" title="Modification of elements of the project tree">
                 <sourcefile file="settings.gradle" snippet="change-project"/>
             </sample>
-            <para>Have a look at <apilink class="org.gradle.api.initialization.ProjectDescriptor"/> for more details.</para>
+            <para>Look at the <apilink class="org.gradle.api.initialization.ProjectDescriptor"/> class in the API documentation for more information.</para>
         </section>
     </section>
-    <section id='sec:initialization'>
+    <section id="sec:initialization">
         <title>Initialization</title>
         <para>How does Gradle know whether to do a single or multiproject build? If you trigger a multiproject build
-            from the directory where the settings file is, things are easy. But Gradle also allows you to execute the
+            from a directory with a settings file, things are easy. But Gradle also allows you to execute the
             build from within any subproject taking part in the build.
             <footnote>
                 <para>Gradle supports partial multiproject builds (see <xref linkend='multi_project_builds'/>).
                 </para>
             </footnote>
-            If you execute Gradle from within a project that has no <filename>settings.gradle</filename> file,
-            Gradle does the following:
+            If you execute Gradle from within a project with no <filename>settings.gradle</filename> file,
+            Gradle looks for a <filename>settings.gradle</filename> file in the following way:
         </para>
         <itemizedlist>
             <listitem>
-                <para>It searches for a <filename>settings.gradle</filename> in a directory called <filename>master</filename>
-                    which has the same nesting level as the current dir.
+                <para>It looks in a directory called <filename>master</filename> which has the same nesting level
+                as the current dir.
                 </para>
             </listitem>
             <listitem>
-                <para>If no <filename>settings.gradle</filename> is found, it searches the parent directories for the existence of a
-                    <filename>settings.gradle</filename> file.
+                <para>If not found yet, it searches parent directories.
                 </para>
             </listitem>
             <listitem>
-                <para>If no <filename>settings.gradle</filename> file is found, the build is executed as a single project build.
+                <para>If not found yet, the build is executed as a single project build.
                 </para>
             </listitem>
             <listitem>
@@ -183,12 +184,12 @@
                 </para>
             </listitem>
         </itemizedlist>
-        <para>What is the purpose of this behavior? Somehow Gradle has to find out, whether the project you are into, is
+        <para>What is the purpose of this behavior? Gradle needs to determine whether the project you are in is
             a subproject of a multiproject build or not. Of course, if it is a subproject, only the subproject and its
-            dependent projects are build. But Gradle needs to create the build configuration for the whole multiproject
-            build (see <xref linkend='multi_project_builds'/>). Via the <option>-u</option>
-            command line option, you can tell Gradle not to look in the parent hierarchy for a <filename>settings.gradle</filename> file. The
-            current project is then always build as a single project build. If the current project contains a
+            dependent projects are built, but Gradle needs to create the build configuration for the whole multiproject
+            build (see <xref linkend='multi_project_builds'/>). You can use the <option>-u</option>
+            command line option to tell Gradle not to look in the parent hierarchy for a <filename>settings.gradle</filename> file. The
+            current project is then always built as a single project build. If the current project contains a
             <filename>settings.gradle</filename> file, the <option>-u</option> option has no meaning. Such a build is always executed as:
         </para>
         <itemizedlist>
@@ -201,19 +202,21 @@
                 </para>
             </listitem>
         </itemizedlist>
-        <para>The auto search for a settings file does only work for multi-project builds with a physical hierarchical
-            or flat layout. For a flat layout you must additionally obey to the naming convention described above.
-            Gradle supports arbitrary physical layouts for a multiproject build. But for such arbitrary layouts you need
-            to execute the build from the directory where the settings file is located. For how to run partial builds
-            from the root see <xref linkend='sec:running_partial_build_from_the_root'/>. In our next release we want to
-            enable partial builds from subprojects by specifying the location of the settings file as a command line
-            parameter. Gradle creates Project objects for every project taking part in the build. For a single
-            project build this is only one project. For a multi-project build these are the projects specified in
-            Settings object (plus the root project). Each project object has by default a name equals to the name of its
-            top level directory. Every project except the root project has a parent project and might have child projects.
+        <para>The automatic search for a <filename>settings.gradle</filename> file only works for multi-project
+        builds with a physical hierarchical or flat layout. For a flat layout you must additionally follow the
+        naming convention described above (“<literal>master</literal>”). Gradle supports arbitrary physical layouts
+        for a multiproject build, but for such arbitrary layouts you need to execute the build from the directory
+        where the settings file is located. For information on how to run partial builds from the root see
+        <xref linkend='sec:running_partial_build_from_the_root'/>.
+        </para>
+        <para>
+        Gradle creates a Project object for every project taking part in the build.
+        For a multi-project build these are the projects specified in the Settings object (plus the root
+        project). Each project object has by default a name equal to the name of its top level directory,
+        and every project except the root project has a parent project. Any project may have child projects.
         </para>
     </section>
-    <section id='sec:configuration_and_execution_of_a_single_project_build'>
+    <section id="sec:configuration_and_execution_of_a_single_project_build">
         <title>Configuration and execution of a single project build</title>
         <para>For a single project build, the workflow of the <emphasis>after initialization</emphasis>
             phases are pretty simple. The build script is executed against the project object that was created during
@@ -226,19 +229,19 @@
         <title>Responding to the lifecycle in the build script</title>
 
         <para>Your build script can receive notifications as the build progresses through its lifecycle. These
-            notifications generally take 2 forms: You can either implement a particular listener interface, or you can
+            notifications generally take two forms: You can either implement a particular listener interface, or you can
             provide a closure to execute when the notification is fired. The examples below use closures. For details on
             how to use the listener interfaces, refer to the API documentation.
         </para>
 
-        <section>
+        <section id="sec:project_evaluation">
             <title>Project evaluation</title>
             <para>You can receive a notification immediately before and after a project is evaluated. This can be used
                 to do things like performing additional configuration once all the definitions in a build script have
                 been applied, or for some custom logging or profiling.
             </para>
-            <para>Below is an example which adds a <literal>test</literal> task to each project with the
-                <literal>hasTests</literal> property set to true.
+            <para>Below is an example which adds a <literal>test</literal> task to each project which has a
+                <literal>hasTests</literal> property value of true.
             </para>
             <sample id="projectEvaluateEvents" dir="userguide/buildlifecycle/projectEvaluateEvents" title="Adding of test task to each project which has certain property set">
                 <sourcefile file="build.gradle" snippet="after-evaluate"/>
@@ -260,7 +263,7 @@
             </para>
         </section>
 
-        <section>
+        <section id="sec:task_creation">
             <title>Task creation</title>
             <para>You can receive a notification immediately after a task is added to a project. This can be used
                 to set some default values or add behaviour before the task is made available in the build file.</para>
@@ -273,7 +276,7 @@
                 <apilink class="org.gradle.api.tasks.TaskContainer"/> to receive these events.</para>
         </section>
 
-        <section>
+        <section id="sec:task_execution_graph_ready">
             <title>Task execution graph ready</title>
             <para>You can receive a notification immediately after the task execution graph has been populated. We
                 have seen this already in <xref linkend="configure-by-dag"/>.
@@ -283,7 +286,7 @@
             </para>
         </section>
 
-        <section>
+        <section id="sec:task_execution">
             <title>Task execution</title>
             <para>You can receive a notification immediately before and after any task is executed.</para>
             <para>The following example logs the start and end of each task execution. Notice that the

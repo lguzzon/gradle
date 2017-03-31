@@ -15,16 +15,11 @@
  */
 package org.gradle.integtests.tooling.m8
 
-import org.gradle.integtests.tooling.fixture.MinTargetGradleVersion
-import org.gradle.integtests.tooling.fixture.MinToolingApiVersion
 import org.gradle.integtests.tooling.fixture.ToolingApiSpecification
 import org.gradle.tooling.model.eclipse.EclipseProject
 
-@MinToolingApiVersion('1.0-milestone-3')
-@MinTargetGradleVersion('1.0-milestone-8')
 class ToolingApiEclipseModelCrossVersionSpec extends ToolingApiSpecification {
-    def "can customise model late in the configuration phase"() {
-        def projectDir = dist.testDir
+    def "can customize model late in the configuration phase"() {
         projectDir.file('build.gradle').text = """
 apply plugin: 'java'
 
@@ -37,7 +32,7 @@ dependencies {
 """
 
         when:
-        EclipseProject project = withConnection { it.getModel(EclipseProject.class) }
+        EclipseProject project = loadToolingModel(EclipseProject)
 
         then:
         project.classpath[0].file.name == 'commons-lang-2.5.jar'

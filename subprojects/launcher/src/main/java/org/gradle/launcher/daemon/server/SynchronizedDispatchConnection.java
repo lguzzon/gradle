@@ -16,42 +16,62 @@
 
 package org.gradle.launcher.daemon.server;
 
-import org.gradle.internal.concurrent.Synchronizer;
-import org.gradle.messaging.remote.internal.Connection;
+import org.gradle.launcher.daemon.protocol.OutputMessage;
+import org.gradle.internal.remote.internal.MessageIOException;
+import org.gradle.internal.remote.internal.RemoteConnection;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Connection decorator that synchronizes dispatching.
- * <p>
- * by Szczepan Faber, created at: 2/27/12
+ *
+ * The plan is to replace this with a Connection implementation that queues outgoing messages and dispatches them from a worker thread.
  */
-public class SynchronizedDispatchConnection<T> implements Connection<T> {
-    
-    private final Synchronizer sync = new Synchronizer();
-    private final Connection<T> delegate;
+public class SynchronizedDispatchConnection<T> implements RemoteConnection<T> {
+    private static final Logger LOGGER = LoggerFactory.getLogger(SynchronizedDispatchConnection.class);
+    private final Object lock = new Object();
+    private final RemoteConnection<T> delegate;
+    private boolean dispatching;
 
-    public SynchronizedDispatchConnection(Connection<T> delegate) {
+    public SynchronizedDispatchConnection(RemoteConnection<T> delegate) {
         this.delegate = delegate;
-    }
-    
-    public void requestStop() {
-        delegate.requestStop();
     }
 
     public void dispatch(final T message) {
-        sync.synchronize(new Runnable() {
-            public void run() {
-                delegate.dispatch(message);
+        if (!(message instanceof OutputMessage)) {
+            LOGGER.debug("thread {}: dispatching {}", Thread.currentThread().getId(), message.getClass());
+        }
+        synchronized (lock) {
+            if (dispatching) {
+                // Safety check: dispatching a message should not cause the thread to dispatch another message (eg should not do any logging)
+                throw new IllegalStateException("This thread is already dispatching a message.");
             }
-        });
+            dispatching = true;
+            try {
+                delegate.dispatch(message);
+            } finally {
+                dispatching = false;
+            }
+        }
+    }
+
+    @Override
+    public void flush() throws MessageIOException {
+        synchronized (lock) {
+            delegate.flush();
+        }
     }
 
     public T receive() {
         //in case one wants to synchronize this method,
         //bear in mind that it is blocking so it cannot share the same lock as others
-        return delegate.receive();
+        T result = delegate.receive();
+        LOGGER.debug("thread {}: received {}", Thread.currentThread().getId(), result == null ? "null" : result.getClass());
+        return result;
     }
 
     public void stop() {
+        LOGGER.debug("thread {}: stopping connection", Thread.currentThread().getId());
         delegate.stop();
     }
 

@@ -16,11 +16,19 @@
 package org.gradle.api.plugins.quality
 
 import org.gradle.integtests.fixtures.WellBehavedPluginTest
+import org.gradle.integtests.fixtures.executer.GradleContextualExecuter
+import spock.lang.IgnoreIf
+
 import static org.hamcrest.Matchers.containsString
 
 class JDependPluginIntegrationTest extends WellBehavedPluginTest {
     def setup() {
         writeBuildFile()
+    }
+
+    @Override
+    String getPluginName() {
+        return "jdepend"
     }
 
     @Override
@@ -37,6 +45,7 @@ class JDependPluginIntegrationTest extends WellBehavedPluginTest {
         file("build/reports/jdepend/test.xml").assertContents(containsString("org.gradle.Class1Test"))
     }
 
+    @IgnoreIf({GradleContextualExecuter.parallel})
     def "is incremental"() {
         given:
         goodCode()
@@ -106,6 +115,19 @@ class JDependPluginIntegrationTest extends WellBehavedPluginTest {
 
         and:
         failure.assertHasCause "JDepend tasks must have one report enabled"
+    }
+
+    def "does not fail if configuration is resolved before task execution"() {
+        when:
+        goodCode()
+
+        and:
+        buildFile << """
+            configurations.jdepend.files
+        """
+
+        then:
+        succeeds "jdependMain"
     }
 
     private goodCode() {

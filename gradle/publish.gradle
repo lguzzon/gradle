@@ -20,7 +20,7 @@ task generatePom {
             configurations.publishCompile.allDependencies.withType(ProjectDependency).each {
                 publishRuntime "org.gradle:${it.dependencyProject.archivesBaseName}:${version}"
             }
-            configurations.publishCompile.allDependencies.withType(ExternalModuleDependency).each {
+            configurations.publishCompile.allDependencies.withType(ExternalDependency).each {
                 publishRuntime it
             }
         }
@@ -35,7 +35,6 @@ task generatePom {
             pom.version = version
             pom.writeTo(pomFile)
         }
-
     }
 }
 
@@ -45,30 +44,30 @@ artifacts {
     publishRuntime new org.gradle.api.internal.artifacts.publish.DefaultPublishArtifact(archivesBaseName, 'pom', 'pom', null, new Date(), generatePom.pomFile, generatePom)
 }
 
-uploadArchives {
+uploadArchives { task ->
+    onlyIf { !project.hasProperty("noUpload") }
+
+    gradle.taskGraph.whenReady { graph ->
+        if (graph.hasTask(task)) {
+            // check properties defined and fail early
+            artifactoryUserName
+            artifactoryUserPassword
+        }
+    }
+
     configuration = configurations.publishRuntime
     dependsOn generatePom
     uploadDescriptor = false
     doFirst {
         repositories {
             ivy {
-                artifactPattern "${version.libsUrl}/${project.group.replaceAll('\\.', '/')}/${archivesBaseName}/[revision]/[artifact]-[revision](-[classifier]).[ext]"
+                def repo = "https://gradle.artifactoryonline.com/gradle/libs-${isSnapshot ? 'snapshots' : 'releases'}-local"
+                artifactPattern "${repo}/${project.group.replaceAll('\\.', '/')}/${archivesBaseName}/[revision]/[artifact]-[revision](-[classifier]).[ext]"
                 credentials {
                     username = artifactoryUserName
                     password = artifactoryUserPassword
                 }
             }
-        }
-    }
-}
-
-task publishLocalArchives(type: Upload) {
-    configuration = configurations.publishRuntime
-    dependsOn generatePom
-    uploadDescriptor = false
-    repositories {
-        ivy {
-            artifactPattern "${rootProject.file('build/repo')}/${project.group.replaceAll('\\.', '/')}/${archivesBaseName}/[revision]/[artifact]-[revision](-[classifier]).[ext]"
         }
     }
 }

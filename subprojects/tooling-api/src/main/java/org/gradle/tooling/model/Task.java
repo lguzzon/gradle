@@ -15,14 +15,22 @@
  */
 package org.gradle.tooling.model;
 
+import org.gradle.api.Incubating;
+import org.gradle.api.Nullable;
+
 /**
  * Represents a task which is executable by Gradle.
+ *
+ * <p>Note: {@code Task} extends {@code Launchable} since 1.12.</p>
+ *
+ * @since 1.0-milestone-3
  */
-public interface Task {
+public interface Task extends Launchable {
     /**
      * Returns the path of this task. This is a fully qualified unique name for this task.
      *
      * @return The path of this task.
+     * @since 1.0-milestone-3
      */
     String getPath();
 
@@ -30,6 +38,7 @@ public interface Task {
      * Returns the name of this task. Note that the name is not necessarily a unique identifier for the task.
      *
      * @return The name of this task.
+     * @since 1.0-milestone-3
      */
     String getName();
 
@@ -37,14 +46,18 @@ public interface Task {
      * Returns the description of this task, or {@code null} if it has no description.
      *
      * @return The description of this task, or {@code null} if it has no description.
+     * @since 1.0-milestone-3
      */
+    @Nullable
     String getDescription();
 
     /**
-     * Returns the element which this task belongs to.
+     * Returns the group a task belongs to.
      *
-     * @return The element which this task belongs to.
+     * @return the group a task belongs to.
+     * @since 2.5
      */
-    Element getProject();
-    //TODO SF rename to 'owner'? I'd deprecate the Task interface and leave only GradleTask (or push this method down to the GradleTask)
+    @Incubating
+    @Nullable
+    String getGroup();
 }

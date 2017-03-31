@@ -15,13 +15,17 @@
  */
 package org.gradle.foundation
 
+import org.gradle.api.internal.project.ProjectTaskLister
 import spock.lang.Specification
 import org.gradle.api.Project
 import org.gradle.api.tasks.TaskContainer
 import org.gradle.api.Task
 
 class ProjectConverterTest extends Specification {
-    private final ProjectConverter converter = new ProjectConverter()
+    def lister = Stub(ProjectTaskLister) {
+        listProjectTasks(_) >> { Project p -> p.tasks as List }
+    }
+    def converter = new ProjectConverter(lister)
 
     def convertsProjectHierarchy() {
         Project child1 = project('child1')
@@ -99,7 +103,6 @@ class ProjectConverterTest extends Specification {
         _ * project.tasks >> taskContainer
         _ * project.defaultTasks >> []
         _ * taskContainer.iterator() >> tasks.iterator()
-        _ * project.dependsOnProjects >> []
         _ * project.childProjects >> subprojects.inject([:]) { v, p -> v[p.name] = p; v }
         return project
     }

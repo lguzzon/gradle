@@ -15,33 +15,35 @@
  */
 package org.gradle.tooling.internal.consumer;
 
-import org.gradle.internal.concurrent.DefaultExecutorFactory;
+import org.gradle.internal.concurrent.ExecutorFactory;
 import org.gradle.tooling.ProjectConnection;
-import org.gradle.tooling.internal.consumer.async.AsyncConnection;
-import org.gradle.tooling.internal.consumer.async.DefaultAsyncConnection;
-import org.gradle.tooling.internal.consumer.connection.ConsumerConnection;
-import org.gradle.tooling.internal.consumer.connection.LazyConnection;
-import org.gradle.tooling.internal.consumer.connection.LoggingInitializerConnection;
-import org.gradle.tooling.internal.consumer.connection.ProgressLoggingConnection;
+import org.gradle.tooling.internal.consumer.async.AsyncConsumerActionExecutor;
+import org.gradle.tooling.internal.consumer.async.DefaultAsyncConsumerActionExecutor;
+import org.gradle.tooling.internal.consumer.connection.CancellableConsumerActionExecutor;
+import org.gradle.tooling.internal.consumer.connection.ConsumerActionExecutor;
+import org.gradle.tooling.internal.consumer.connection.LazyConsumerActionExecutor;
+import org.gradle.tooling.internal.consumer.connection.ProgressLoggingConsumerActionExecutor;
+import org.gradle.tooling.internal.consumer.connection.RethrowingErrorsConsumerActionExecutor;
 import org.gradle.tooling.internal.consumer.loader.ToolingImplementationLoader;
-import org.gradle.tooling.internal.consumer.protocoladapter.ProtocolToModelAdapter;
 
 public class ConnectionFactory {
-    private final ProtocolToModelAdapter adapter = new ProtocolToModelAdapter();
     private final ToolingImplementationLoader toolingImplementationLoader;
-    private final DefaultExecutorFactory executorFactory = new DefaultExecutorFactory();
+    private final ExecutorFactory executorFactory;
+    private final LoggingProvider loggingProvider;
 
-    public ConnectionFactory(ToolingImplementationLoader toolingImplementationLoader) {
+    public ConnectionFactory(ToolingImplementationLoader toolingImplementationLoader, ExecutorFactory executorFactory, LoggingProvider loggingProvider) {
         this.toolingImplementationLoader = toolingImplementationLoader;
+        this.executorFactory = executorFactory;
+        this.loggingProvider = loggingProvider;
     }
 
     public ProjectConnection create(Distribution distribution, ConnectionParameters parameters) {
-        SynchronizedLogging synchronizedLogging = new SynchronizedLogging();
-        ConsumerConnection lazyConnection = new LazyConnection(distribution, toolingImplementationLoader, synchronizedLogging, parameters.getVerboseLogging());
-        ConsumerConnection progressLoggingConnection = new ProgressLoggingConnection(lazyConnection, synchronizedLogging);
-        ConsumerConnection initializingConnection = new LoggingInitializerConnection(progressLoggingConnection, synchronizedLogging);
-        AsyncConnection asyncConnection = new DefaultAsyncConnection(initializingConnection, executorFactory);
-        return new DefaultProjectConnection(asyncConnection, adapter, parameters);
+        ConsumerActionExecutor lazyConnection = new LazyConsumerActionExecutor(distribution, toolingImplementationLoader, loggingProvider, parameters);
+        ConsumerActionExecutor cancellableConnection = new CancellableConsumerActionExecutor(lazyConnection);
+        ConsumerActionExecutor progressLoggingConnection = new ProgressLoggingConsumerActionExecutor(cancellableConnection, loggingProvider);
+        ConsumerActionExecutor rethrowingErrorsConnection = new RethrowingErrorsConsumerActionExecutor(progressLoggingConnection);
+        AsyncConsumerActionExecutor asyncConnection = new DefaultAsyncConsumerActionExecutor(rethrowingErrorsConnection, executorFactory);
+        return new DefaultProjectConnection(asyncConnection, parameters);
     }
 
     ToolingImplementationLoader getToolingImplementationLoader() {

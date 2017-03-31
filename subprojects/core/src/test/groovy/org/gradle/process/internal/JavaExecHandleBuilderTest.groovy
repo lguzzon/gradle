@@ -13,21 +13,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.gradle.process.internal;
+package org.gradle.process.internal
 
-
-import org.gradle.api.internal.file.FileResolver
-import org.gradle.api.internal.file.IdentityFileResolver
+import org.gradle.api.internal.file.TestFiles
 import org.gradle.internal.jvm.Jvm
 import spock.lang.Specification
-import static java.util.Arrays.asList
-import java.nio.charset.Charset
 import spock.lang.Unroll
 
+import java.nio.charset.Charset
+
+import static java.util.Arrays.asList
+
 public class JavaExecHandleBuilderTest extends Specification {
-    FileResolver fileResolver = new IdentityFileResolver()
-    JavaExecHandleBuilder builder = new JavaExecHandleBuilder(fileResolver)
-    
+    JavaExecHandleBuilder builder = new JavaExecHandleBuilder(TestFiles.resolver())
+
     public void cannotSetAllJvmArgs() {
         when:
         builder.setAllJvmArgs(asList("arg"))
@@ -54,23 +53,36 @@ public class JavaExecHandleBuilderTest extends Specification {
         List jvmArgs = builder.getAllJvmArgs()
 
         then:
-        jvmArgs == ['-Dprop=value', 'jvm1', 'jvm2', '-Xms64m', '-Xmx1g', fileEncodingProperty(expectedEncoding), '-cp', "$jar1$File.pathSeparator$jar2"]
+        jvmArgs == ['-Dprop=value', 'jvm1', 'jvm2', '-Xms64m', '-Xmx1g', fileEncodingProperty(expectedEncoding), *localeProperties(), '-cp', "$jar1$File.pathSeparator$jar2"]
 
         when:
         List commandLine = builder.getCommandLine()
 
         then:
         String executable = Jvm.current().getJavaExecutable().getAbsolutePath()
-        commandLine == [executable,  '-Dprop=value', 'jvm1', 'jvm2', '-Xms64m', '-Xmx1g', fileEncodingProperty(expectedEncoding),
-                '-cp', "$jar1$File.pathSeparator$jar2", 'mainClass', 'arg1', 'arg2']
-        
+        commandLine == [executable,  '-Dprop=value', 'jvm1', 'jvm2', '-Xms64m', '-Xmx1g', fileEncodingProperty(expectedEncoding), *localeProperties(), '-cp', "$jar1$File.pathSeparator$jar2", 'mainClass', 'arg1', 'arg2']
+
         where:
         inputEncoding | expectedEncoding
         null          | Charset.defaultCharset().name()
         "UTF-16"      | "UTF-16"
     }
 
+    def "detects null entries early"() {
+        when: builder.args(1, null)
+        then: thrown(IllegalArgumentException)
+    }
+
     private String fileEncodingProperty(String encoding = Charset.defaultCharset().name()) {
         return "-Dfile.encoding=$encoding"
     }
+
+    private static List<String> localeProperties(Locale locale = Locale.default) {
+        ["country", "language", "variant"].sort().collectEntries {
+            ["user.$it", locale."$it"]
+        }.collect {
+            it.value ? "-D$it.key=$it.value" : "-D$it.key"
+        }
+    }
+
 }

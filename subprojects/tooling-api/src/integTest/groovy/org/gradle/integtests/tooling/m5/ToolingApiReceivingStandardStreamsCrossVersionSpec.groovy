@@ -15,26 +15,18 @@
  */
 package org.gradle.integtests.tooling.m5
 
-import org.gradle.integtests.tooling.fixture.MinTargetGradleVersion
-import org.gradle.integtests.tooling.fixture.MinToolingApiVersion
-import org.gradle.integtests.tooling.fixture.ToolingApiSpecification
+import org.gradle.integtests.tooling.fixture.TargetGradleVersion
+import org.gradle.integtests.tooling.fixture.ToolingApiLoggingSpecification
+import org.gradle.integtests.tooling.r18.NullAction
+import org.gradle.test.fixtures.file.TestFile
 import org.gradle.tooling.model.GradleProject
 
-@MinToolingApiVersion('1.0-milestone-5')
-@MinTargetGradleVersion('1.0-milestone-5')
-class ToolingApiReceivingStandardStreamsCrossVersionSpec extends ToolingApiSpecification {
-
-    def setup() {
-        //because embedded tooling api should not replace system out / err
-        //we will run below tests only for forked mode
-        toolingApi.isEmbedded = false
-    }
+class ToolingApiReceivingStandardStreamsCrossVersionSpec extends ToolingApiLoggingSpecification {
 
     def "receives standard streams while the build is executing"() {
-        dist.testFile('build.gradle') << '''
-System.out.println 'this is stdout'
-System.err.println 'this is stderr'
-'''
+        given:
+        loggingBuildScript()
+
         def stdout = new ByteArrayOutputStream()
         def stderr = new ByteArrayOutputStream()
 
@@ -49,13 +41,15 @@ System.err.println 'this is stderr'
         then:
         stdout.toString().contains('this is stdout')
         stderr.toString().contains('this is stderr')
+        stdout.toString().contains('A warning using SLF4j')
+        stdout.toString().contains('A warning using JCL')
+        stdout.toString().contains('A warning using Log4j')
+        stdout.toString().contains('A warning using JUL')
     }
 
     def "receives standard streams while the model is building"() {
-        dist.testFile('build.gradle') << '''
-System.out.println 'this is stdout'
-System.err.println 'this is stderr'
-'''
+        given:
+        loggingBuildScript()
 
         def stdout = new ByteArrayOutputStream()
         def stderr = new ByteArrayOutputStream()
@@ -71,5 +65,53 @@ System.err.println 'this is stderr'
         then:
         stdout.toString().contains('this is stdout')
         stderr.toString().contains('this is stderr')
+        stdout.toString().contains('A warning using SLF4j')
+        stdout.toString().contains('A warning using JCL')
+        stdout.toString().contains('A warning using Log4j')
+        stdout.toString().contains('A warning using JUL')
+    }
+
+    @TargetGradleVersion(">=1.8")
+    def "receives standard streams while client action is running"() {
+        given:
+        loggingBuildScript()
+
+        def stdout = new ByteArrayOutputStream()
+        def stderr = new ByteArrayOutputStream()
+
+        when:
+        withConnection { connection ->
+            def action = connection.action(new NullAction())
+            action.standardOutput = stdout
+            action.standardError = stderr
+            return action.run()
+        }
+
+        then:
+        stdout.toString().contains('this is stdout')
+        stderr.toString().contains('this is stderr')
+        stdout.toString().contains('A warning using SLF4j')
+        stdout.toString().contains('A warning using JCL')
+        stdout.toString().contains('A warning using Log4j')
+        stdout.toString().contains('A warning using JUL')
+    }
+
+    private TestFile loggingBuildScript() {
+        file('build.gradle') << '''
+System.out.println 'this is stdout'
+System.err.println 'this is stderr'
+
+def slf4jLogger = org.slf4j.LoggerFactory.getLogger('some-logger')
+slf4jLogger.warn('A warning using SLF4j')
+
+def jclLogger = org.apache.commons.logging.LogFactory.getLog('some-logger')
+jclLogger.warn('A warning using JCL')
+
+def log4jLogger = org.apache.log4j.Logger.getLogger('some-logger')
+log4jLogger.warn('A warning using Log4j')
+
+def julLogger = java.util.logging.Logger.getLogger('some-logger')
+julLogger.warning('A warning using JUL')
+'''
     }
 }

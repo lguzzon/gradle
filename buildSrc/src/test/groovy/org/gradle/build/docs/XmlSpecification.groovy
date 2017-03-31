@@ -15,21 +15,22 @@
  */
 package org.gradle.build.docs
 
-import groovy.xml.dom.DOMCategory
-import javax.xml.parsers.DocumentBuilder
-import javax.xml.parsers.DocumentBuilderFactory
+import org.w3c.dom.*
 import org.xml.sax.InputSource
 import spock.lang.Specification
-import org.w3c.dom.*
+
+import javax.xml.parsers.DocumentBuilder
+import javax.xml.parsers.DocumentBuilderFactory
 
 abstract class XmlSpecification extends Specification {
     final Document document = DocumentBuilderFactory.newInstance().newDocumentBuilder().newDocument()
 
-    def parse(String str) {
+    def parse(String str, Document document = null) {
         DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance()
         factory.setNamespaceAware(true)
         DocumentBuilder builder = factory.newDocumentBuilder()
-        return builder.parse(new InputSource(new StringReader(str))).documentElement
+        def parsed = builder.parse(new InputSource(new StringReader(str))).documentElement
+        return document ? document.importNode(parsed, true) : parsed
     }
 
     def formatTree(Closure cl) {
@@ -39,10 +40,8 @@ abstract class XmlSpecification extends Specification {
     }
 
     def withCategories(Closure cl) {
-        use(DOMCategory) {
-            use(BuildableDOMCategory) {
-                return cl.call()
-            }
+        use(BuildableDOMCategory) {
+            return cl.call()
         }
     }
 
@@ -79,6 +78,10 @@ abstract class XmlSpecification extends Specification {
             for (int i = 0; i < element.attributes.length; i++) {
                 Attr attr = element.attributes.item(i)
                 target.append(" $attr.name=\"$attr.value\"")
+            }
+
+            element.childNodes.findAll { it instanceof Text }.each {
+                assert it.textContent != null : "Found null text element in <$element.tagName>"
             }
 
             List<Node> trimmedContent = element.childNodes.collect { it };
@@ -118,7 +121,7 @@ abstract class XmlSpecification extends Specification {
             target.append(node.nodeValue.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;'))
             return
         }
-        
+
         throw new UnsupportedOperationException("Don't know how to format DOM node: $node")
     }
 }

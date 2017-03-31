@@ -17,6 +17,7 @@ package org.gradle.api.internal;
 
 import groovy.lang.Closure;
 import groovy.lang.GroovyObject;
+import groovy.lang.MissingMethodException;
 import org.gradle.api.Action;
 import org.gradle.api.GradleException;
 import org.gradle.api.file.FileCollection;
@@ -24,20 +25,36 @@ import org.gradle.api.internal.plugins.DslObject;
 import org.gradle.api.plugins.Convention;
 import org.gradle.api.plugins.ExtensionAware;
 import org.gradle.api.plugins.ExtensionContainer;
+import org.gradle.internal.metaobject.BeanDynamicObject;
+import org.gradle.internal.metaobject.DynamicObject;
+import org.gradle.internal.reflect.ObjectInstantiationException;
 import org.junit.Test;
 import spock.lang.Issue;
 
-import java.util.*;
+import javax.inject.Inject;
+import java.io.IOException;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.GenericArrayType;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
+import java.lang.reflect.TypeVariable;
+import java.lang.reflect.WildcardType;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.Callable;
 
-import static org.gradle.util.HelperUtil.TEST_CLOSURE;
-import static org.gradle.util.HelperUtil.call;
+import static org.gradle.api.internal.AbstractClassGeneratorTestGroovy.BeanWithGroovyBoolean;
 import static org.gradle.util.Matchers.isEmpty;
+import static org.gradle.util.TestUtil.TEST_CLOSURE;
+import static org.gradle.util.TestUtil.call;
 import static org.gradle.util.WrapUtil.toList;
 import static org.hamcrest.Matchers.*;
 import static org.junit.Assert.*;
-
-import static org.gradle.api.internal.AbstractClassGeneratorTestGroovy.*;
 
 public class AsmBackedClassGeneratorTest {
     private final AbstractClassGenerator generator = new AsmBackedClassGenerator();
@@ -112,6 +129,152 @@ public class AsmBackedClassGeneratorTest {
     }
 
     @Test
+    public void includesGenericTypeInformationForOverriddenConstructor() throws Exception {
+        Class<?> generatedClass = generator.generate(BeanWithComplexConstructor.class);
+        Constructor<?> constructor = generatedClass.getDeclaredConstructors()[0];
+
+        assertThat(constructor.getTypeParameters().length, equalTo(3));
+
+        assertThat(constructor.getGenericParameterTypes().length, equalTo(12));
+
+        // Callable
+        Type paramType = constructor.getGenericParameterTypes()[0];
+        assertThat(paramType, equalTo((Type) Callable.class));
+
+        // Callable<String>
+        paramType = constructor.getGenericParameterTypes()[1];
+        assertThat(paramType, instanceOf(ParameterizedType.class));
+        ParameterizedType parameterizedType = (ParameterizedType) paramType;
+        assertThat(parameterizedType.getRawType(), equalTo((Type) Callable.class));
+        assertThat(parameterizedType.getActualTypeArguments()[0], equalTo((Type) String.class));
+
+        // Callable<? extends String>
+        paramType = constructor.getGenericParameterTypes()[2];
+        assertThat(paramType, instanceOf(ParameterizedType.class));
+        parameterizedType = (ParameterizedType) paramType;
+        assertThat(parameterizedType.getRawType(), equalTo((Type) Callable.class));
+        assertThat(parameterizedType.getActualTypeArguments()[0], instanceOf(WildcardType.class));
+        WildcardType wildcard = (WildcardType) parameterizedType.getActualTypeArguments()[0];
+        assertThat(wildcard.getUpperBounds().length, equalTo(1));
+        assertThat(wildcard.getUpperBounds()[0], equalTo((Type)String.class));
+        assertThat(wildcard.getLowerBounds().length, equalTo(0));
+
+        // Callable<? super String>
+        paramType = constructor.getGenericParameterTypes()[3];
+        assertThat(paramType, instanceOf(ParameterizedType.class));
+        parameterizedType = (ParameterizedType) paramType;
+        assertThat(parameterizedType.getRawType(), equalTo((Type) Callable.class));
+        assertThat(parameterizedType.getActualTypeArguments()[0], instanceOf(WildcardType.class));
+        wildcard = (WildcardType) parameterizedType.getActualTypeArguments()[0];
+        assertThat(wildcard.getUpperBounds().length, equalTo(1));
+        assertThat(wildcard.getUpperBounds()[0], equalTo((Type)Object.class));
+        assertThat(wildcard.getLowerBounds().length, equalTo(1));
+        assertThat(wildcard.getLowerBounds()[0], equalTo((Type)String.class));
+
+        // Callable<?>
+        paramType = constructor.getGenericParameterTypes()[4];
+        assertThat(paramType, instanceOf(ParameterizedType.class));
+        parameterizedType = (ParameterizedType) paramType;
+        assertThat(parameterizedType.getRawType(), equalTo((Type) Callable.class));
+        assertThat(parameterizedType.getActualTypeArguments()[0], instanceOf(WildcardType.class));
+        wildcard = (WildcardType) parameterizedType.getActualTypeArguments()[0];
+        assertThat(wildcard.getUpperBounds().length, equalTo(1));
+        assertThat(wildcard.getUpperBounds()[0], equalTo((Type)Object.class));
+        assertThat(wildcard.getLowerBounds().length, equalTo(0));
+
+        // Callable<? extends Callable<?>>
+        paramType = constructor.getGenericParameterTypes()[5];
+        assertThat(paramType, instanceOf(ParameterizedType.class));
+        parameterizedType = (ParameterizedType) paramType;
+        assertThat(parameterizedType.getRawType(), equalTo((Type) Callable.class));
+        assertThat(parameterizedType.getActualTypeArguments()[0], instanceOf(WildcardType.class));
+        wildcard = (WildcardType) parameterizedType.getActualTypeArguments()[0];
+        assertThat(wildcard.getUpperBounds().length, equalTo(1));
+        assertThat(wildcard.getLowerBounds().length, equalTo(0));
+        assertThat(wildcard.getUpperBounds()[0], instanceOf(ParameterizedType.class));
+        parameterizedType = (ParameterizedType) wildcard.getUpperBounds()[0];
+        assertThat(parameterizedType.getRawType(), equalTo((Type) Callable.class));
+        assertThat(parameterizedType.getActualTypeArguments()[0], instanceOf(WildcardType.class));
+        wildcard = (WildcardType) parameterizedType.getActualTypeArguments()[0];
+        assertThat(wildcard.getUpperBounds().length, equalTo(1));
+        assertThat(wildcard.getUpperBounds()[0], equalTo((Type) Object.class));
+        assertThat(wildcard.getLowerBounds().length, equalTo(0));
+
+        // Callable<S>
+        paramType = constructor.getGenericParameterTypes()[6];
+        assertThat(paramType, instanceOf(ParameterizedType.class));
+        parameterizedType = (ParameterizedType) paramType;
+        assertThat(parameterizedType.getRawType(), equalTo((Type) Callable.class));
+        assertThat(parameterizedType.getActualTypeArguments()[0], instanceOf(TypeVariable.class));
+        TypeVariable typeVariable = (TypeVariable) parameterizedType.getActualTypeArguments()[0];
+        assertThat(typeVariable.getName(), equalTo("S"));
+        assertThat(typeVariable.getBounds()[0], instanceOf(ParameterizedType.class));
+
+        // Callable<? extends T>
+        paramType = constructor.getGenericParameterTypes()[7];
+        assertThat(paramType, instanceOf(ParameterizedType.class));
+        parameterizedType = (ParameterizedType) paramType;
+        assertThat(parameterizedType.getRawType(), equalTo((Type) Callable.class));
+        assertThat(parameterizedType.getActualTypeArguments()[0], instanceOf(WildcardType.class));
+        wildcard = (WildcardType) parameterizedType.getActualTypeArguments()[0];
+        assertThat(wildcard.getUpperBounds().length, equalTo(1));
+        assertThat(wildcard.getLowerBounds().length, equalTo(0));
+        assertThat(wildcard.getUpperBounds()[0], instanceOf(TypeVariable.class));
+        typeVariable = (TypeVariable) wildcard.getUpperBounds()[0];
+        assertThat(typeVariable.getName(), equalTo("T"));
+        assertThat(typeVariable.getBounds()[0], equalTo((Type) IOException.class));
+
+        // V
+        paramType = constructor.getGenericParameterTypes()[8];
+        assertThat(paramType, instanceOf(TypeVariable.class));
+        typeVariable = (TypeVariable) paramType;
+        assertThat(typeVariable.getName(), equalTo("V"));
+        assertThat(typeVariable.getBounds()[0], equalTo((Type) Object.class));
+
+        GenericArrayType arrayType;
+
+        // String[]
+        paramType = constructor.getGenericParameterTypes()[9];
+
+        assertThat(paramType, equalTo((Type) String[].class));
+        assertThat(((Class<?>) paramType).getComponentType(), equalTo((Type) String.class));
+
+        // List<? extends String>[]
+        paramType = constructor.getGenericParameterTypes()[10];
+        assertThat(paramType, instanceOf(GenericArrayType.class));
+        arrayType = (GenericArrayType) paramType;
+        assertThat(arrayType.getGenericComponentType(), instanceOf(ParameterizedType.class));
+        parameterizedType = (ParameterizedType) arrayType.getGenericComponentType();
+        assertThat(parameterizedType.getRawType(), equalTo((Type) List.class));
+        assertThat(parameterizedType.getActualTypeArguments().length, equalTo(1));
+        assertThat(parameterizedType.getActualTypeArguments()[0], instanceOf(WildcardType.class));
+
+        // boolean
+        paramType = constructor.getGenericParameterTypes()[11];
+        assertThat(paramType, equalTo((Type) Boolean.TYPE));
+
+        assertThat(constructor.getGenericExceptionTypes().length, equalTo(2));
+
+        // throws Exception
+        Type exceptionType = constructor.getGenericExceptionTypes()[0];
+        assertThat(exceptionType, equalTo((Type) Exception.class));
+
+        // throws T
+        exceptionType = constructor.getGenericExceptionTypes()[1];
+        assertThat(exceptionType, instanceOf(TypeVariable.class));
+        typeVariable = (TypeVariable) exceptionType;
+        assertThat(typeVariable.getName(), equalTo("T"));
+    }
+
+    @Test
+    public void includesAnnotationInformationForOverriddenConstructor() throws Exception {
+        Class<?> generatedClass = generator.generate(BeanWithAnnotatedConstructor.class);
+        Constructor<?> constructor = generatedClass.getDeclaredConstructors()[0];
+
+        assertThat(constructor.getAnnotation(Inject.class), notNullValue());
+    }
+
+    @Test
     public void canConstructInstance() throws Exception {
         Bean bean = generator.newInstance(BeanWithConstructor.class, "value");
         assertThat(bean.getClass(), sameInstance((Object) generator.generate(BeanWithConstructor.class)));
@@ -127,16 +290,16 @@ public class AsmBackedClassGeneratorTest {
     @Test
     public void reportsConstructionFailure() {
         try {
-            generator.newInstance(UnconstructableBean.class);
+            generator.newInstance(UnconstructibleBean.class);
             fail();
-        } catch (UnsupportedOperationException e) {
-            assertThat(e, sameInstance(UnconstructableBean.failure));
+        } catch (ObjectInstantiationException e) {
+            assertThat(e.getCause(), sameInstance(UnconstructibleBean.failure));
         }
 
         try {
             generator.newInstance(Bean.class, "arg1", 2);
             fail();
-        } catch (IllegalArgumentException e) {
+        } catch (ObjectInstantiationException e) {
             // expected
         }
 
@@ -156,7 +319,7 @@ public class AsmBackedClassGeneratorTest {
     }
 
     @Test
-    public void appliesConventionMappingToEachGetter() throws Exception {
+    public void appliesConventionMappingToEachProperty() throws Exception {
         Class<? extends Bean> generatedClass = generator.generate(Bean.class);
         assertTrue(IConventionAware.class.isAssignableFrom(generatedClass));
         Bean bean = generatedClass.newInstance();
@@ -180,6 +343,85 @@ public class AsmBackedClassGeneratorTest {
     }
 
     @Test
+    public void appliesConventionMappingToPropertyWithMultipleSetters() throws Exception {
+        BeanWithVariousGettersAndSetters bean = generator.newInstance(BeanWithVariousGettersAndSetters.class);
+        new DslObject(bean).getConventionMapping().map("overloaded", new Callable<String>() {
+            public String call() {
+                return "conventionValue";
+            }
+        });
+
+        assertThat(bean.getOverloaded(), equalTo("conventionValue"));
+
+        bean.setOverloaded("value");
+        assertThat(bean.getOverloaded(), equalTo("chars = value"));
+
+        bean = generator.newInstance(BeanWithVariousGettersAndSetters.class);
+        new DslObject(bean).getConventionMapping().map("overloaded", new Callable<String>() {
+            public String call() {
+                return "conventionValue";
+            }
+        });
+
+        assertThat(bean.getOverloaded(), equalTo("conventionValue"));
+
+        bean.setOverloaded(12);
+        assertThat(bean.getOverloaded(), equalTo("number = 12"));
+
+        bean = generator.newInstance(BeanWithVariousGettersAndSetters.class);
+        new DslObject(bean).getConventionMapping().map("overloaded", new Callable<String>() {
+            public String call() {
+                return "conventionValue";
+            }
+        });
+
+        assertThat(bean.getOverloaded(), equalTo("conventionValue"));
+
+        bean.setOverloaded(true);
+        assertThat(bean.getOverloaded(), equalTo("object = true"));
+    }
+
+    @Test
+    public void appliesConventionMappingToPropertyWithGetterCovariantType() throws Exception {
+        CovariantPropertyTypes bean = generator.newInstance(CovariantPropertyTypes.class);
+
+        new DslObject(bean).getConventionMapping().map("value", new Callable<String>() {
+            public String call() {
+                return "conventionValue";
+            }
+        });
+
+        assertThat(bean.getValue(), equalTo("conventionValue"));
+
+        bean.setValue(12);
+        assertThat(bean.getValue(), equalTo("12"));
+    }
+
+    @Test
+    public void appliesConventionMappingToProtectedMethods() throws Exception {
+        BeanWithNonPublicProperties bean = generator.newInstance(BeanWithNonPublicProperties.class);
+
+        assertThat(bean.getPackageProtected(), equalTo("package-protected"));
+        assertThat(bean.getProtected(), equalTo("protected"));
+        assertThat(bean.getPrivate(), equalTo("private"));
+
+        IConventionAware conventionAware = (IConventionAware) bean;
+        conventionAware.getConventionMapping().map("packageProtected", new Callable<String>() {
+            public String call() {
+                return "1";
+            }
+        });
+        conventionAware.getConventionMapping().map("protected", new Callable<String>() {
+            public String call() {
+                return "2";
+            }
+        });
+
+        assertThat(bean.getPackageProtected(), equalTo("1"));
+        assertThat(bean.getProtected(), equalTo("2"));
+    }
+
+    @Test
     @Issue("GRADLE-2163")
     public void appliesConventionMappingToGroovyBoolean() throws Exception {
         BeanWithGroovyBoolean bean = generator.generate(BeanWithGroovyBoolean.class).newInstance();
@@ -187,6 +429,7 @@ public class AsmBackedClassGeneratorTest {
         assertTrue(bean instanceof IConventionAware);
         assertThat(bean.getSmallB(), equalTo(false));
         assertThat(bean.getBigB(), nullValue());
+        assertThat(bean.getMixedB(), equalTo(false));
 
         IConventionAware conventionAware = (IConventionAware) bean;
 
@@ -212,6 +455,15 @@ public class AsmBackedClassGeneratorTest {
         assertThat(bean.getBigB(), equalTo(Boolean.TRUE));
         bean.setBigB(Boolean.FALSE);
         assertThat(bean.getBigB(), equalTo(Boolean.FALSE));
+
+        conventionAware.getConventionMapping().map("mixedB", new Callable<Object>() {
+            public Object call() throws Exception {
+                return Boolean.TRUE;
+            }
+        });
+
+        assertThat(bean.getMixedB(), equalTo(true));
+        assertThat(bean.isMixedB(), equalTo(Boolean.TRUE));
     }
 
     @Test
@@ -381,8 +633,9 @@ public class AsmBackedClassGeneratorTest {
         bean.getAsDynamicObject().setProperty("prop", "value2");
         assertThat(call("{ it.prop }", bean), equalTo((Object) "value2"));
 
-        bean.getAsDynamicObject().setProperty("dynamicProp", "value");
-        assertThat(call("{ it.dynamicProp }", bean), equalTo((Object) "value"));
+        call("{ it.ext.anotherProp = 12 }", bean);
+        assertThat(bean.getAsDynamicObject().getProperty("anotherProp"), equalTo((Object) 12));
+        assertThat(call("{ it.anotherProp }", bean), equalTo((Object) 12));
     }
 
     @Test
@@ -407,6 +660,18 @@ public class AsmBackedClassGeneratorTest {
 
         call("{ it.primitive 12}", bean);
         assertThat(bean.getPrimitive(), equalTo(12));
+
+        call("{ it.bool true}", bean);
+        assertThat(bean.isBool(), equalTo(true));
+
+        call("{ it.overloaded 'value'}", bean);
+        assertThat(bean.getOverloaded(), equalTo("chars = value"));
+
+        call("{ it.overloaded 12}", bean);
+        assertThat(bean.getOverloaded(), equalTo("number = 12"));
+
+        call("{ it.overloaded true}", bean);
+        assertThat(bean.getOverloaded(), equalTo("object = true"));
     }
 
     @Test
@@ -483,11 +748,30 @@ public class AsmBackedClassGeneratorTest {
     }
 
     @Test
+    public void addsInsteadOfOverridesSetValueMethodIfOnlyMultiArgMethods() throws Exception {
+        BeanWithMultiArgDslMethods bean = generator.generate(BeanWithMultiArgDslMethods.class).newInstance();
+        // this method should have been added to the class
+        call("{ it.prop 'value'}", bean);
+        assertThat(bean.getProp(), equalTo("value"));
+    }
+
+    @Test
+    public void doesNotOverrideSetValueMethodForPropertyThatIsNotConventionMappingAware() throws Exception {
+        BeanWithMultiArgDslMethodsAndNoConventionMapping bean = generator.generate(BeanWithMultiArgDslMethodsAndNoConventionMapping.class).newInstance();
+        call("{ it.prop 'value'}", bean);
+        assertThat(bean.getProp(), equalTo("(value)"));
+    }
+
+    @Test
     public void mixesInClosureOverloadForActionMethod() throws Exception {
         Bean bean = generator.generate(Bean.class).newInstance();
         bean.prop = "value";
 
         call("{def value; it.doStuff { value = it }; assert value == \'value\' }", bean);
+
+        BeanWithOverriddenMethods subBean = generator.generate(BeanWithOverriddenMethods.class).newInstance();
+
+        call("{def value; it.doStuff { value = it }; assert value == \'overloaded\' }", subBean);
     }
 
     @Test
@@ -500,6 +784,29 @@ public class AsmBackedClassGeneratorTest {
 
     @Test public void generatesDslObjectCompatibleObject() throws Exception {
         new DslObject(generator.generate(Bean.class).newInstance());
+    }
+
+    @Test
+    public void includesNotInheritedTypeAnnotations() throws IllegalAccessException, InstantiationException {
+        Class<? extends AnnotatedBean> generatedClass = generator.generate(AnnotatedBean.class);
+
+        BeanAnnotation annotation = generatedClass.getAnnotation(BeanAnnotation.class);
+        assertThat(annotation, notNullValue());
+        assertThat(annotation.value(), equalTo("test"));
+        assertThat(annotation.values(), equalTo(new String[] {"1", "2"}));
+        assertThat(annotation.enumValue(), equalTo(AnnotationEnum.A));
+        assertThat(annotation.enumValues(), equalTo(new AnnotationEnum[] {AnnotationEnum.A, AnnotationEnum.B}));
+        assertThat(annotation.number(), equalTo(1));
+        assertThat(annotation.numbers(), equalTo(new int[] {1, 2}));
+        assertThat(annotation.clazz().equals(Integer.class), equalTo(true));
+        assertThat(annotation.classes(), equalTo(new Class<?>[] {Integer.class}));
+        assertThat(annotation.annotation().value(), equalTo("nested"));
+        assertThat(annotation.annotations()[0].value(), equalTo("nested array"));
+    }
+
+    @Test
+    public void generatedTypeIsMarkedSynthetic() {
+        assertTrue(generator.generate(Bean.class).isSynthetic());
     }
 
     public static class Bean {
@@ -522,9 +829,64 @@ public class AsmBackedClassGeneratorTest {
         }
     }
 
+    public static class BeanWithOverriddenMethods extends Bean {
+        @Override
+        public String getProp() {
+            return super.getProp();
+        }
+
+        @Override
+        public void setProp(String prop) {
+            super.setProp(prop);
+        }
+
+        @Override
+        public String doStuff(String value) {
+            return super.doStuff(value);
+        }
+
+        @Override
+        public void doStuff(Action<String> action) {
+            action.execute("overloaded");
+        }
+    }
+
+    public static class ParentBean {
+        Object value;
+
+        public Object getValue() {
+            return value;
+        }
+
+        public void setValue(Object value) {
+            this.value = value;
+        }
+    }
+
+    public static class CovariantPropertyTypes extends ParentBean {
+        @Override
+        public String getValue() {
+            return String.valueOf(super.getValue());
+        }
+    }
+
     public static class BeanWithReadOnlyProperties {
         public String getProp() {
             return "value";
+        }
+    }
+
+    public static class BeanWithNonPublicProperties {
+        String getPackageProtected() {
+            return "package-protected";
+        }
+
+        protected String getProtected() {
+            return "protected";
+        }
+
+        private String getPrivate() {
+            return "private";
         }
     }
 
@@ -551,6 +913,30 @@ public class AsmBackedClassGeneratorTest {
 
         public BeanWithConstructor(int value) {
             setProp(String.valueOf(value));
+        }
+    }
+
+    public static class BeanWithComplexConstructor {
+        public <T extends IOException, S extends Callable<String>, V> BeanWithComplexConstructor(
+                Callable rawValue,
+                Callable<String> value,
+                Callable<? extends String> subType,
+                Callable<? super String> superType,
+                Callable<?> wildcard,
+                Callable<? extends Callable<?>> nested,
+                Callable<S> typeVar,
+                Callable<? extends T> typeVarWithBounds,
+                V genericVar,
+                String[] array,
+                List<? extends String>[] genericArray,
+                boolean primitive
+        ) throws Exception, T {
+        }
+    }
+
+    public static class BeanWithAnnotatedConstructor {
+        @Inject
+        public BeanWithAnnotatedConstructor() {
         }
     }
 
@@ -602,6 +988,53 @@ public class AsmBackedClassGeneratorTest {
         }
     }
 
+    public static class BeanWithMultiArgDslMethods extends Bean {
+        private String prop;
+
+        public String getProp() {
+            return prop;
+        }
+
+        public void setProp(String prop) {
+            this.prop = prop;
+        }
+
+        public BeanWithMultiArgDslMethods prop(String part1, String part2) {
+            this.prop = String.format("<%s%s>", part1, part2);
+            return this;
+        }
+
+        public BeanWithMultiArgDslMethods prop(String part1, String part2, String part3) {
+            this.prop = String.format("[%s%s%s]", part1, part2, part3);
+            return this;
+        }
+    }
+
+    @NoConventionMapping
+    public static class BeanWithMultiArgDslMethodsAndNoConventionMapping extends Bean {
+        private String prop;
+
+        public String getProp() {
+            return prop;
+        }
+
+        public void setProp(String prop) {
+            this.prop = prop;
+        }
+
+        public void prop(String value) {
+            this.prop = String.format("(%s)", value);
+        }
+
+        public void prop(String part1, String part2) {
+            this.prop = String.format("<%s%s>", part1, part2);
+        }
+
+        public void prop(String part1, String part2, String part3) {
+            this.prop = String.format("[%s%s%s]", part1, part2, part3);
+        }
+    }
+
     public static class ConventionAwareBean extends Bean implements IConventionAware, ConventionMapping {
         public Convention getConvention() {
             throw new UnsupportedOperationException();
@@ -641,7 +1074,7 @@ public class AsmBackedClassGeneratorTest {
     }
 
     public static class DynamicObjectAwareBean extends Bean implements DynamicObjectAware {
-        Convention conv = new ExtensibleDynamicObject(this, ThreadGlobalInstantiator.getOrCreate()).getConvention();
+        Convention conv = new ExtensibleDynamicObject(this, DynamicObjectAwareBean.class, ThreadGlobalInstantiator.getOrCreate()).getConvention();
 
         public Convention getConvention() {
             return conv;
@@ -705,6 +1138,7 @@ public class AsmBackedClassGeneratorTest {
         private boolean bool;
         private String finalGetter;
         private Integer writeOnly;
+        private String overloaded;
 
         public int getPrimitive() {
             return primitive;
@@ -712,6 +1146,14 @@ public class AsmBackedClassGeneratorTest {
 
         public void setPrimitive(int primitive) {
             this.primitive = primitive;
+        }
+
+        public boolean isBool() {
+            return bool;
+        }
+
+        public void setBool(boolean bool) {
+            this.bool = bool;
         }
 
         public final String getFinalGetter() {
@@ -724,6 +1166,22 @@ public class AsmBackedClassGeneratorTest {
 
         public void setWriteOnly(Integer value) {
             writeOnly = value;
+        }
+
+        public String getOverloaded() {
+            return overloaded;
+        }
+
+        public void setOverloaded(Number overloaded) {
+            this.overloaded = String.format("number = %s", overloaded);
+        }
+
+        public void setOverloaded(CharSequence overloaded) {
+            this.overloaded = String.format("chars = %s", overloaded);
+        }
+
+        public void setOverloaded(Object overloaded) {
+            this.overloaded = String.format("object = %s", overloaded);
         }
     }
 
@@ -777,10 +1235,10 @@ public class AsmBackedClassGeneratorTest {
         }
     }
 
-    public static class UnconstructableBean {
-        static UnsupportedOperationException failure = new UnsupportedOperationException();
+    public static class UnconstructibleBean {
+        static Throwable failure = new UnsupportedOperationException();
 
-        public UnconstructableBean() {
+        public UnconstructibleBean() throws Throwable {
             throw failure;
         }
     }
@@ -790,5 +1248,45 @@ public class AsmBackedClassGeneratorTest {
     }
 
     private static class PrivateBean {
+    }
+
+    public enum AnnotationEnum {
+        A, B
+    }
+
+    @Retention(RetentionPolicy.RUNTIME)
+    @Target(ElementType.TYPE)
+    public static @interface NestedBeanAnnotation {
+        String value();
+    }
+
+    @Retention(RetentionPolicy.RUNTIME)
+    @Target(ElementType.TYPE)
+    public static @interface BeanAnnotation {
+        String value();
+        String[] values();
+        AnnotationEnum enumValue();
+        AnnotationEnum[] enumValues();
+        int number();
+        int[] numbers();
+        Class<?> clazz();
+        Class<?>[] classes();
+        NestedBeanAnnotation annotation();
+        NestedBeanAnnotation[] annotations();
+    }
+
+    @BeanAnnotation(
+            value = "test",
+            values = {"1", "2"},
+            enumValue = AnnotationEnum.A,
+            enumValues = {AnnotationEnum.A, AnnotationEnum.B},
+            number = 1,
+            numbers = {1, 2},
+            clazz = Integer.class,
+            classes = {Integer.class},
+            annotation = @NestedBeanAnnotation("nested"),
+            annotations = {@NestedBeanAnnotation("nested array")}
+    )
+    public static class AnnotatedBean {
     }
 }

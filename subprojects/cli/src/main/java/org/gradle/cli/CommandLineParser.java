@@ -17,6 +17,7 @@ package org.gradle.cli;
 
 import java.io.*;
 import java.util.*;
+import java.util.regex.Pattern;
 
 /**
  * <p>A command-line parser which supports a command/sub-command style command-line interface. Supports the following
@@ -51,6 +52,8 @@ import java.util.*;
  * </ul>
  */
 public class CommandLineParser {
+    private static final Pattern OPTION_NAME_PATTERN = Pattern.compile("(\\?|\\p{Alnum}[\\p{Alnum}-_]*)");
+
     private Map<String, CommandLineOption> optionsByString = new HashMap<String, CommandLineOption>();
     private boolean allowMixedOptions;
     private boolean allowUnknownOptions;
@@ -61,7 +64,7 @@ public class CommandLineParser {
     }
 
     public CommandLineParser(Writer deprecationPrinter) {
-        this.deprecationPrinter = new PrintWriter(deprecationPrinter);
+        this.deprecationPrinter = new PrintWriter(deprecationPrinter, true);
     }
 
     /**
@@ -94,15 +97,15 @@ public class CommandLineParser {
                 } else if (arg.matches("--[^=]+")) {
                     OptionParserState parsedOption = parseState.onStartOption(arg, arg.substring(2));
                     parseState = parsedOption.onStartNextArg();
-                } else if (arg.matches("--[^=]+=.*")) {
+                } else if (arg.matches("(?s)--[^=]+=.*")) {
                     int endArg = arg.indexOf('=');
                     OptionParserState parsedOption = parseState.onStartOption(arg, arg.substring(2, endArg));
                     parseState = parsedOption.onArgument(arg.substring(endArg + 1));
-                } else if (arg.matches("-[^=]=.*")) {
+                } else if (arg.matches("(?s)-[^=]=.*")) {
                     OptionParserState parsedOption = parseState.onStartOption(arg, arg.substring(1, 2));
                     parseState = parsedOption.onArgument(arg.substring(3));
                 } else {
-                    assert arg.matches("-[^-].*");
+                    assert arg.matches("(?s)-[^-].*");
                     String option = arg.substring(1);
                     if (optionsByString.containsKey(option)) {
                         OptionParserState parsedOption = parseState.onStartOption(arg, option);
@@ -152,6 +155,21 @@ public class CommandLineParser {
 
     public CommandLineParser allowUnknownOptions() {
         allowUnknownOptions = true;
+        return this;
+    }
+
+    /**
+     * Specifies that the given set of options are mutually-exclusive. Only one of the given options will be selected.
+     * The parser ignores all but the last of these options.
+     */
+    public CommandLineParser allowOneOf(String... options) {
+        Set<CommandLineOption> commandLineOptions = new HashSet<CommandLineOption>();
+        for (String option : options) {
+            commandLineOptions.add(optionsByString.get(option));
+        }
+        for (CommandLineOption commandLineOption : commandLineOptions) {
+            commandLineOption.groupWith(commandLineOptions);
+        }
         return this;
     }
 
@@ -231,10 +249,13 @@ public class CommandLineParser {
             if (option.startsWith("-")) {
                 throw new IllegalArgumentException(String.format("Cannot add option '%s' as an option cannot start with '-'.", option));
             }
+            if (!OPTION_NAME_PATTERN.matcher(option).matches()) {
+                throw new IllegalArgumentException(String.format("Cannot add option '%s' as an option can only contain alphanumeric characters or '-' or '_'.", option));
+            }
         }
         CommandLineOption option = new CommandLineOption(Arrays.asList(options));
         for (String optionStr : option.getOptions()) {
-            this.optionsByString.put(optionStr, option);
+            optionsByString.put(optionStr, option);
         }
         return option;
     }
@@ -262,7 +283,7 @@ public class CommandLineParser {
         public abstract boolean maybeStartOption(String arg);
 
         boolean isOption(String arg) {
-            return arg.matches("-.+");
+            return arg.matches("(?s)-.+");
         }
 
         public abstract OptionParserState onStartOption(String arg, String option);
@@ -444,8 +465,9 @@ public class CommandLineParser {
             if (option.getDeprecationWarning() != null) {
                 deprecationPrinter.println("The " + optionString + " option is deprecated - " + option.getDeprecationWarning());
             }
-            if (option.getSubcommand() != null) {
-                return state.onNonOption(option.getSubcommand());
+
+            for (CommandLineOption otherOption : option.getGroupWith()) {
+                commandLine.removeOption(otherOption);
             }
 
             return state;

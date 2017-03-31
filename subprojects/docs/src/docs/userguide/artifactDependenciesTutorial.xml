@@ -4,7 +4,7 @@
         This chapter introduces some of the basics of dependency management in Gradle.
     </para>
 
-    <section>
+    <section id="sec:what_is_dependency_management">
         <title>What is dependency management?</title>
         <para>
             Very roughly, dependency management is made up of two pieces. Firstly, Gradle needs to
@@ -27,25 +27,31 @@
             We call this process <firstterm>dependency resolution</firstterm>.
         </para>
         <para>
+        	Note that this feature provides a major advantage over Ant. With Ant, you only have the ability to
+        	specify absolute or relative paths to specific jars to load. With Gradle, you simply declare the “names”
+        	of your dependencies, and other layers determine where to get those dependencies from. You can get
+        	similar behavior from Ant by adding Apache Ivy, but Gradle does it better.
+        </para>
+        <para>
             Often, the dependencies of a project will themselves have dependencies. For example, Hibernate core requires
             several other libraries to be present on the classpath with it runs. So, when Gradle runs the tests for your
             project, it also needs to find these dependencies and make them available. We call these <firstterm>transitive dependencies</firstterm>.
         </para>
         <para>
             The main purpose of most projects is to build some files that are to be used outside the project.
-            For example, if your project produces a java library, you need to build a jar, and maybe a source jar and
+            For example, if your project produces a Java library, you need to build a jar, and maybe a source jar and
             some documentation, and publish them somewhere.
         </para>
         <para>These outgoing files form the publications of the project. Gradle also takes care of this important work for you. You declare the
             publications of your project, and Gradle take care of building them and publishing them somewhere.
-            Exactly what "publishing" means depends on what you want to do. You might want to copy the files to a local directory,
+            Exactly what “publishing” means depends on what you want to do. You might want to copy the files to a local directory,
             or upload them to a remote Maven or Ivy repository. Or you might use the files in another project in the same
             multi-project build.
             We call this process <firstterm>publication</firstterm>.
         </para>
     </section>
 
-    <section>
+    <section id="sec:declaring_your_dependencies">
         <title>Declaring your dependencies</title>
         <para>
             Let's look at some dependency declarations. Here's a basic build script:
@@ -114,10 +120,10 @@
         </para>
     </section>
 
-    <section>
+    <section id="sec:external_dependencies_tutorial">
         <title>External dependencies</title>
         <para>There are various types of dependencies that you can declare. One such type is an <firstterm>external dependency</firstterm>.
-            This a dependency on some files built outside the current build, and stored in a repository of some kind, such as Maven central, or
+            This is a dependency on some files built outside the current build, and stored in a repository of some kind, such as Maven central, or
             a corporate Maven or Ivy repository, or a directory in the local file system.
         </para>
         <para>
@@ -130,7 +136,7 @@
             An external dependency is identified using <literal>group</literal>, <literal>name</literal> and <literal>version</literal> attributes.
             Depending on which kind of repository you are using, <literal>group</literal> and <literal>version</literal> may be optional.
         </para>
-        <para>There is a shortcut form for declaring external dependencies, which uses a string of the form <literal>"<replaceable>group</replaceable>:<replaceable>name</replaceable>:<replaceable>version</replaceable>"</literal>.
+        <para>The shortcut form for declaring external dependencies looks like “<literal><replaceable>group</replaceable>:<replaceable>name</replaceable>:<replaceable>version</replaceable></literal>”.
         </para>
         <sample id="externalDependencies" dir="userguide/artifacts/externalDependencies" title="Shortcut definition of an external dependency">
             <sourcefile file="build.gradle" snippet="define-dependency-shortcut"/>
@@ -138,7 +144,7 @@
         <para>To find out more about defining and working with dependencies, have a look at <xref linkend="sec:how_to_declare_your_dependencies"/>.</para>
     </section>
 
-    <section>
+    <section id="sec:repositories_tutorial">
         <title>Repositories</title>
         <para>
             How does Gradle find the files for external dependencies? Gradle looks for them in a <firstterm>repository</firstterm>.
@@ -151,7 +157,11 @@
         <sample id="defineMavenCentral" dir="userguide/artifacts/defineRepository" title="Usage of Maven central repository">
             <sourcefile file="build.gradle" snippet="maven-central"/>
         </sample>
-        <para>Or a remote Maven repository:</para>
+        <para>Or Bintray's JCenter:</para>
+        <sample id="defineJCenter" dir="userguide/artifacts/defineRepository" title="Usage of JCenter repository">
+            <sourcefile file="build.gradle" snippet="maven-jcenter"/>
+        </sample>
+        <para>Or a any other remote Maven repository:</para>
         <sample id="defineRemoteMavenRepo" dir="userguide/artifacts/defineRepository" title="Usage of a remote Maven repository">
             <sourcefile file="build.gradle" snippet="maven-like-repo"/>
         </sample>
@@ -169,7 +179,7 @@
         <para>To find out more about defining and working with repositories, have a look at <xref linkend="sec:repositories"/>.</para>
     </section>
 
-    <section>
+    <section id="sec:publishing_artifacts_tutorial">
         <title>Publishing artifacts</title>
         <para>
             Dependency configurations are also used to publish files.<footnote><para>We think this is confusing, and we are gradually teasing apart the two concepts in the Gradle DSL.</para></footnote>
@@ -191,7 +201,7 @@
             You can also publish to Maven repositories. The syntax is slightly different.<footnote>
                 <para>We are working to make the syntax consistent for resolving from and publishing to Maven repositories.</para>
             </footnote>
-            Note that you also need to apply the Maven plugin in order to publish to a Maven repository. In this instance, Gradle
+            Note that you also need to apply the Maven plugin in order to publish to a Maven repository. when this is in place, Gradle
             will generate and upload a <filename>pom.xml</filename>.
         </para>
         <sample id="publishMavenRepository" dir="userguide/artifacts/maven" title="Publishing to a Maven repository">
@@ -200,7 +210,7 @@
         <para>To find out more about publication, have a look at <xref linkend="artifact_management"/>.</para>
     </section>
 
-    <section>
+    <section id="sec:artifacts_tutorial_where_to_next">
         <title>Where to next?</title>
         <para>
             For all the details of dependency resolution, see <xref linkend="dependency_management"/>, and for artifact publication see <xref linkend="artifact_management"/>.

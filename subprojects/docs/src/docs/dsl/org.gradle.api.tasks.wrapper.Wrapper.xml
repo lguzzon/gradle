@@ -38,15 +38,19 @@
             </tr>
             <tr>
                 <td>distributionUrl</td>
-                <td><literal>'http\://services.gradle.org/distributions/gradle-${gradleVersion}-bin.zip'</literal>
+                <td><literal>"http\://services.gradle.org/distributions/gradle-${gradleVersion}-bin.zip"</literal>
                     (or
-                    <literal>'http\://services.gradle.org/distributions-snapshots/gradle-${gradleVersion}-bin.zip'</literal>
+                    <literal>"http\://services.gradle.org/distributions-snapshots/gradle-${gradleVersion}-bin.zip"</literal>
                     for snapshot versions).
                 </td>
             </tr>
             <tr>
                 <td>gradleVersion</td>
                 <td><literal>gradle.gradleVersion</literal></td>
+            </tr>
+            <tr>
+                <td>distributionType</td>
+                <td><literal>DistributionType.BIN</literal></td>
             </tr>
         </table>
     </section>

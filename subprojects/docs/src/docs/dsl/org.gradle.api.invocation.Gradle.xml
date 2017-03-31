@@ -14,6 +14,9 @@
                 <td>gradleUserHomeDir</td>
             </tr>
             <tr>
+                <td>gradleHomeDir</td>
+            </tr>
+            <tr>
                 <td>gradle</td>
             </tr>
             <tr>
@@ -27,6 +30,9 @@
             </tr>
             <tr>
                 <td>startParameter</td>
+            </tr>
+            <tr>
+                <td>includedBuilds</td>
             </tr>
         </table>
     </section>
@@ -79,6 +85,9 @@
             </tr>
             <tr>
                 <td>allprojects</td>
+            </tr>
+            <tr>
+                <td>includedBuild</td>
             </tr>
         </table>
     </section>

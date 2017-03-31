@@ -16,19 +16,26 @@
 <chapter id="jetty_plugin">
     <title>The Jetty Plugin</title>
 
+    <note>
+        <para>
+            This plugin is deprecated and will be removed in Gradle 4.0.
+            Consider using the more feature-rich <ulink url="https://github.com/akhikhl/gretty">Gretty plugin</ulink> instead.
+        </para>
+    </note>
+
     <para>The Jetty plugin extends the War plugin to add tasks which allow you to deploy your web application to a
         Jetty web container embedded in the build.
     </para>
 
-    <section>
+    <section id="sec:jetty_usage">
         <title>Usage</title>
-        <para>To use the Jetty plugin, include in your build script:</para>
+        <para>To use the Jetty plugin, include the following in your build script:</para>
         <sample id="useJettyPlugin" dir="webApplication/quickstart" title="Using the Jetty plugin">
             <sourcefile file="build.gradle" snippet="use-jetty-plugin"/>
         </sample>
     </section>
 
-    <section>
+    <section id="sec:jetty_tasks">
         <title>Tasks</title>
         <para>The Jetty plugin defines the following tasks:</para>
         <table>
@@ -78,17 +85,17 @@
         </figure>
     </section>
 
-    <section>
+    <section id="sec:jetty_project_layout">
         <title>Project layout</title>
         <para>The Jetty plugin uses the same layout as the War plugin.</para>
     </section>
 
-    <section>
+    <section id="sec:jetty_dependency_management">
         <title>Dependency management</title>
         <para>The Jetty plugin does not define any dependency configurations.</para>
     </section>
 
-    <section>
+    <section id="sec:jetty_convention_properties">
         <title>Convention properties</title>
         <para>The Jetty plugin defines the following convention properties:</para>
         <table>
@@ -101,6 +108,20 @@
                     <td>Description</td>
                 </tr>
             </thead>
+            <tr>
+                <td>
+                    <literal>contextPath</literal>
+                </td>
+                <td>
+                    <classname>String</classname>
+                </td>
+                <td>
+                    WAR file base name
+                </td>
+                <td>
+                    The application deployment location within the Jetty container.
+                </td>
+            </tr>
             <tr>
                 <td>
                     <literal>httpPort</literal>

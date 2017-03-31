@@ -13,30 +13,31 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
- 
+
 package org.gradle.util
 
 import spock.lang.Specification
-import static org.gradle.util.Matchers.*
 
-/**
- * @author Hans Dockter
- */
+import static org.gradle.util.Matchers.strictlyEquals
+
 class PathTest extends Specification {
-    def construction() {
+    def constructionFromString() {
         expect:
+        Path.path(':').getPath() == ':'
         Path.path(':').is(Path.ROOT)
         Path.ROOT.getPath() == ':'
         Path.path('a').getPath() == 'a'
         Path.path('a:b:c').getPath() == 'a:b:c'
         Path.path(':a').getPath() == ':a'
         Path.path(':a:b').getPath() == ':a:b'
+        Path.path(':a:b:').getPath() == ':a:b'
     }
-    
+
     def equalsAndHashCode() {
         expect:
         strictlyEquals(Path.ROOT, Path.ROOT)
         strictlyEquals(Path.path('path'), Path.path('path'))
+        strictlyEquals(Path.path(':a:path'), Path.path(':a:path'))
         Path.path(':a') != Path.path(':b')
     }
 
@@ -58,9 +59,16 @@ class PathTest extends Specification {
         Path.path('a').name == 'a'
     }
 
+    def canCreateChild() {
+        expect:
+        Path.path(':').child("a") == Path.path(":a")
+        Path.path(':a').child("b") == Path.path(":a:b")
+        Path.path('a:b').child("c") == Path.path("a:b:c")
+    }
+
     def convertsRelativePathToAbsolutePath() {
         when:
-        def Path path = Path.path(':')
+        def path = Path.path(':')
 
         then:
         path.absolutePath('path') == ':path'
@@ -75,7 +83,7 @@ class PathTest extends Specification {
     }
 
     def convertsAbsolutePathToAbsolutePath() {
-        def Path path = Path.path(':')
+        def path = Path.path(':')
 
         expect:
         path.absolutePath(':') == ':'
@@ -104,7 +112,7 @@ class PathTest extends Specification {
     }
 
     def convertsRelativePathToRelativePath() {
-        def Path path = Path.path(':')
+        def path = Path.path(':')
 
         expect:
         path.relativePath('path') == 'path'

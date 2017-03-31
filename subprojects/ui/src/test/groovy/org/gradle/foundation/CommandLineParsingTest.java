@@ -16,14 +16,12 @@
 package org.gradle.foundation;
 
 import junit.framework.TestCase;
-import org.gradle.logging.internal.LoggingCommandLineConverter;
+import org.gradle.internal.logging.LoggingCommandLineConverter;
 
 import static org.gradle.foundation.CommandLineAssistant.breakUpCommandLine;
 
 /**
  * This tests aspects of command line parsing that the UI does.
- *
- * @author mhunsicker
  */
 public class CommandLineParsingTest extends TestCase {
     /**

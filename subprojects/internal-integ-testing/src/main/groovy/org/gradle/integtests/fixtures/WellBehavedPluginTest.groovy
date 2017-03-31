@@ -16,20 +16,35 @@
 
 package org.gradle.integtests.fixtures
 
+import org.gradle.api.internal.plugins.DefaultPluginManager
+import org.gradle.util.GUtil
+
 import java.util.regex.Pattern
 
 abstract class WellBehavedPluginTest extends AbstractIntegrationSpec {
 
-    String getPluginId() {
-        def matcher = Pattern.compile("(\\w+)Plugin(GoodBehaviour)?(Integration)?Test").matcher(getClass().simpleName)
+    String getPluginName() {
+        def matcher = Pattern.compile("(\\w+)Plugin(GoodBehaviour)?(Integ(ration)?)?Test").matcher(getClass().simpleName)
         if (matcher.matches()) {
-            return matcher.group(1).toLowerCase()
+            return GUtil.toWords(matcher.group(1), (char) '-')
         }
         throw new UnsupportedOperationException("Cannot determine plugin id from class name '${getClass().simpleName}.")
     }
-    
+
+    String getQualifiedPluginId() {
+        DefaultPluginManager.CORE_PLUGIN_PREFIX + getPluginName()
+    }
+
     String getMainTask() {
         return "assemble"
+    }
+
+    def "can apply plugin unqualified"() {
+        given:
+        applyPluginUnqualified()
+
+        expect:
+        succeeds mainTask
     }
 
     def "plugin does not force creation of build dir during configuration"() {
@@ -52,6 +67,11 @@ abstract class WellBehavedPluginTest extends AbstractIntegrationSpec {
     }
 
     protected applyPlugin(File target = buildFile) {
-        target << "apply plugin: '${getPluginId()}'\n"
+        target << "apply plugin: '${getQualifiedPluginId()}'\n"
     }
+
+    protected applyPluginUnqualified(File target = buildFile) {
+        target << "apply plugin: '${getPluginName()}'\n"
+    }
+
 }

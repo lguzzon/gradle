@@ -16,15 +16,18 @@
 package org.gradle.api.internal.tasks.execution
 
 import org.gradle.api.internal.TaskInternal
+import org.gradle.api.internal.tasks.TaskExecuter
+import org.gradle.api.internal.tasks.TaskExecutionContext
+import org.gradle.api.internal.tasks.TaskExecutionOutcome
+import org.gradle.api.internal.tasks.TaskStateInternal
 import org.gradle.api.tasks.TaskAction
 import org.gradle.api.tasks.TaskDependency
 import spock.lang.Specification
-import org.gradle.api.internal.tasks.TaskStateInternal
-import org.gradle.api.internal.tasks.TaskExecuter
 
 class SkipTaskWithNoActionsExecuterTest extends Specification {
     final TaskInternal task = Mock()
     final TaskStateInternal state = Mock()
+    final TaskExecutionContext executionContext = Mock()
     final TaskExecuter target = Mock()
     final TaskInternal dependency = Mock()
     final TaskStateInternal dependencyState = Mock()
@@ -43,10 +46,10 @@ class SkipTaskWithNoActionsExecuterTest extends Specification {
         dependencyState.skipped >> true
 
         when:
-        executor.execute(task, state)
+        executor.execute(task, state, executionContext)
 
         then:
-        1 * state.upToDate()
+        1 * state.setOutcome(TaskExecutionOutcome.UP_TO_DATE)
         0 * target._
         0 * state._
     }
@@ -57,9 +60,10 @@ class SkipTaskWithNoActionsExecuterTest extends Specification {
         dependencyState.skipped >> false
 
         when:
-        executor.execute(task, state)
+        executor.execute(task, state, executionContext)
 
         then:
+        1 * state.setOutcome(TaskExecutionOutcome.EXECUTED)
         0 * target._
         0 * state._
     }
@@ -69,10 +73,10 @@ class SkipTaskWithNoActionsExecuterTest extends Specification {
         task.actions >> [{} as TaskAction]
 
         when:
-        executor.execute(task, state)
+        executor.execute(task, state, executionContext)
 
         then:
-        1 * target.execute(task, state)
+        1 * target.execute(task, state, executionContext)
         0 * target._
         0 * state._
     }

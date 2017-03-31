@@ -26,38 +26,22 @@ import org.gradle.gradleplugin.foundation.request.Request;
 import org.gradle.gradleplugin.userinterface.AlternateUIInteraction;
 import org.gradle.gradleplugin.userinterface.swing.common.SearchPanel;
 import org.gradle.gradleplugin.userinterface.swing.common.TextPaneSearchInteraction;
-import org.gradle.logging.ShowStacktrace;
+import org.gradle.api.logging.configuration.ShowStacktrace;
 
-import javax.swing.BorderFactory;
-import javax.swing.Box;
-import javax.swing.BoxLayout;
-import javax.swing.JLabel;
-import javax.swing.JPanel;
-import javax.swing.JProgressBar;
-import javax.swing.JTextPane;
-import javax.swing.JToggleButton;
-import javax.swing.SwingUtilities;
-import javax.swing.UIManager;
-import javax.swing.JButton;
-import javax.swing.AbstractAction;
+import javax.swing.*;
 import javax.swing.text.AttributeSet;
 import javax.swing.text.StyleConstants;
 import javax.swing.text.StyleContext;
-import java.awt.BorderLayout;
-import java.awt.Color;
-import java.awt.Component;
-import java.awt.Font;
+import java.awt.*;
+import java.awt.event.ActionEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.awt.event.ActionEvent;
+import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
-import java.io.File;
 
 /**
  * This is a panel that displays the results of executing a gradle command. It shows gradle's output as well as progress.
- *
- * @author mhunsicker
  */
 public class OutputPanel extends JPanel implements ExecuteGradleCommandServerProtocol.ExecutionInteraction {
 
@@ -477,7 +461,7 @@ public class OutputPanel extends JPanel implements ExecuteGradleCommandServerPro
      *
      * @param size the total number of tasks.
      */
-    public void reportNumberOfTasksToExecute(final int size) {  //if we only have a single task, then the intire process will be indeterminately long (it'll just from 0 to 100)
+    public void reportNumberOfTasksToExecute(final int size) {  //if we only have a single task, then the entire process will be indeterminately long (it'll just from 0 to 100)
         SwingUtilities.invokeLater(new Runnable() {
             public void run() {
                 boolean isIndeterminate = size == 1;
@@ -582,7 +566,6 @@ public class OutputPanel extends JPanel implements ExecuteGradleCommandServerPro
      * Report real-time output from gradle and its subsystems (such as ant).
      *
      * @param output a single line of text to show.
-     * @author mhunsicker
      */
     public void reportLiveOutput(String output) {
         appendGradleOutput(output);
@@ -591,7 +574,6 @@ public class OutputPanel extends JPanel implements ExecuteGradleCommandServerPro
     /**
      * Determines if this panel is ready to be reused. Currently, if its not busy or pinned, it can be reused.
      *
-     * @author mhunsicker
      */
     public boolean canBeReusedNow() {
         return !isPending && !isBusy && !isPinned;
@@ -642,8 +624,7 @@ public class OutputPanel extends JPanel implements ExecuteGradleCommandServerPro
      * @return true if the request stopped, false if not.
      */
     public boolean stop() {
-        if (request != null)   //if we have a request, we can only close if it allows us to.
-        {
+        if (request != null) { //if we have a request, we can only close if it allows us to.
             if (!request.cancel()) {
                 return false;
             }
@@ -665,8 +646,7 @@ public class OutputPanel extends JPanel implements ExecuteGradleCommandServerPro
     @Override
     public void setFont(Font font) {
         super.setFont(font);
-        if (gradleOutputTextPane != null)  //this gets called by internal Swing APIs, so we may not have this yet.
-        {
+        if (gradleOutputTextPane != null) { //this gets called by internal Swing APIs, so we may not have this yet.
             gradleOutputTextPane.setFont(font);
         }
     }
@@ -714,8 +694,7 @@ public class OutputPanel extends JPanel implements ExecuteGradleCommandServerPro
             //adding 'refresh' to favorites no sense. Hide this button in that case.
             if (request.getType() == RefreshTaskListRequest.TYPE) {
                 isVisible = false;
-            } else if (gradlePluginLord.getFavoritesEditor().getFavorite(request.getFullCommandLine()) != null) //is it a command that's already a favorite?
-            {
+            } else if (gradlePluginLord.getFavoritesEditor().getFavorite(request.getFullCommandLine()) != null) { //is it a command that's already a favorite?
                 isVisible = false;
             }
         }

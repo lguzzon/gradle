@@ -15,14 +15,16 @@
  */
 package org.gradle.plugins.ide.internal.generator
 
-import org.gradle.api.internal.XmlTransformer
-import org.gradle.util.TemporaryFolder
+import org.gradle.api.Action
+import org.gradle.api.XmlProvider
+import org.gradle.internal.xml.XmlTransformer
+import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
 import org.gradle.util.TextUtil
 import org.junit.Rule
 import spock.lang.Specification
 
 class XmlPersistableConfigurationObjectTest extends Specification {
-    @Rule public final TemporaryFolder tmpDir = new TemporaryFolder()
+    @Rule public final TestNameTestDirectoryProvider tmpDir = new TestNameTestDirectoryProvider()
     String rootElement
     final XmlPersistableConfigurationObject object = new XmlPersistableConfigurationObject(new XmlTransformer()) {
         @Override protected String getDefaultResourceName() {
@@ -67,5 +69,21 @@ class XmlPersistableConfigurationObjectTest extends Specification {
 
         then:
         outputFile.text == TextUtil.toPlatformLineSeparators('<?xml version="1.0" encoding="UTF-8"?>\n<modified-xml/>\n')
+    }
+
+    def "can add transform Actions"() {
+        object.loadDefaults()
+        def outputFile = tmpDir.file('output.xml')
+
+        when:
+        object.transformAction({ xmlProvider ->
+            xmlProvider.asNode().attributes().put('some', 'attribute')
+        } as Action<XmlProvider>)
+
+        and:
+        object.store(outputFile)
+
+        then:
+        outputFile.text == TextUtil.toPlatformLineSeparators('<?xml version="1.0" encoding="UTF-8"?>\n<default-xml some="attribute"/>\n')
     }
 }

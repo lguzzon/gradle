@@ -19,7 +19,7 @@ import org.gradle.launcher.daemon.registry.DaemonRegistry
 
 class DaemonEventSequenceBuilder {
 
-    int pollRegistryMs = 300
+    int pollRegistryMs = 50
     final int stateTransitionTimeoutMs
 
     DaemonsState currentState = null
@@ -79,7 +79,7 @@ class DaemonEventSequenceBuilder {
     private finishCheckpoint() {
         if (currentState == null) {
             if (!actions.empty) {
-                currentState = DaemonsState.getWildcard()
+                currentState = DaemonsState.getWildcardState()
                 finishCheckpoint()
             }
         } else {

@@ -15,36 +15,90 @@
  */
 package org.gradle.plugins.ide.eclipse
 
+import junit.framework.AssertionFailedError
+import org.custommonkey.xmlunit.Diff
+import org.custommonkey.xmlunit.ElementNameAndAttributeQualifier
+import org.custommonkey.xmlunit.XMLAssert
+import org.gradle.api.JavaVersion
+import org.gradle.api.internal.artifacts.ivyservice.CacheLayout
 import org.gradle.integtests.fixtures.TestResources
+import org.gradle.test.fixtures.file.TestFile
 import org.gradle.util.TextUtil
+import org.junit.ComparisonFailure
 import org.junit.Rule
 import org.junit.Test
 import spock.lang.Issue
+
+import java.util.regex.Pattern
 
 class EclipseIntegrationTest extends AbstractEclipseIntegrationTest {
     private static String nonAscii = "\\u7777\\u8888\\u9999"
 
     @Rule
-    public final TestResources testResources = new TestResources()
+    public final TestResources testResources = new TestResources(testDirectoryProvider)
 
     @Test
     void canCreateAndDeleteMetaData() {
+        when:
         File buildFile = testFile("master/build.gradle")
-        usingBuildFile(buildFile).run()
+        usingBuildFile(buildFile).withTasks("eclipse").run()
+
+        assertHasExpectedContents(getClasspathFile(project:"api"), "apiClasspath.xml")
+        assertHasExpectedContents(getProjectFile(project:"api"), "apiProject.xml")
+        assertHasExpectedContents(getComponentFile(project:"api"), "apiWtpComponent.xml")
+        assertHasExpectedContents(getFacetFile(project:"api"), "apiWtpFacet.xml")
+        assertHasExpectedProperties(getJdtPropertiesFile(project:"api"), "apiJdt.properties")
+
+        assertHasExpectedContents(getClasspathFile(project:"common"), "commonClasspath.xml")
+        assertHasExpectedContents(getProjectFile(project:"common"), "commonProject.xml")
+        assertHasExpectedContents(getComponentFile(project:"common"), "commonWtpComponent.xml")
+        assertHasExpectedContents(getFacetFile(project:"common"), "commonWtpFacet.xml")
+        assertHasExpectedProperties(getJdtPropertiesFile(project:"common"), "commonJdt.properties")
+
+        assertHasExpectedContents(getClasspathFile(project:"groovyproject"), "groovyprojectClasspath.xml")
+        assertHasExpectedContents(getProjectFile(project:"groovyproject"), "groovyprojectProject.xml")
+        assertHasExpectedProperties(getJdtPropertiesFile(project:"groovyproject"), "groovyprojectJdt.properties")
+
+        assertHasExpectedContents(getClasspathFile(project:"javabaseproject"), "javabaseprojectClasspath.xml")
+        assertHasExpectedContents(getProjectFile(project:"javabaseproject"), "javabaseprojectProject.xml")
+        assertHasExpectedProperties(getJdtPropertiesFile(project:"javabaseproject"), "javabaseprojectJdt.properties")
+
+
+        assertHasExpectedContents(getProjectFile(project:"master"), "masterProject.xml")
+
+        assertHasExpectedContents(getClasspathFile(project:"webAppJava6"), "webAppJava6Classpath.xml")
+        assertHasExpectedContents(getProjectFile(project:"webAppJava6"), "webAppJava6Project.xml")
+        assertHasExpectedContents(getComponentFile(project:"webAppJava6"), "webAppJava6WtpComponent.xml")
+        assertHasExpectedContents(getFacetFile(project:"webAppJava6"), "webAppJava6WtpFacet.xml")
+        assertHasExpectedProperties(getJdtPropertiesFile(project:"webAppJava6"), "webAppJava6Jdt.properties")
+
+        assertHasExpectedContents(getClasspathFile(project:"webAppWithVars"), "webAppWithVarsClasspath.xml")
+        assertHasExpectedContents(getProjectFile(project:"webAppWithVars"), "webAppWithVarsProject.xml")
+        assertHasExpectedContents(getComponentFile(project:"webAppWithVars"), "webAppWithVarsWtpComponent.xml")
+        assertHasExpectedContents(getFacetFile(project:"webAppWithVars"), "webAppWithVarsWtpFacet.xml")
+        assertHasExpectedProperties(getJdtPropertiesFile(project:"webAppWithVars"), "webAppWithVarsJdt.properties")
+
+        assertHasExpectedContents(getClasspathFile(project:"webservice"), "webserviceClasspath.xml")
+        assertHasExpectedContents(getProjectFile(project:"webservice"), "webserviceProject.xml")
+        assertHasExpectedContents(getComponentFile(project:"webservice"), "webserviceWtpComponent.xml")
+        assertHasExpectedContents(getFacetFile(project:"webservice"), "webserviceWtpFacet.xml")
+        assertHasExpectedProperties(getJdtPropertiesFile(project:"webservice"), "webserviceJdt.properties")
+
+        usingBuildFile(buildFile).withTasks("cleanEclipse").run()
     }
 
     @Test
     void sourceEntriesInClasspathFileAreSortedAsPerUsualConvention() {
         def expectedOrder = [
-                "src/main/java",
-                "src/main/groovy",
-                "src/main/resources",
-                "src/test/java",
-                "src/test/groovy",
-                "src/test/resources",
-                "src/integTest/java",
-                "src/integTest/groovy",
-                "src/integTest/resources"
+            "src/main/java",
+            "src/main/groovy",
+            "src/main/resources",
+            "src/test/java",
+            "src/test/groovy",
+            "src/test/resources",
+            "src/integTest/java",
+            "src/integTest/groovy",
+            "src/integTest/resources"
         ]
 
         expectedOrder.each { testFile(it).mkdirs() }
@@ -83,16 +137,15 @@ sourceSets {
 
     @Test
     void canHandleCircularModuleDependencies() {
-        def repoDir = file("repo")
-        def artifact1 = maven(repoDir).module("myGroup", "myArtifact1").dependsOn("myArtifact2").publish().artifactFile
-        def artifact2 = maven(repoDir).module("myGroup", "myArtifact2").dependsOn("myArtifact1").publish().artifactFile
+        def artifact1 = mavenRepo.module("myGroup", "myArtifact1", "1.0").dependsOn("myGroup", "myArtifact2", "1.0").publish().artifactFile
+        def artifact2 = mavenRepo.module("myGroup", "myArtifact2", "1.0").dependsOn("myGroup", "myArtifact1", "1.0").publish().artifactFile
 
         runEclipseTask """
 apply plugin: "java"
 apply plugin: "eclipse"
 
 repositories {
-    maven { url "${repoDir.toURI()}" }
+    maven { url "${mavenRepo.uri}" }
 }
 
 dependencies {
@@ -101,6 +154,26 @@ dependencies {
         """
 
         libEntriesInClasspathFileHaveFilenames(artifact1.name, artifact2.name)
+    }
+
+    @Test
+    void canConfigureTargetRuntimeName() {
+
+        runEclipseTask """
+apply plugin: "java"
+apply plugin: "eclipse"
+
+repositories {
+    maven { url "${mavenRepo.uri}" }
+}
+
+eclipse {
+    jdt {
+        javaRuntimeName = "Jigsaw-1.9"
+    }
+}"""
+
+        assert classpath.containers == ["org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/Jigsaw-1.9/"]
     }
 
     @Test
@@ -181,9 +254,11 @@ eclipse {
     }
 }
 
-tasks.eclipse << {
-    assert beforeConfiguredObjects == 5 : "beforeConfigured() hooks shoold be fired for domain model objects"
-    assert whenConfiguredObjects == 5 : "whenConfigured() hooks shoold be fired for domain model objects"
+tasks.eclipse {
+    doLast {
+        assert beforeConfiguredObjects == 5 : "beforeConfigured() hooks shoold be fired for domain model objects"
+        assert whenConfiguredObjects == 5 : "whenConfigured() hooks shoold be fired for domain model objects"
+    }
 }
 ''')
 
@@ -191,16 +266,15 @@ tasks.eclipse << {
 
     @Test
     void respectsPerConfigurationExcludes() {
-        def repoDir = file("repo")
-        def artifact1 = maven(repoDir).module("myGroup", "myArtifact1").dependsOn("myArtifact2").publish().artifactFile
-        maven(repoDir).module("myGroup", "myArtifact2").publish()
+        def artifact1 = mavenRepo.module("myGroup", "myArtifact1", "1.0").dependsOn("myGroup", "myArtifact2", "1.0").publish().artifactFile
+        mavenRepo.module("myGroup", "myArtifact2", "1.0").publish()
 
         runEclipseTask """
 apply plugin: 'java'
 apply plugin: 'eclipse'
 
 repositories {
-    maven { url "${repoDir.toURI()}" }
+    maven { url "${mavenRepo.uri}" }
 }
 
 configurations {
@@ -217,16 +291,15 @@ dependencies {
 
     @Test
     void respectsPerDependencyExcludes() {
-        def repoDir = file("repo")
-        def artifact1 = maven(repoDir).module("myGroup", "myArtifact1").dependsOn("myArtifact2").publish().artifactFile
-        maven(repoDir).module("myGroup", "myArtifact2").publish()
+        def artifact1 = mavenRepo.module("myGroup", "myArtifact1", "1.0").dependsOn("myGroup", "myArtifact2", "1.0").publish().artifactFile
+        mavenRepo.module("myGroup", "myArtifact2", "1.0").publish()
 
         runEclipseTask """
 apply plugin: 'java'
 apply plugin: 'eclipse'
 
 repositories {
-    maven { url "${repoDir.toURI()}" }
+    maven { url "${mavenRepo.uri}" }
 }
 
 dependencies {
@@ -286,6 +359,49 @@ eclipse.jdt {
     }
 
     @Test
+    void sourceAndTargetCompatibilityDefaultIsCurrentJavaVersion() {
+        runEclipseTask '''
+apply plugin: 'java'
+apply plugin: 'eclipse'
+'''
+        def jdt = parseJdtFile()
+        assert jdt.contains('source=' + JavaVersion.current().toString())
+        assert jdt.contains('targetPlatform=' + JavaVersion.current().toString())
+    }
+
+    @Test
+    void sourceAndTargetCompatibilityDefinedInPluginConvention() {
+        runEclipseTask '''
+apply plugin: 'java'
+apply plugin: 'eclipse'
+    sourceCompatibility = 1.4
+    targetCompatibility = 1.3
+'''
+        def jdt = parseJdtFile()
+        assert jdt.contains('source=1.4')
+        assert jdt.contains('targetPlatform=1.3')
+    }
+
+    @Test
+    void jdtSettingsHasPrecedenceOverJavaPluginConvention() {
+        runEclipseTask '''
+apply plugin: 'java'
+apply plugin: 'eclipse'
+sourceCompatibility = 1.4
+targetCompatibility = 1.5
+eclipse {
+    jdt {
+        sourceCompatibility = 1.3
+        targetCompatibility = 1.4
+    }
+}
+'''
+        def jdt = parseJdtFile()
+        assert jdt.contains('source=1.3')
+        assert jdt.contains('targetPlatform=1.4')
+    }
+
+    @Test
     void dslAllowsShortFormsForProject() {
         runEclipseTask '''
 apply plugin: 'java'
@@ -329,7 +445,7 @@ eclipse {
     @Test
     @Issue("GRADLE-1157")
     void canHandleDependencyWithoutSourceJarInFlatDirRepo() {
-        def repoDir = testDir.createDir("repo")
+        def repoDir = testDirectory.createDir("repo")
         repoDir.createFile("lib-1.0.jar")
 
         runEclipseTask """
@@ -349,15 +465,14 @@ dependencies {
     @Test
     @Issue("GRADLE-1706") // doesn't prove that the issue is fixed because the test also passes with 1.0-milestone-4
     void canHandleDependencyWithoutSourceJarInMavenRepo() {
-        def repoDir = testDir.createDir("repo")
-        maven(repoDir).module("some", "lib").publish()
+        mavenRepo.module("some", "lib", "1.0").publish()
 
         runEclipseTask """
 apply plugin: "java"
 apply plugin: "eclipse"
 
 repositories {
-    maven { url "${repoDir.toURI()}" }
+    maven { url "${mavenRepo}" }
 }
 
 dependencies {
@@ -365,4 +480,46 @@ dependencies {
 }
         """
     }
+
+    void assertHasExpectedContents(TestFile actualFile, String expectedFileName) {
+        actualFile.assertExists()
+        TestFile expectedFile = testDirectory.file("expectedFiles/$expectedFileName").assertIsFile()
+        String expectedXml = expectedFile.text
+        String actualXml = getActualXml(actualFile)
+        Diff diff = new Diff(expectedXml, actualXml)
+
+        diff.overrideElementQualifier(new ElementNameAndAttributeQualifier())
+        try {
+            XMLAssert.assertXMLEqual(diff, true)
+        } catch (AssertionFailedError error) {
+            println "EXPECTED:\n${expectedXml}"
+            println "ACTUAL:\n${actualXml}"
+            throw new ComparisonFailure("Comparison filure: expected: $expectedFile, actual: $actualFile"
+                + "\nUnexpected content for generated actualFile: ${error.message}", expectedXml, actualXml).initCause(error)
+        }
+    }
+
+    void assertHasExpectedProperties(TestFile actualFile, String expectedFileName) {
+        actualFile.assertExists()
+        TestFile expectedFile = testDirectory.file("expectedFiles/$expectedFileName").assertIsFile()
+        Properties expected = new Properties()
+        expected.load(new ByteArrayInputStream(expectedFile.bytes))
+        Properties actual = new Properties()
+        actual.load(new ByteArrayInputStream(actualFile.bytes))
+        assert expected == actual
+    }
+
+    String getActualXml(File file) {
+        def gradleUserHomeDir = executer.getGradleUserHomeDir()
+        def homeDir = gradleUserHomeDir.absolutePath.replace(File.separator, '/')
+        def pattern = Pattern.compile(Pattern.quote(homeDir) + "/caches/${CacheLayout.ROOT.getKey()}/${CacheLayout.FILE_STORE.getKey()}/([^/]+/[^/]+/[^/]+)/[a-z0-9]+/")
+        def text = file.text.replaceAll(pattern, '@CACHE_DIR@/$1/@SHA1@/')
+        pattern = Pattern.compile("GRADLE_USER_HOME/${CacheLayout.ROOT.getKey()}/${CacheLayout.FILE_STORE.getKey()}/([^/]+/[^/]+/[^/]+)/[a-z0-9]+/")
+        text = text.replaceAll(pattern, 'GRADLE_USER_HOME/@CACHE@/$1/@SHA1@/')
+
+        //remove trailing slashes for windows paths
+        text = text.replaceAll("jar:file:/", 'jar:file:')
+        return text
+    }
+
 }

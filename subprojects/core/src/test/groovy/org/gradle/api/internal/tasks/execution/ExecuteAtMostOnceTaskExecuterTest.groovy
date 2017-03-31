@@ -16,62 +16,36 @@
 package org.gradle.api.internal.tasks.execution
 
 import org.gradle.api.internal.TaskInternal
-import org.gradle.util.JUnit4GroovyMockery
-import org.jmock.integration.junit4.JMock
-import org.junit.Test
-import org.junit.runner.RunWith
 import org.gradle.api.internal.tasks.TaskExecuter
+import org.gradle.api.internal.tasks.TaskExecutionContext
 import org.gradle.api.internal.tasks.TaskStateInternal
-import static org.junit.Assert.*
-import static org.hamcrest.Matchers.*
+import spock.lang.Specification
 
-@RunWith(JMock.class)
-class ExecuteAtMostOnceTaskExecuterTest {
-    private final JUnit4GroovyMockery context = new JUnit4GroovyMockery()
-    private final TaskExecuter target = context.mock(TaskExecuter.class)
-    private final TaskInternal task = context.mock(TaskInternal.class)
-    private final TaskStateInternal state = context.mock(TaskStateInternal.class)
+class ExecuteAtMostOnceTaskExecuterTest extends Specification {
+    private final TaskExecuter target = Mock(TaskExecuter)
+    private final TaskInternal task = Mock(TaskInternal)
+    private final TaskStateInternal state = Mock(TaskStateInternal)
+    private final TaskExecutionContext executionContext = Mock(TaskExecutionContext)
     private final ExecuteAtMostOnceTaskExecuter executer = new ExecuteAtMostOnceTaskExecuter(target)
 
-    @Test
-    public void doesNothingWhenTaskHasAlreadyBeenExecuted() {
-        context.checking {
-            allowing(state).getExecuted()
-            will(returnValue(true))
-        }
+    def doesNothingWhenTaskHasAlreadyBeenExecuted() {
+        when:
+        executer.execute(task, state, executionContext)
 
-        executer.execute(task, state)
+        then:
+        1 * state.getExecuted() >> true
+        0 * _
     }
 
-    @Test
-    public void delegatesToExecuterWhenTaskHasNotBeenExecuted() {
-        context.checking {
-            allowing(state).getExecuted()
-            will(returnValue(false))
-            one(target).execute(task, state)
-            one(state).executed()
-        }
+    def delegatesToExecuterWhenTaskHasNotBeenExecuted() {
+        when:
+        executer.execute(task, state, executionContext)
 
-        executer.execute(task, state)
-    }
+        then:
+        1 * state.getExecuted() >> false
+        1 * target.execute(task, state, executionContext)
 
-    @Test
-    public void marksTaskExecutedOnFailureFromExecuter() {
-        def failure = new RuntimeException()
-
-        context.checking {
-            allowing(state).getExecuted()
-            will(returnValue(false))
-            one(target).execute(task, state)
-            will(throwException(failure))
-            one(state).executed()
-        }
-
-        try {
-            executer.execute(task, state)
-            fail()
-        } catch (RuntimeException e) {
-            assertThat(e, sameInstance(failure))
-        }
+        then:
+        0 * _
     }
 }

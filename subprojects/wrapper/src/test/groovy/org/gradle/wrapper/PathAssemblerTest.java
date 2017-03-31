@@ -21,13 +21,9 @@ import org.junit.Test;
 import java.io.File;
 import java.net.URI;
 
-import static org.gradle.util.Matchers.matchesRegexp;
 import static org.hamcrest.Matchers.equalTo;
 import static org.junit.Assert.*;
 
-/**
- * @author Hans Dockter
- */
 public class PathAssemblerTest {
     public static final String TEST_GRADLE_USER_HOME = "someUserHome";
     private PathAssembler pathAssembler = new PathAssembler(new File(TEST_GRADLE_USER_HOME));
@@ -46,7 +42,7 @@ public class PathAssemblerTest {
         configuration.setDistribution(new URI("http://server/dist/gradle-0.9-bin.zip"));
         
         File distributionDir = pathAssembler.getDistribution(configuration).getDistributionDir();
-        assertThat(distributionDir.getName(), matchesRegexp("[a-z0-9]+"));
+        assertThat(distributionDir.getName(), equalTo("emn8ua2x0re2y4jlewhnxhasz"));
         assertThat(distributionDir.getParentFile(), equalTo(file(TEST_GRADLE_USER_HOME + "/somePath/gradle-0.9-bin")));
     }
 
@@ -56,7 +52,7 @@ public class PathAssemblerTest {
         configuration.setDistribution(new URI("http://server/dist/gradle-0.9-bin.zip"));
 
         File distributionDir = pathAssembler.getDistribution(configuration).getDistributionDir();
-        assertThat(distributionDir.getName(), matchesRegexp("[a-z0-9]+"));
+        assertThat(distributionDir.getName(), equalTo("emn8ua2x0re2y4jlewhnxhasz"));
         assertThat(distributionDir.getParentFile(), equalTo(file(currentDirPath() + "/somePath/gradle-0.9-bin")));
     }
 
@@ -79,7 +75,7 @@ public class PathAssemblerTest {
 
         File dist = pathAssembler.getDistribution(configuration).getZipFile();
         assertThat(dist.getName(), equalTo("gradle-1.0.zip"));
-        assertThat(dist.getParentFile().getName(), matchesRegexp("[a-z0-9]+"));
+        assertThat(dist.getParentFile().getName(), equalTo("98xa9n94mamfu7vl4mzwomw11"));
         assertThat(dist.getParentFile().getParentFile(), equalTo(file(TEST_GRADLE_USER_HOME + "/somePath/gradle-1.0")));
     }
 
@@ -90,7 +86,7 @@ public class PathAssemblerTest {
 
         File dist = pathAssembler.getDistribution(configuration).getZipFile();
         assertThat(dist.getName(), equalTo("gradle-1.0.zip"));
-        assertThat(dist.getParentFile().getName(), matchesRegexp("[a-z0-9]+"));
+        assertThat(dist.getParentFile().getName(), equalTo("98xa9n94mamfu7vl4mzwomw11"));
         assertThat(dist.getParentFile().getParentFile(), equalTo(file(currentDirPath() + "/somePath/gradle-1.0")));
     }
 

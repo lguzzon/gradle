@@ -16,15 +16,10 @@
 
 package org.gradle.integtests.tooling.m9
 
-import org.gradle.integtests.tooling.fixture.MinTargetGradleVersion
-import org.gradle.integtests.tooling.fixture.MinToolingApiVersion
 import org.gradle.integtests.tooling.fixture.ToolingApiSpecification
-import org.gradle.tooling.GradleConnectionException
 import spock.lang.Issue
 import spock.lang.Timeout
 
-@MinToolingApiVersion('1.0-milestone-9')
-@MinTargetGradleVersion('1.0-milestone-9')
 class DaemonErrorFeedbackCrossVersionSpec extends ToolingApiSpecification {
 
     @Issue("GRADLE-1799")
@@ -32,18 +27,18 @@ class DaemonErrorFeedbackCrossVersionSpec extends ToolingApiSpecification {
     def "promptly discovers rubbish jvm arguments"() {
         //jvm arguments cannot be set for an existing process
         //so we must not run in embedded mode
-        toolingApi.isEmbedded = false
+        toolingApi.requireDaemons()
 
         when:
-        def ex = maybeFailWithConnection {
+        withConnection {
             it.newBuild()
                     .setJvmArguments("-Xasdf")
                     .run()
         }
 
         then:
-        ex instanceof GradleConnectionException
-        ex.cause.message.contains "-Xasdf"
-        ex.cause.message.contains "Unable to start the daemon"
+        caughtGradleConnectionException = thrown()
+        caughtGradleConnectionException.cause.message.contains "-Xasdf"
+        caughtGradleConnectionException.cause.message.contains "Unable to start the daemon"
     }
 }

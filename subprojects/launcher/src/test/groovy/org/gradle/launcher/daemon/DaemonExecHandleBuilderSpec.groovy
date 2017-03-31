@@ -17,15 +17,13 @@
 package org.gradle.launcher.daemon
 
 import org.gradle.launcher.daemon.bootstrap.DaemonOutputConsumer
-import org.gradle.process.internal.ExecHandleBuilder
+import org.gradle.process.internal.DefaultExecHandleBuilder
+import org.gradle.util.UsesNativeServices
 import spock.lang.Specification
 
-/**
- * by Szczepan Faber, created at: 5/7/12
- */
+@UsesNativeServices
 class DaemonExecHandleBuilderSpec extends Specification {
-
-    def builder = Mock(ExecHandleBuilder)
+    def builder = Mock(DefaultExecHandleBuilder)
     def daemonBuilder = new DaemonExecHandleBuilder(builder: builder)
 
     def "creates process with correct settings"() {

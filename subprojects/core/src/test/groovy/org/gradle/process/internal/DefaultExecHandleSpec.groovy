@@ -14,14 +14,16 @@
  * limitations under the License.
  */
 
-package org.gradle.process.internal;
+package org.gradle.process.internal
 
-
+import org.gradle.api.internal.file.TestFiles
+import org.gradle.internal.concurrent.ExecutorFactory
+import org.gradle.internal.jvm.Jvm
 import org.gradle.process.ExecResult
 import org.gradle.process.internal.streams.StreamsHandler
+import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
 import org.gradle.util.GUtil
-import org.gradle.util.Jvm
-import org.gradle.util.TemporaryFolder
+import org.gradle.util.UsesNativeServices
 import org.junit.Rule
 import spock.lang.Ignore
 import spock.lang.Specification
@@ -29,12 +31,10 @@ import spock.lang.Timeout
 
 import java.util.concurrent.Callable
 
-/**
- * @author Tom Eyckmans, Szczepan Faber
- */
+@UsesNativeServices
 @Timeout(60)
 class DefaultExecHandleSpec extends Specification {
-    @Rule final TemporaryFolder tmpDir = new TemporaryFolder();
+    @Rule final TestNameTestDirectoryProvider tmpDir = new TestNameTestDirectoryProvider();
 
     void "forks process"() {
         given:
@@ -110,11 +110,56 @@ class DefaultExecHandleSpec extends Specification {
         when:
         execHandle.start();
         execHandle.abort();
-        def result = execHandle.waitForFinish();
+        then:
+        execHandle.state == ExecHandleState.ABORTED
+        and:
+        execHandle.waitForFinish().exitValue != 0
+    }
+
+    void "can abort after process has completed"() {
+        given:
+        def execHandle = handle().args(args(TestApp.class)).build();
+        execHandle.start().waitForFinish();
+
+        when:
+        execHandle.abort();
+
+        then:
+        execHandle.state == ExecHandleState.SUCCEEDED
+
+        and:
+        execHandle.waitForFinish().exitValue == 0
+    }
+
+    void "can abort after process has failed"() {
+        given:
+        def execHandle = handle().args(args(BrokenApp.class)).build();
+        execHandle.start().waitForFinish();
+
+        when:
+        execHandle.abort();
+
+        then:
+        execHandle.state == ExecHandleState.FAILED
+
+        and:
+        execHandle.waitForFinish().exitValue == 72
+    }
+
+    void "can abort after process has been aborted"() {
+        given:
+        def execHandle = handle().args(args(SlowApp.class)).build();
+        execHandle.start();
+        execHandle.abort();
+
+        when:
+        execHandle.abort();
 
         then:
         execHandle.state == ExecHandleState.ABORTED
-        result.exitValue != 0
+
+        and:
+        execHandle.waitForFinish().exitValue != 0
     }
 
     void "clients can listen to notifications"() {
@@ -147,7 +192,7 @@ class DefaultExecHandleSpec extends Specification {
         execHandle.abort()
     }
 
-    @Ignore //TODO SF not yet implemented
+    @Ignore //not yet implemented
     void "aborts daemon"() {
         def output = new ByteArrayOutputStream()
         def execHandle = handle().setDaemon(true).setStandardOutput(output).args(args(SlowDaemonApp.class)).build();
@@ -186,7 +231,7 @@ class DefaultExecHandleSpec extends Specification {
         execHandle.abort()
     }
 
-    @Ignore //TODO SF not yet implemented
+    @Ignore //not yet implemented
     void "can detach from long daemon and then wait for finish"() {
         def out = new ByteArrayOutputStream()
         def execHandle = handle().setStandardOutput(out).args(args(SlowDaemonApp.class, "200")).build();
@@ -205,7 +250,7 @@ class DefaultExecHandleSpec extends Specification {
         execHandle.state == ExecHandleState.SUCCEEDED
     }
 
-    @Ignore //TODO SF not yet implemented
+    @Ignore //not yet implemented
     void "can detach from fast app then wait for finish"() {
         def out = new ByteArrayOutputStream()
         def execHandle = handle().setStandardOutput(out).args(args(TestApp.class)).build();
@@ -219,8 +264,8 @@ class DefaultExecHandleSpec extends Specification {
         execHandle.state == ExecHandleState.SUCCEEDED
     }
 
-    @Ignore
-    //TODO SF. I have a feeling it is not really testable cleanly.
+    @Ignore //not yet implemented
+    //it may not be easily testable
     void "detach detects when process did not start or died prematurely"() {
         def execHandle = handle().args(args(BrokenApp.class)).build();
 
@@ -257,15 +302,14 @@ class DefaultExecHandleSpec extends Specification {
 
         then:
         result.rethrowFailure()
-        1 * streamsHandler.connectStreams(_ as Process, "foo proc")
+        1 * streamsHandler.connectStreams(_ as Process, "foo proc", _ as ExecutorFactory)
         1 * streamsHandler.start()
         1 * streamsHandler.stop()
         0 * streamsHandler._
     }
 
     @Timeout(2)
-    //TODO SF not yet implemented
-    @Ignore
+    @Ignore //not yet implemented
     void "exec handle can detach with timeout"() {
         given:
         def execHandle = handle().args(args(SlowApp.class)).setTimeout(1).build();
@@ -279,8 +323,7 @@ class DefaultExecHandleSpec extends Specification {
         //the timeout does not hit
     }
 
-    //TODO SF not yet implemented
-    @Ignore
+    @Ignore //not yet implemented
     void "exec handle can wait with timeout"() {
         given:
         def execHandle = handle().args(args(SlowApp.class)).setTimeout(1).build();
@@ -303,45 +346,15 @@ class DefaultExecHandleSpec extends Specification {
         }
     }
 
-    @Ignore
-    //TODO SF add coverage (or move somewhere else) - it should over the ibm+windows use case
-    void "consumes input"() {
-        given:
-        def bytes = new ByteArrayOutputStream()
-        def object = new ObjectOutputStream(bytes)
-        object.writeObject(new Prints(message: 'yummie input'))
-        object.flush()
-        object.close()
-        def out = new ByteArrayOutputStream()
-
-        def execHandle = handle().setStandardOutput(out).setStandardInput(new ByteArrayInputStream(bytes.toByteArray())).args(args(InputReadingApp.class)).build();
-
-        when:
-        execHandle.start()
-        def result = execHandle.waitForFinish()
-
-        then:
-        result.rethrowFailure()
-        result.exitValue == 0
-        out.toString().contains('yummie input')
-    }
-
-    private ExecHandleBuilder handle() {
-        new ExecHandleBuilder()
+    private DefaultExecHandleBuilder handle() {
+        new DefaultExecHandleBuilder(TestFiles.resolver())
                 .executable(Jvm.current().getJavaExecutable().getAbsolutePath())
                 .setTimeout(20000) //sanity timeout
-                .workingDir(tmpDir.getDir());
+                .workingDir(tmpDir.getTestDirectory());
     }
 
     private List args(Class mainClass, String ... args) {
         GUtil.flattenElements("-cp", System.getProperty("java.class.path"), mainClass.getName(), args);
-    }
-
-    public static class TestApp {
-        public static void main(String[] args) {
-            System.out.print("output args: " + Arrays.asList(args));
-            System.err.print("error args: " + Arrays.asList(args));
-        }
     }
 
     public static class BrokenApp {

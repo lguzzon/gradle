@@ -15,31 +15,33 @@
  */
 package org.gradle.api.internal.file.archive;
 
-import java.util.Map;
-import java.util.HashMap;
-
-import org.gradle.util.Resources;
-import org.gradle.util.TemporaryFolder;
-import org.gradle.util.TestFile;
-import org.gradle.api.InvalidUserDataException;
 import org.gradle.api.GradleException;
-import org.junit.Test;
+import org.gradle.api.InvalidUserDataException;
+import org.gradle.test.fixtures.file.TestFile;
+import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider;
+import org.gradle.util.Resources;
 import org.junit.Rule;
+import org.junit.Test;
 
-import static org.gradle.util.WrapUtil.*;
-import static org.gradle.api.tasks.AntBuilderAwareUtil.*;
+import java.util.HashMap;
+import java.util.Map;
+
 import static org.gradle.api.file.FileVisitorUtil.*;
-import static org.hamcrest.Matchers.*;
-import static org.junit.Assert.*;
-import static java.util.Collections.*;
+import static org.gradle.api.internal.file.TestFiles.directoryFileTreeFactory;
+import static org.gradle.api.internal.file.TestFiles.fileSystem;
+import static org.gradle.api.tasks.AntBuilderAwareUtil.assertSetContainsForAllTypes;
+import static org.gradle.util.WrapUtil.toList;
+import static org.hamcrest.Matchers.equalTo;
+import static org.junit.Assert.assertThat;
+import static org.junit.Assert.fail;
 
 public class ZipFileTreeTest {
-    @Rule public final TemporaryFolder tmpDir = new TemporaryFolder();
+    @Rule public final TestNameTestDirectoryProvider tmpDir = new TestNameTestDirectoryProvider();
     @Rule public final Resources resources = new Resources();
-    private final TestFile zipFile = tmpDir.getDir().file("test.zip");
-    private final TestFile rootDir = tmpDir.getDir().file("root");
-    private final TestFile expandDir = tmpDir.getDir().file("tmp");
-    private final ZipFileTree tree = new ZipFileTree(zipFile, expandDir);
+    private final TestFile zipFile = tmpDir.getTestDirectory().file("test.zip");
+    private final TestFile rootDir = tmpDir.getTestDirectory().file("root");
+    private final TestFile expandDir = tmpDir.getTestDirectory().file("tmp");
+    private final ZipFileTree tree = new ZipFileTree(zipFile, expandDir, fileSystem(), directoryFileTreeFactory());
 
     @Test
     public void displayName() {
@@ -66,9 +68,13 @@ public class ZipFileTreeTest {
     }
 
     @Test
-    public void isEmptyWhenZipFileDoesNotExist() {
-        assertVisits(tree, EMPTY_LIST, EMPTY_LIST);
-        assertSetContainsForAllTypes(tree, EMPTY_LIST);
+    public void failsWhenZipFileDoesNotExist() {
+        try {
+            tree.visit(null);
+            fail();
+        } catch (InvalidUserDataException e) {
+            assertThat(e.getMessage(), equalTo("Cannot expand ZIP '" + zipFile + "' as it does not exist."));
+        }
     }
 
     @Test

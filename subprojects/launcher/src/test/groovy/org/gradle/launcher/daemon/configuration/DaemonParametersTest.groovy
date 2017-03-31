@@ -15,235 +15,122 @@
  */
 package org.gradle.launcher.daemon.configuration
 
-import org.gradle.StartParameter
-import org.gradle.api.GradleException
+import org.gradle.api.JavaVersion
+import org.gradle.initialization.BuildLayoutParameters
+import org.gradle.internal.jvm.JavaInfo
 import org.gradle.internal.jvm.Jvm
-import org.gradle.util.TemporaryFolder
-import org.junit.Rule
+import org.gradle.util.UsesNativeServices
 import spock.lang.Specification
 
+import static java.lang.Boolean.parseBoolean
+
+@UsesNativeServices
 class DaemonParametersTest extends Specification {
-    @Rule final TemporaryFolder tmpDir = new TemporaryFolder()
-    final DaemonParameters parameters = new DaemonParameters()
+    final DaemonParameters parameters = parameters()
+
+    private DaemonParameters parameters() {
+        new DaemonParameters(new BuildLayoutParameters())
+    }
 
     def "has reasonable default values"() {
         expect:
-        !parameters.enabled
+        parameters.enabled
         parameters.idleTimeout == DaemonParameters.DEFAULT_IDLE_TIMEOUT
-        def baseDir = new File(StartParameter.DEFAULT_GRADLE_USER_HOME, "daemon")
-        parameters.baseDir == baseDir
+        parameters.periodicCheckInterval == DaemonParameters.DEFAULT_PERIODIC_CHECK_INTERVAL_MILLIS
+        parameters.baseDir == new File(new BuildLayoutParameters().getGradleUserHomeDir(), "daemon")
         parameters.systemProperties.isEmpty()
-        // Not that reasonable
-        parameters.effectiveJvmArgs.containsAll(parameters.defaultJvmArgs)
-        parameters.effectiveJvmArgs.size() == parameters.defaultJvmArgs.size() + 1 // + 1 because effective JVM args contains -Dfile.encoding
+        parameters.effectiveJvmArgs.size() == 1  + 3 // + 1 because effective JVM args contains -Dfile.encoding, +3 for locale props
     }
 
-    def "determines base dir from user home dir"() {
-        def userHome = new File("some-dir")
+    def "setting jvm to null means use the current jvm"() {
+        def jvm = Stub(JavaInfo)
 
         when:
-        parameters.configureFromGradleUserHome(userHome)
+        parameters.jvm = jvm
 
         then:
-        parameters.baseDir == new File(userHome, "daemon").canonicalFile
-    }
+        parameters.effectiveJvm == jvm
 
-    def "can configure base directory using system property"() {
         when:
-        parameters.configureFromSystemProperties((DaemonParameters.BASE_DIR_SYS_PROPERTY): 'some-dir')
+        parameters.jvm = null
 
         then:
-        parameters.baseDir == new File('some-dir').canonicalFile
-    }
-
-    def "can configure idle timeout using system property"() {
-        when:
-        parameters.configureFromSystemProperties((DaemonParameters.IDLE_TIMEOUT_SYS_PROPERTY): '4000')
-
-        then:
-        parameters.idleTimeout == 4000
-    }
-
-    def "nice message for invalid idle timeout"() {
-        when:
-        parameters.configureFromSystemProperties((DaemonParameters.IDLE_TIMEOUT_SYS_PROPERTY): 'asdf')
-
-        then:
-        def ex = thrown(GradleException)
-        ex.message.contains 'org.gradle.daemon.idletimeout'
-        ex.message.contains 'asdf'
-    }
-
-    def "uses default idle timeout if prop not set"() {
-        when:
-        parameters.configureFromSystemProperties(abc: 'def')
-
-        then:
-        parameters.idleTimeout == DaemonParameters.DEFAULT_IDLE_TIMEOUT
+        parameters.effectiveJvm == Jvm.current()
     }
 
     def "configuring jvmargs replaces the defaults"() {
         when:
-        parameters.configureFrom([(DaemonParameters.JVM_ARGS_SYS_PROPERTY) : "-Xmx17m"])
+        parameters.setJvmArgs(["-Xmx17m"])
 
         then:
-        parameters.effectiveJvmArgs.each { assert !parameters.defaultJvmArgs.contains(it) }
+        parameters.effectiveJvmArgs.intersect(parameters.DEFAULT_JVM_ARGS).empty
     }
 
-    def "can configure jvm args using system property"() {
+    def "does not apply defaults when jvmargs already specified"() {
         when:
-        parameters.configureFromSystemProperties((DaemonParameters.JVM_ARGS_SYS_PROPERTY):  '-Xmx1024m -Dprop=value')
+        parameters.setJvmArgs(["-Xmx17m"])
+        parameters.applyDefaultsFor(JavaVersion.VERSION_1_8)
 
         then:
-        parameters.effectiveJvmArgs.contains('-Xmx1024m')
-        !parameters.effectiveJvmArgs.contains('-Dprop=value')
-
-        parameters.systemProperties == [prop: 'value']
+        parameters.effectiveJvmArgs.containsAll(["-Xmx17m"])
+        parameters.effectiveJvmArgs.intersect(parameters.DEFAULT_JVM_ARGS).empty
     }
 
-    def "can configure jvm args using gradle.properties in root directory"() {
-        given:
-        tmpDir.createFile("settings.gradle")
-        tmpDir.file("gradle.properties").withOutputStream { outstr ->
-            new Properties((DaemonParameters.JVM_ARGS_SYS_PROPERTY): '-Xmx1024m -Dprop=value').store(outstr, "HEADER")
-        }
-
+    def "can apply defaults for Java 8 and earlier"() {
         when:
-        parameters.configureFromBuildDir(tmpDir.dir, true)
+        parameters.applyDefaultsFor(JavaVersion.VERSION_1_8)
 
         then:
-        parameters.effectiveJvmArgs.contains('-Xmx1024m')
-        !parameters.effectiveJvmArgs.contains('-Dprop=value')
-
-        parameters.systemProperties == [prop: 'value']
+        parameters.effectiveJvmArgs.containsAll(DaemonParameters.DEFAULT_JVM_ARGS)
     }
 
-    def "can configure idle timeout using gradle.properties in root directory"() {
-        given:
-        tmpDir.createFile("settings.gradle")
-        tmpDir.file("gradle.properties").withOutputStream { outstr ->
-            new Properties((DaemonParameters.IDLE_TIMEOUT_SYS_PROPERTY): '1450').store(outstr, "HEADER")
-        }
-
+    def "can apply defaults for Java 9"() {
         when:
-        parameters.configureFromBuildDir(tmpDir.dir, true)
+        parameters.applyDefaultsFor(JavaVersion.VERSION_1_9)
 
         then:
-        parameters.idleTimeout == 1450
+        parameters.effectiveJvmArgs.containsAll(DaemonParameters.DEFAULT_JVM_9_ARGS)
+        !parameters.effectiveJvmArgs.containsAll(DaemonParameters.DEFAULT_JVM_ARGS)
     }
 
-    def "can configure parameters using gradle.properties in user home directory"() {
-        given:
-        tmpDir.file("gradle.properties").withOutputStream { outstr ->
-            new Properties((DaemonParameters.JVM_ARGS_SYS_PROPERTY): '-Xmx1024m -Dprop=value').store(outstr, "HEADER")
-        }
-
+    def "can configure debug mode"() {
         when:
-        parameters.configureFromGradleUserHome(tmpDir.dir)
+        parameters.setDebug(parseBoolean(flag))
 
         then:
-        parameters.effectiveJvmArgs.contains('-Xmx1024m')
-        !parameters.effectiveJvmArgs.contains('-Dprop=value')
+        parameters.effectiveJvmArgs.contains("-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005") == parseBoolean(flag)
 
-        parameters.systemProperties == [prop: 'value']
+        where:
+        flag << ["true", "false"]
     }
 
-    def "can enable daemon using system property"() {
+    def "debug mode is persisted when defaults are applied"() {
         when:
-        parameters.configureFromSystemProperties((DaemonParameters.DAEMON_SYS_PROPERTY):  'true')
+        parameters.setDebug(true)
+        parameters.applyDefaultsFor(jvmDefault)
 
         then:
-        parameters.enabled
+        parameters.effectiveJvmArgs.contains("-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005")
+
+        where:
+        jvmDefault << [JavaVersion.VERSION_1_8, JavaVersion.VERSION_1_9]
     }
 
-    def "can disable daemon using system property"() {
+    def "can enable the daemon"() {
         when:
-        parameters.configureFromSystemProperties((DaemonParameters.DAEMON_SYS_PROPERTY):  'no way')
+        def daemonParameters = parameters()
+        daemonParameters.setEnabled(true)
 
         then:
-        !parameters.enabled
+        daemonParameters.enabled
     }
 
-    def "can enable daemon using gradle.properties in root directory"() {
-        given:
-        tmpDir.createFile("settings.gradle")
-        tmpDir.file("gradle.properties").withOutputStream { outstr ->
-            new Properties((DaemonParameters.DAEMON_SYS_PROPERTY): 'true').store(outstr, "HEADER")
-        }
-
+    def "can explicitly disable the daemon"() {
         when:
-        parameters.configureFromBuildDir(tmpDir.dir, true)
+        def daemonParameters = parameters()
+        daemonParameters.setEnabled(false)
 
         then:
-        parameters.enabled
-    }
-
-    def "can configure java home"() {
-        File jdk = Jvm.current().getJavaHome()
-
-        when:
-        parameters.configureFrom([(DaemonParameters.JAVA_HOME_SYS_PROPERTY) : jdk.toString()])
-
-        then:
-        parameters.effectiveJavaHome == jdk.canonicalFile
-    }
-
-    def "nice message for dummy java home"() {
-        when:
-        parameters.configureFrom([(DaemonParameters.JAVA_HOME_SYS_PROPERTY) : "/invalid/path"])
-
-        then:
-        def ex = thrown(GradleException)
-        ex.message.contains 'org.gradle.java.home'
-        ex.message.contains '/invalid/path'
-    }
-
-    def "nice message for invalid java home"() {
-        def dummyDir = tmpDir.createDir("foobar")
-        when:
-        parameters.configureFrom([(DaemonParameters.JAVA_HOME_SYS_PROPERTY) : dummyDir.absolutePath])
-
-        then:
-        def ex = thrown(GradleException)
-        ex.message.contains 'org.gradle.java.home'
-        ex.message.contains 'foobar'
-    }
-
-    def "supports 'empty' system properties"() {
-        when:
-        parameters.configureFrom([(DaemonParameters.JVM_ARGS_SYS_PROPERTY) : "-Dfoo= -Dbar"])
-
-        then:
-        parameters.getSystemProperties() == [foo: '', bar: '']
-    }
-
-    def "knows if not using default jvm args"() {
-        given:
-        assert parameters.usingDefaultJvmArgs
-
-        when:
-        parameters.setJvmArgs(["-Dfoo= -Dbar"])
-
-        then:
-        !parameters.usingDefaultJvmArgs
-    }
-    
-    def "knows if using default jvm args"() {
-        when:
-        parameters.configureFrom([(DaemonParameters.JAVA_HOME_SYS_PROPERTY) : Jvm.current().getJavaHome()])
-
-        then:
-        parameters.usingDefaultJvmArgs
-    }
-
-    def "knows if not using default jvm args when configured"() {
-        given:
-        assert parameters.usingDefaultJvmArgs
-
-        when:
-        parameters.configureFrom([(DaemonParameters.JVM_ARGS_SYS_PROPERTY) : "-Dfoo= -Dbar"])
-
-        then:
-        !parameters.usingDefaultJvmArgs
+        !daemonParameters.enabled
     }
 }

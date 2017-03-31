@@ -15,29 +15,32 @@
  */
 package org.gradle.wrapper
 
-import org.gradle.util.TemporaryFolder
+import org.gradle.test.fixtures.file.CleanupTestDirectory
+import org.gradle.test.fixtures.file.TestFile
+import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
 import org.junit.Rule
 import spock.lang.Specification
 
-/**
- * @author Hans Dockter
- */
+@CleanupTestDirectory
 class SystemPropertiesHandlerTest extends Specification {
     @Rule
-    TemporaryFolder tmpDir = new TemporaryFolder()
+    TestNameTestDirectoryProvider temporaryFolder = new TestNameTestDirectoryProvider()
 
     def parsesPropertiesFile() {
-        File propFile = tmpDir.file('props')
-        Properties props = new Properties()
-        props.putAll a: 'b', 'systemProp.c': 'd', 'systemProp.': 'e'
-        props.store(new FileOutputStream(propFile), "")
-        
+        TestFile propFile = temporaryFolder.file('props')
+        propFile << """
+a=b
+systemProp.c=d
+systemProp.=e
+systemProp=f
+"""
+
         expect:
         [c: 'd'] == SystemPropertiesHandler.getSystemProperties(propFile)
     }
 
     def ifNoPropertyFileExistShouldReturnEmptyMap() {
         expect:
-        [:] == SystemPropertiesHandler.getSystemProperties(tmpDir.file('unknown'))
+        [:] == SystemPropertiesHandler.getSystemProperties(temporaryFolder.file('unknown'))
     }
 }

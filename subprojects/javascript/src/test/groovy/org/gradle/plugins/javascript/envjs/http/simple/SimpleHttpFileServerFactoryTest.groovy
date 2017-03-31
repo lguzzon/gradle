@@ -16,15 +16,16 @@
 
 package org.gradle.plugins.javascript.envjs.http.simple
 
-import spock.lang.Specification
+import org.gradle.test.fixtures.file.TestFile
+import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
 import org.junit.Rule
-import org.gradle.util.TemporaryFolder
+import spock.lang.Specification
+
 import java.nio.charset.Charset
-import org.gradle.util.TestFile
 
 class SimpleHttpFileServerFactoryTest extends Specification {
 
-    @Rule TemporaryFolder tmp = new TemporaryFolder()
+    @Rule TestNameTestDirectoryProvider tmp = new TestNameTestDirectoryProvider()
     TestFile root
 
     def setup() {
@@ -70,6 +71,25 @@ class SimpleHttpFileServerFactoryTest extends Specification {
 
         then:
         thrown FileNotFoundException
+
+        cleanup:
+        server?.stop()
+    }
+
+    def "The status line of 404 has 'Not Found' as the message"() {
+        when:
+        def factory = new SimpleHttpFileServerFactory()
+        def server = factory.start(root, 0)
+
+        then:
+        server.port != 0
+
+        when:
+        HttpURLConnection resource = new URL(server.getResourceUrl("index.html")).openConnection() as HttpURLConnection
+
+        then:
+        resource.getResponseMessage() == 'Not Found'
+        resource.getResponseCode() == 404
 
         cleanup:
         server?.stop()

@@ -16,18 +16,22 @@
 
 package org.gradle.cache.internal
 
-import spock.lang.Specification
-import org.junit.Rule
-import org.gradle.util.TemporaryFolder
-import org.gradle.CacheUsage
-import org.gradle.cache.CacheValidator
 import org.gradle.api.Action
-import static org.gradle.cache.internal.DefaultFileLockManagerTestHelper.*
+import org.gradle.cache.CacheBuilder
+import org.gradle.cache.CacheValidator
+import org.gradle.internal.concurrent.ExecutorFactory
+import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
+import org.junit.Rule
+import spock.lang.Specification
+
+import static org.gradle.cache.internal.DefaultFileLockManagerTestHelper.createDefaultFileLockManager
+import static org.gradle.cache.internal.DefaultFileLockManagerTestHelper.unlockUncleanly
+import static org.gradle.cache.internal.filelock.LockOptionsBuilder.mode
 
 class DefaultPersistentDirectoryCacheSpec extends Specification {
 
-    @Rule TemporaryFolder tmp
-    
+    @Rule TestNameTestDirectoryProvider tmp
+
     def "will rebuild cache if not unlocked cleanly"() {
         given:
         def dir = tmp.createDir("cache")
@@ -35,13 +39,16 @@ class DefaultPersistentDirectoryCacheSpec extends Specification {
         def init = { initd = true } as Action
         unlockUncleanly(new File(dir, "cache.properties"))
         def cache = new DefaultPersistentDirectoryCache(
-                dir, "test", CacheUsage.ON, { true } as CacheValidator, [:], FileLockManager.LockMode.Exclusive, init, createDefaultFileLockManager()
+                dir, "test", { true } as CacheValidator, [:], CacheBuilder.LockTarget.DefaultTarget, mode(FileLockManager.LockMode.Exclusive), init, createDefaultFileLockManager(), Mock(ExecutorFactory)
         )
-        
+
         when:
         cache.open()
 
         then:
         initd
+
+        cleanup:
+        cache.close()
     }
 }

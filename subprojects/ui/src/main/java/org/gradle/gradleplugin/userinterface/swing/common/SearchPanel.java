@@ -21,22 +21,10 @@ import org.gradle.gradleplugin.foundation.search.BasicTextSearchCriteria;
 import org.gradle.gradleplugin.foundation.search.TextBlockSearchEditor;
 import org.gradle.gradleplugin.userinterface.swing.generic.Utility;
 
-import javax.swing.AbstractAction;
-import javax.swing.Box;
-import javax.swing.BoxLayout;
-import javax.swing.JButton;
-import javax.swing.JCheckBox;
-import javax.swing.JComponent;
-import javax.swing.JPanel;
-import javax.swing.JTextField;
-import javax.swing.KeyStroke;
-import javax.swing.SwingUtilities;
-import javax.swing.UIManager;
+import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
-import java.awt.Color;
-import java.awt.Component;
-import java.awt.Dimension;
+import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.KeyEvent;
@@ -52,8 +40,6 @@ import java.util.concurrent.LinkedBlockingQueue;
  *
  * This performs a threaded search. Its not that the search will take a particularly long time (although it certainly could). Its that we're doing work and we can't do that in the Swing EDT. We'll be
  * searching every time a user types a letter, As such, we queue up our requests and then perform a search on the latest request.
- *
- * @author mhunsicker
  */
 public class SearchPanel {
     private final Logger logger = Logging.getLogger(SearchPanel.class);
@@ -244,8 +230,7 @@ public class SearchPanel {
         try {
             SearchRequest searchRequest = searchRequests.take();  //this will block until at least one request is on our queue.
 
-            if (searchRequests.size() > 1)  //if we've got multiple requests, go get the latest.
-            {
+            if (searchRequests.size() > 1) { //if we've got multiple requests, go get the latest.
                 List<SearchRequest> tasks = new ArrayList<SearchRequest>();
                 searchRequests.drainTo(tasks);
                 if (!tasks.isEmpty()) {
@@ -341,7 +326,6 @@ public class SearchPanel {
      * <!      Name       Description>
      *
      * @param panel where to add your additional fields.
-     * @author mhunsicker
      */
     protected void addAdditionalFields(JPanel panel) {
 
@@ -350,7 +334,6 @@ public class SearchPanel {
     /**
      * Call this to hide this panel.
      *
-     * @author mhunsicker
      */
     public void hide() {
         if (this.searchInteraction != null) {
@@ -363,7 +346,6 @@ public class SearchPanel {
     /**
      * Call this to show this panel so that a search can begin. <!      Name              Description>
      *
-     * @author mhunsicker
      */
     public void show() {
         mainPanel.setVisible(true);

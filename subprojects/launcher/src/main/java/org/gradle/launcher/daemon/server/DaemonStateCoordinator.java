@@ -16,14 +16,23 @@
 
 package org.gradle.launcher.daemon.server;
 
+import org.gradle.api.logging.Logger;
 import org.gradle.api.logging.Logging;
-import org.gradle.internal.Stoppable;
+import org.gradle.initialization.BuildCancellationToken;
+import org.gradle.initialization.DefaultBuildCancellationToken;
 import org.gradle.internal.UncheckedException;
-import org.gradle.internal.concurrent.DefaultExecutorFactory;
-import org.gradle.launcher.daemon.server.exec.DaemonCommandExecution;
-import org.gradle.launcher.daemon.server.exec.DaemonStateControl;
+import org.gradle.internal.concurrent.ExecutorFactory;
+import org.gradle.internal.concurrent.Stoppable;
+import org.gradle.internal.concurrent.StoppableExecutor;
+import org.gradle.internal.time.CountdownTimer;
+import org.gradle.internal.time.TimeProvider;
+import org.gradle.internal.time.Timer;
+import org.gradle.internal.time.Timers;
+import org.gradle.internal.time.TrueTimeProvider;
+import org.gradle.launcher.daemon.server.api.DaemonStateControl;
+import org.gradle.launcher.daemon.server.api.DaemonStoppedException;
+import org.gradle.launcher.daemon.server.api.DaemonUnavailableException;
 
-import java.util.Date;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -31,98 +40,75 @@ import java.util.concurrent.locks.ReentrantLock;
 /**
  * A tool for synchronising the state amongst different threads.
  *
- * This class has no knowledge of the Daemon's internals and is designed to be used internally by the
- * daemon to coordinate itself and allow worker threads to control the daemon's busy/idle status.
+ * This class has no knowledge of the Daemon's internals and is designed to be used internally by the daemon to coordinate itself and allow worker threads to control the daemon's busy/idle status.
  *
  * This is not exposed to clients of the daemon.
  */
 public class DaemonStateCoordinator implements Stoppable, DaemonStateControl {
-
-    private static final org.gradle.api.logging.Logger LOGGER = Logging.getLogger(DaemonStateCoordinator.class);
+    public static final String DAEMON_WILL_STOP_MESSAGE = "Daemon will be stopped at the end of the build ";
+    public static final String DAEMON_STOPPING_IMMEDIATELY_MESSAGE = "Daemon is stopping immediately ";
+    private static final Logger LOGGER = Logging.getLogger(DaemonStateCoordinator.class);
 
     private final Lock lock = new ReentrantLock();
-    Condition condition = lock.newCondition();
+    private final TimeProvider timeProvider = new TrueTimeProvider();
+    private final Condition condition = lock.newCondition();
+    private final long cancelTimeoutMs;
 
-    private boolean stoppingOrStopped;
-    private boolean stopped;
-    private long lastActivityAt = -1;
-    private DaemonCommandExecution currentCommandExecution;
+    private State state = State.Idle;
+    private final Timer idleTimer;
+    private String currentCommandExecution;
+    private Object result;
+    private String stopReason;
+    private volatile DefaultBuildCancellationToken cancellationToken;
 
-    private final Runnable onStart;
+    private final StoppableExecutor executor;
     private final Runnable onStartCommand;
     private final Runnable onFinishCommand;
-    private final Runnable onStop;
-    private final Runnable onStopRequested;
+    private final Runnable onCancelCommand;
 
-    public DaemonStateCoordinator(Runnable onStart, Runnable onStartCommand, Runnable onFinishCommand, Runnable onStop, Runnable onStopRequested) {
-        this.onStart = onStart;
+    public DaemonStateCoordinator(ExecutorFactory executorFactory, Runnable onStartCommand, Runnable onFinishCommand, Runnable onCancelCommand) {
+        this(executorFactory, onStartCommand, onFinishCommand, onCancelCommand, 10 * 1000L);
+    }
+
+    DaemonStateCoordinator(ExecutorFactory executorFactory, Runnable onStartCommand, Runnable onFinishCommand, Runnable onCancelCommand, long cancelTimeoutMs) {
+        executor = executorFactory.create("Daemon worker");
         this.onStartCommand = onStartCommand;
         this.onFinishCommand = onFinishCommand;
-        this.onStop = onStop;
-        this.onStopRequested = onStopRequested;
+        this.onCancelCommand = onCancelCommand;
+        this.cancelTimeoutMs = cancelTimeoutMs;
+        idleTimer = Timers.startTimer();
+        updateCancellationToken();
     }
 
-    /**
-     * Waits until stopped.
-     */
-    public void awaitStop() {
-        lock.lock();
-        try {
-            while (!isStopped()) {
-                try {
-                    condition.await();
-                } catch (InterruptedException e) {
-                    throw UncheckedException.throwAsUncheckedException(e);
-                }
-            }
-        } finally {
-            lock.unlock();
-        }
+    private void setState(State state) {
+        this.state = state;
+        condition.signalAll();
     }
 
-    /**
-     * Called once when the daemon is up and ready for connections.
-     */
-    public void start() {
+    boolean awaitStop() {
         lock.lock();
         try {
-            updateActivityTimestamp();
-            onStart.run();
-            condition.signalAll();
-        } finally {
-            lock.unlock();
-        }
-    }
-
-    /**
-     * Waits until stopped, or timeout.
-     *
-     * @return true if stopped, false if timeout
-     */
-    public boolean awaitStopOrIdleTimeout(int timeout) {
-        lock.lock();
-        try {
-            LOGGER.debug("waiting for daemon to stop or be idle for {}ms", timeout);
             while (true) {
-                if (isStopped()) {
-                    return true;
-                } else if (hasBeenIdleFor(timeout)) {
-                    return false;
-                }
-            
                 try {
-                    if (!isStarted()) {
-                        LOGGER.debug("waiting for daemon to stop or idle timeout, daemon has not yet started, sleeping until then");
-                        condition.await();
-                    } else if (isBusy()) {
-                        LOGGER.debug("waiting for daemon to stop or idle timeout, daemon is busy, sleeping until it finishes");
-                        condition.await();
-                    } else if (isIdle()) {
-                        Date waitUntil = new Date(lastActivityAt + timeout);
-                        LOGGER.debug("waiting for daemon to stop or idle timeout, daemon is idle, sleeping until daemon state change or idle timeout at {}", waitUntil);
-                        condition.awaitUntil(waitUntil);
-                    } else {
-                        throw new IllegalStateException("waiting for daemon to stop or idle timeout, daemon has started but is not busy or idle, this shouldn't happen");
+                    switch (state) {
+                        case Idle:
+                        case Busy:
+                            LOGGER.debug("daemon is running. Sleeping until state changes.");
+                            condition.await();
+                            break;
+                        case Canceled:
+                            LOGGER.debug("cancel requested.");
+                            cancelNow();
+                            break;
+                        case Broken:
+                            throw new IllegalStateException("This daemon is in a broken state.");
+                        case StopRequested:
+                            LOGGER.debug("daemon stop has been requested. Sleeping until state changes.");
+                            condition.await();
+                            break;
+                        case Stopped:
+                            LOGGER.debug("daemon has stopped.");
+                            return true;
                     }
                 } catch (InterruptedException e) {
                     throw UncheckedException.throwAsUncheckedException(e);
@@ -133,215 +119,338 @@ public class DaemonStateCoordinator implements Stoppable, DaemonStateControl {
         }
     }
 
-    public void awaitIdleTimeout(int timeout) throws DaemonStoppedException {
-        if (awaitStopOrIdleTimeout(timeout)) {
-            throw new DaemonStoppedException(currentCommandExecution);
+    @Override
+    public void requestStop(String reason) {
+        if (!(state == State.StopRequested || state == State.Stopped)) {
+            LOGGER.lifecycle(DAEMON_WILL_STOP_MESSAGE + reason);
+            lock.lock();
+            try {
+                if (state == State.Busy) {
+                    LOGGER.debug("Stop as soon as idle requested. The daemon is busy: {}", state == State.Busy);
+                    beginStopping();
+                } else {
+                    stopNow(reason);
+                }
+            } finally {
+                lock.unlock();
+            }
         }
     }
 
+    @Override
+    public void requestForcefulStop(String reason) {
+        LOGGER.lifecycle(DAEMON_STOPPING_IMMEDIATELY_MESSAGE + reason);
+        stopNow(reason);
+    }
+
     /**
-     * Perform a stop, but wait until the daemon is idle to cut any open connections.
+     * Forcibly stops the daemon, even if it is busy.
      *
-     * The daemon will be removed from the registry upon calling this regardless of whether it is busy or not.
-     * If it is idle, this method will block until the daemon fully stops.
+     * If the daemon is busy and the client is waiting for a response, it may receive “null” from the daemon as the connection may be closed by this method before the result is sent back.
      *
-     * If the daemon is busy, this method will return after removing the daemon from the registry but before the
-     * daemon is fully stopped. In this case, the daemon will stop as soon as {@link #onFinishCommand()} is called.
+     * @see #requestStop(String reason)
      */
-    public void stopAsSoonAsIdle() {
+    public void stop() {
+        stopNow("service stop");
+    }
+
+    private void stopNow(String reason) {
         lock.lock();
         try {
-            LOGGER.debug("Stop as soon as idle requested. The daemon is busy: " + isBusy());
-            if (isBusy()) {
-                onStopRequested.run();
-                stoppingOrStopped = true;
-            } else {
-               stop();
+            switch (state) {
+                case Idle:
+                case Busy:
+                case Canceled:
+                case Broken:
+                case StopRequested:
+                    LOGGER.debug("Marking daemon stopped due to {}. The daemon is running a build: {}", reason, state == State.Busy);
+                    stopReason = reason;
+                    setState(State.Stopped);
+                    break;
+                case Stopped:
+                    break;
+                default:
+                    throw new IllegalStateException("Daemon is in unexpected state: " + state);
             }
         } finally {
             lock.unlock();
         }
     }
 
-    /**
-     * Forcibly stops the daemon, even if it is busy.
-     *
-     * If the daemon is busy and the client is waiting for a response, it may receive “null” from the daemon
-     * as the connection may be closed by this method before the result is sent back.
-     *
-     * @see #stopAsSoonAsIdle()
-     */
-    public void stop() {
+    private void beginStopping() {
+        switch (state) {
+            case Idle:
+            case Busy:
+            case Canceled:
+            case Broken:
+                setState(State.StopRequested);
+                break;
+            case StopRequested:
+            case Stopped:
+                break;
+            default:
+                throw new IllegalStateException("Daemon is in unexpected state: " + state);
+        }
+    }
+
+    @Override
+    public BuildCancellationToken getCancellationToken() {
+        return cancellationToken;
+    }
+
+    private void updateCancellationToken() {
+        cancellationToken = new DefaultBuildCancellationToken();
+        cancellationToken.addCallback(onCancelCommand);
+    }
+
+    @Override
+    public void requestCancel() {
         lock.lock();
         try {
-            LOGGER.debug("Stop requested. The daemon is running a build: " + isBusy());
-            if (!isStoppingOrStopped()) {
-                onStopRequested.run();
+            if (state == State.Busy) {
+                setState(State.Canceled);
+            } else if (state == State.StopRequested) {
+                requestForcefulStop("the build was canceled after a stop was requested");
             }
-            stoppingOrStopped = true;
-            onStop.run();
-            stopped = true;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    @Override
+    public void cancelBuild() {
+        requestCancel();
+
+        lock.lock();
+        try {
+            while(true) {
+                try {
+                    switch (state) {
+                        case Idle:
+                        case Stopped:
+                            return;
+                        case Busy:
+                        case Canceled:
+                        case StopRequested:
+                            condition.await();
+                            break;
+                        case Broken:
+                            throw new IllegalStateException("This daemon is in a broken state.");
+                    }
+                } catch (InterruptedException e) {
+                    throw UncheckedException.throwAsUncheckedException(e);
+                }
+            }
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private void cancelNow() {
+        CountdownTimer timer = Timers.startTimer(cancelTimeoutMs);
+
+        LOGGER.debug("Cancel requested: will wait for daemon to become idle.");
+        try {
+            cancellationToken.cancel();
+        } catch (Exception ex) {
+            LOGGER.error("Cancel processing failed. Will continue.", ex);
+        }
+
+        lock.lock();
+        try {
+            while (!timer.hasExpired()) {
+                try {
+                    switch (state) {
+                        case Idle:
+                            LOGGER.debug("Cancel: daemon is idle now.");
+                            return;
+                        case Busy:
+                        case Canceled:
+                        case StopRequested:
+                            LOGGER.debug("Cancel: daemon is busy, sleeping until state changes.");
+                            condition.awaitUntil(timer.getExpiryTime());
+                            break;
+                        case Broken:
+                            throw new IllegalStateException("This daemon is in a broken state.");
+                        case Stopped:
+                            LOGGER.debug("Cancel: daemon has stopped.");
+                            return;
+                    }
+                } catch (InterruptedException e) {
+                    throw UncheckedException.throwAsUncheckedException(e);
+                }
+            }
+            LOGGER.debug("Cancel: daemon is still busy after grace period. Will force stop.");
+            stopNow("cancel requested but timed out");
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    @Override
+    public void runCommand(final Runnable command, String commandDisplayName) throws DaemonUnavailableException {
+        onStartCommand(commandDisplayName);
+        try {
+            executor.execute(new Runnable() {
+                public void run() {
+                    try {
+                        command.run();
+                        onCommandSuccessful();
+                    } catch (Throwable t) {
+                        onCommandFailed(t);
+                    }
+                }
+            });
+            waitForCommandCompletion();
+        } finally {
+            onFinishCommand();
+        }
+    }
+
+    private void waitForCommandCompletion() {
+        lock.lock();
+        try {
+            while ((state == State.Busy || state == State.Canceled || state == State.StopRequested) && result == null) {
+                try {
+                    condition.await();
+                } catch (InterruptedException e) {
+                    throw UncheckedException.throwAsUncheckedException(e);
+                }
+            }
+            LOGGER.debug("Command execution: finished waiting for {}. Result {} with state {}", currentCommandExecution, result, state);
+            if (result instanceof Throwable) {
+                throw UncheckedException.throwAsUncheckedException((Throwable) result);
+            }
+            if (result != null) {
+                return;
+            }
+            switch (state) {
+                case Stopped:
+                    throw new DaemonStoppedException(stopReason);
+                case Broken:
+                    throw new DaemonUnavailableException("This daemon is broken and will stop.");
+                default:
+                    throw new IllegalStateException("Daemon is in unexpected state: " + state);
+            }
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private void onCommandFailed(Throwable failure) {
+        lock.lock();
+        try {
+            result = failure;
             condition.signalAll();
         } finally {
             lock.unlock();
         }
     }
 
-    Runnable asyncStop = new Runnable() {
-        public void run() {
-            new DefaultExecutorFactory().create("Daemon Async Stop Request").execute(new Runnable() {
-                public void run() {
-                    stop();
-                }
-            });
-        }
-    };
-
-    /**
-     * @return returns false if the daemon was already requested to stop
-     */
-    public boolean requestStop() {
+    private void onCommandSuccessful() {
         lock.lock();
         try {
-            if (stoppingOrStopped) {
-                return false;
-            }
-            stoppingOrStopped = true;
-            onStopRequested.run(); //blocking
-            asyncStop.run(); //not blocking
-            return true;
+            result = this;
+            condition.signalAll();
         } finally {
             lock.unlock();
         }
     }
 
-    /**
-     * Called when the execution of a command begins.
-     * <p>
-     * If the daemon is busy (i.e. already executing a command), this method will return the existing
-     * execution which the caller should be prepared for without considering the given execution to be in progress.
-     * If the daemon is idle the return value will be {@code null} and the given execution will be considered in progress.
-     */
-    public DaemonCommandExecution onStartCommand(DaemonCommandExecution execution) {
+    private void onStartCommand(String commandDisplayName) {
         lock.lock();
         try {
-            if (currentCommandExecution != null) { // daemon is busy
-                /*
-                    This is not particularly abnormal as daemon can become busy between a particular client connecting to it and then
-                    sending a command. The UpdateDaemonStateAndHandleBusyDaemon command action will send back a DaemonBusy result
-                    to the client which will then just try another daemon, making this a non-error condition.
-                */
-                LOGGER.debug("onStartCommand({}) called while currentCommandExecution = {}", execution, currentCommandExecution);
-                return currentCommandExecution;
-            } else {
-                LOGGER.debug("onStartCommand({}) called after {} mins of idle", execution, getIdleMinutes());
-                currentCommandExecution = execution;
-                updateActivityTimestamp();
+            switch (state) {
+                case Broken:
+                    throw new DaemonUnavailableException("This daemon is in a broken state and will stop.");
+                case StopRequested:
+                    throw new DaemonUnavailableException("This daemon is currently stopping.");
+                case Stopped:
+                    throw new DaemonUnavailableException("This daemon has stopped.");
+                case Busy:
+                case Canceled:
+                    throw new DaemonUnavailableException(String.format("This daemon is currently executing: %s", currentCommandExecution));
+            }
+
+            LOGGER.error("Command execution: started {} after {} minutes of idle", commandDisplayName, getIdleMinutes());
+            try {
+                setState(State.Busy);
                 onStartCommand.run();
+                currentCommandExecution = commandDisplayName;
+                result = null;
+                updateActivityTimestamp();
+                updateCancellationToken();
                 condition.signalAll();
-                return null;
+            } catch (Throwable throwable) {
+                setState(State.Broken);
+                throw UncheckedException.throwAsUncheckedException(throwable);
             }
         } finally {
             lock.unlock();
         }
     }
 
-    /**
-     * Called when the execution of a command is complete (or at least the daemon is available for new commands).
-     * <p>
-     * If the daemon is currently idle, this method will return {@code null}. If it is busy, it will return what was the
-     * current execution which will considered to be complete (putting the daemon back in idle state).
-     * <p>
-     * If {@link #stopAsSoonAsIdle()} was previously called, this method will block while the daemon {@link #stop() stops}
-     */
-    public DaemonCommandExecution onFinishCommand() {
+    private void onFinishCommand() {
         lock.lock();
         try {
-            DaemonCommandExecution execution = currentCommandExecution;
-            if (execution == null) {
-                LOGGER.warn("onFinishCommand() called while currentCommandExecution is null");
-            } else {
-                LOGGER.debug("onFinishCommand() called while execution = {}", execution);
-                currentCommandExecution = null;
-                updateActivityTimestamp();
-                if (isStoppingOrStopped()) {
-                    stop();
-                } else {
-                    onFinishCommand.run();
-                    condition.signalAll();
-                }
+            LOGGER.debug("Command execution: completed {}", currentCommandExecution);
+            currentCommandExecution = null;
+            result = null;
+            stopReason = null;
+            updateActivityTimestamp();
+            switch (state) {
+                case Idle:
+                case Busy:
+                case Canceled:
+                    try {
+                        onFinishCommand.run();
+                        setState(State.Idle);
+                    } catch (Throwable throwable) {
+                        setState(State.Broken);
+                        throw UncheckedException.throwAsUncheckedException(throwable);
+                    }
+                    break;
+                case StopRequested:
+                    stopNow("command completed and stop requested");
+                    break;
+                case Stopped:
+                    break;
+                default:
+                    throw new IllegalStateException("Daemon is in unexpected state: " + state);
             }
-
-            return execution;
         } finally {
             lock.unlock();
         }
     }
 
     private void updateActivityTimestamp() {
-        long now = System.currentTimeMillis();
-        LOGGER.debug("updating lastActivityAt to {}", now);
-        lastActivityAt = now;
+        LOGGER.debug("resetting idle timer");
+        idleTimer.reset();
     }
 
-    /**
-     * The current command execution, or {@code null} if the daemon is idle.
-     */
-    public DaemonCommandExecution getCurrentCommandExecution() {
+    private double getIdleMinutes() {
         lock.lock();
         try {
-            return currentCommandExecution;
+            return idleTimer.getElapsedMillis() / 1000 / 60;
         } finally {
             lock.unlock();
         }
     }
 
-    /**
-     * Has the daemon started accepting connections.
-     */
-    public boolean isStarted() {
-        return lastActivityAt != -1;
-    }
-
-    public double getIdleMinutes() {
-        lock.lock();
-        try {
-            if (isStarted()) {
-                return (System.currentTimeMillis() - lastActivityAt) / 1000 / 60;
-            } else {
-                return -1;
-            }
-        } finally {
-            lock.unlock();
-        }
-    }
-
-    public boolean hasBeenIdleFor(int milliseconds) {
-        if (!isStarted()) {
-            return false;
+    public long getIdleMillis() {
+        if (state == State.Idle) {
+            return idleTimer.getElapsedMillis();
         } else {
-            return lastActivityAt < (System.currentTimeMillis() - milliseconds);
+            return 0L;
         }
     }
 
-    public boolean isStopped() {
-        return stopped;
+    boolean isWillRefuseNewCommands() {
+        return !(state == State.Idle || state == State.Busy);
     }
 
-    public boolean isStoppingOrStopped() {
-        return stoppingOrStopped;
+    @Override
+    public State getState() {
+        return state;
     }
-
-    public boolean isIdle() {
-        return isRunning() && currentCommandExecution == null;
-    }
-
-    public boolean isBusy() {
-        return isRunning() && !isIdle();
-    }
-    
-    public boolean isRunning() {
-        return isStarted() && !isStopped();
-    }
-
 }

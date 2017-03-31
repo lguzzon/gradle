@@ -16,21 +16,29 @@
 
 package org.gradle.launcher.daemon.diagnostics;
 
-/**
- * by Szczepan Faber, created at 4/6/12
- */
+import org.gradle.internal.remote.Address;
+
 public class DaemonStartupInfo {
+    private final String uid;
+    private final Address address;
+    private final DaemonDiagnostics diagnostics;
 
-    private String uid;
-    private DaemonDiagnostics diagnostics;
-
-    public DaemonStartupInfo(String uid, DaemonDiagnostics diagnostics) {
+    public DaemonStartupInfo(String uid, Address address, DaemonDiagnostics diagnostics) {
         this.uid = uid;
+        this.address = address;
         this.diagnostics = diagnostics;
     }
 
     public String getUid() {
         return uid;
+    }
+
+    public Address getAddress() {
+        return address;
+    }
+
+    public Long getPid() {
+        return diagnostics.getPid();
     }
 
     /**
@@ -42,10 +50,7 @@ public class DaemonStartupInfo {
 
     @Override
     public String toString() {
-        return "{"
-                + "uid='" + uid + '\''
-                + ", diagnostics=" + diagnostics
-                + '}';
+        return String.format("DaemonStartupInfo{pid=%s, uid=%s, address=%s, diagnostics=%s}", diagnostics.getPid(), uid, address, diagnostics);
     }
 
     public String describe() {

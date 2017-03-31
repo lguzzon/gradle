@@ -15,23 +15,26 @@
  */
 package org.gradle.integtests.tooling.m5
 
-import org.gradle.integtests.fixtures.MavenRepository
-import org.gradle.integtests.tooling.fixture.MinTargetGradleVersion
-import org.gradle.integtests.tooling.fixture.MinToolingApiVersion
+import org.gradle.integtests.tooling.fixture.TargetGradleVersion
 import org.gradle.integtests.tooling.fixture.ToolingApiSpecification
-import org.gradle.tooling.model.idea.*
+import org.gradle.test.fixtures.maven.MavenFileRepository
+import org.gradle.tooling.model.idea.BasicIdeaProject
+import org.gradle.tooling.model.idea.IdeaContentRoot
+import org.gradle.tooling.model.idea.IdeaModule
+import org.gradle.tooling.model.idea.IdeaModuleDependency
+import org.gradle.tooling.model.idea.IdeaProject
+import org.gradle.tooling.model.idea.IdeaSingleEntryLibraryDependency
+import org.gradle.util.GradleVersion
 
-@MinToolingApiVersion('1.0-milestone-5')
-@MinTargetGradleVersion('1.0-milestone-5')
 class ToolingApiIdeaModelCrossVersionSpec extends ToolingApiSpecification {
 
     def "builds the model even if idea plugin not applied"() {
-        def projectDir = dist.testDir
-        projectDir.file('build.gradle').text = '''
+
+        file('build.gradle').text = '''
 apply plugin: 'java'
 description = 'this is a project'
 '''
-        projectDir.file('settings.gradle').text = 'rootProject.name = \"test project\"'
+        file('settings.gradle').text = 'rootProject.name = \"test project\"'
 
         when:
         IdeaProject project = withConnection { connection -> connection.getModel(IdeaProject.class) }
@@ -46,8 +49,8 @@ description = 'this is a project'
     }
 
     def "provides basic project information"() {
-        def projectDir = dist.testDir
-        projectDir.file('build.gradle').text = """
+
+        file('build.gradle').text = """
 apply plugin: 'java'
 apply plugin: 'idea'
 
@@ -66,13 +69,13 @@ idea.project {
     }
 
     def "provides all modules"() {
-        def projectDir = dist.testDir
-        projectDir.file('build.gradle').text = '''
+
+        file('build.gradle').text = '''
 subprojects {
     apply plugin: 'java'
 }
 '''
-        projectDir.file('settings.gradle').text = "include 'api', 'impl'"
+        file('settings.gradle').text = "include 'api', 'impl'"
 
         when:
         IdeaProject project = withConnection { connection -> connection.getModel(IdeaProject.class) }
@@ -84,8 +87,8 @@ subprojects {
     }
 
     def "provides basic module information"() {
-        def projectDir = dist.testDir
-        projectDir.file('build.gradle').text = """
+
+        file('build.gradle').text = """
 apply plugin: 'java'
 apply plugin: 'idea'
 
@@ -108,13 +111,13 @@ idea.module.testOutputDir = file('someTestDir')
         module.description == null
 
         !module.compilerOutput.inheritOutputDirs
-        module.compilerOutput.outputDir == projectDir.file('someDir')
-        module.compilerOutput.testOutputDir == projectDir.file('someTestDir')
+        module.compilerOutput.outputDir == file('someDir')
+        module.compilerOutput.testOutputDir == file('someTestDir')
     }
 
     def "provides source dir information"() {
-        def projectDir = dist.testDir
-        projectDir.file('build.gradle').text = "apply plugin: 'java'"
+
+        file('build.gradle').text = "apply plugin: 'java'"
 
         projectDir.create {
             src {
@@ -136,17 +139,17 @@ idea.module.testOutputDir = file('someTestDir')
 
         then:
         root.sourceDirectories.size() == 2
-        root.sourceDirectories.any { it.directory == projectDir.file('src/main/java') }
-        root.sourceDirectories.any { it.directory == projectDir.file('src/main/resources') }
+        root.sourceDirectories.any { it.directory == file('src/main/java') }
+        root.sourceDirectories.any { it.directory == file('src/main/resources') }
 
         root.testDirectories.size() == 2
-        root.testDirectories.any { it.directory == projectDir.file('src/test/java') }
-        root.testDirectories.any { it.directory == projectDir.file('src/test/resources') }
+        root.testDirectories.any { it.directory == file('src/test/java') }
+        root.testDirectories.any { it.directory == file('src/test/resources') }
     }
 
     def "provides exclude dir information"() {
-        def projectDir = dist.testDir
-        projectDir.file('build.gradle').text = """
+
+        file('build.gradle').text = """
 apply plugin: 'java'
 apply plugin: 'idea'
 
@@ -162,15 +165,15 @@ idea.module.excludeDirs += file('foo')
     }
 
     def "provides dependencies"() {
-        def projectDir = dist.testDir
-        def fakeRepo = projectDir.file("repo")
 
-        def dependency = new MavenRepository(fakeRepo).module("foo.bar", "coolLib", 1.0)
+        def fakeRepo = file("repo")
+
+        def dependency = new MavenFileRepository(fakeRepo).module("foo.bar", "coolLib", "1.0")
         dependency.artifact(classifier: 'sources')
         dependency.artifact(classifier: 'javadoc')
         dependency.publish()
 
-        projectDir.file('build.gradle').text = """
+        file('build.gradle').text = """
 subprojects {
     apply plugin: 'java'
 }
@@ -190,7 +193,7 @@ project(':impl') {
     idea.module.downloadJavadoc = true
 }
 """
-        projectDir.file('settings.gradle').text = "include 'api', 'impl'"
+        file('settings.gradle').text = "include 'api', 'impl'"
 
         when:
         IdeaProject project = withConnection { connection -> connection.getModel(IdeaProject.class) }
@@ -213,12 +216,17 @@ project(':impl') {
 
         IdeaModuleDependency mod = libs.find {it instanceof IdeaModuleDependency}
         mod.dependencyModule == project.modules.find { it.name == 'api'}
-        mod.scope.scope == 'COMPILE'
+        if (targetVersion >= GradleVersion.version("3.4")) {
+            mod.scope.scope == 'PROVIDED'
+        } else {
+            mod.scope.scope == 'COMPILE'
+        }
     }
 
+    @TargetGradleVersion('>=1.2 <=2.7')
     def "makes sure module names are unique"() {
-        def projectDir = dist.testDir
-        projectDir.file('build.gradle').text = """
+
+        file('build.gradle').text = """
 subprojects {
     apply plugin: 'java'
 }
@@ -235,7 +243,7 @@ project(':contrib:impl') {
     }
 }
 """
-        projectDir.file('settings.gradle').text = "include 'api', 'impl', 'contrib:api', 'contrib:impl'"
+        file('settings.gradle').text = "include 'api', 'impl', 'contrib:api', 'contrib:impl'"
 
         when:
         IdeaProject project = withConnection { connection -> connection.getModel(IdeaProject.class) }
@@ -252,8 +260,8 @@ project(':contrib:impl') {
     }
 
     def "module has access to gradle project and its tasks"() {
-        def projectDir = dist.testDir
-        projectDir.file('build.gradle').text = """
+
+        file('build.gradle').text = """
 subprojects {
     apply plugin: 'java'
 }
@@ -264,7 +272,7 @@ project(':impl') {
     task implTask {}
 }
 """
-        projectDir.file('settings.gradle').text = "include 'api', 'impl'; rootProject.name = 'root'"
+        file('settings.gradle').text = "include 'api', 'impl'; rootProject.name = 'root'"
 
         when:
         IdeaProject project = withConnection { connection -> connection.getModel(IdeaProject.class) }
@@ -281,9 +289,8 @@ project(':impl') {
     }
 
     def "offline model should not resolve external dependencies"() {
-        def projectDir = dist.testDir
 
-        projectDir.file('build.gradle').text = """
+        file('build.gradle').text = """
 subprojects {
     apply plugin: 'java'
 }
@@ -297,7 +304,7 @@ project(':impl') {
     }
 }
 """
-        projectDir.file('settings.gradle').text = "include 'api', 'impl'"
+        file('settings.gradle').text = "include 'api', 'impl'"
 
         when:
         BasicIdeaProject project = withConnection { connection -> connection.getModel(BasicIdeaProject.class) }
@@ -305,8 +312,13 @@ project(':impl') {
 
         then:
         def libs = impl.dependencies
-        libs.size() == 1
-        IdeaModuleDependency d = libs[0]
-        d.dependencyModule == project.modules.find { it.name == 'api' }
+        if (targetVersion >= GradleVersion.version("3.4")) {
+            libs.size() == 3
+        } else {
+            libs.size() == 1
+        }
+        libs.each {
+            it.dependencyModule == project.modules.find { it.name == 'api' }
+        }
     }
 }

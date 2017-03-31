@@ -15,7 +15,6 @@
  */
 package org.gradle.launcher.daemon.client;
 
-import org.gradle.api.internal.DocumentationRegistry;
 import org.gradle.internal.service.ServiceRegistry;
 import org.gradle.launcher.daemon.bootstrap.DaemonGreeter;
 import org.gradle.launcher.daemon.configuration.DaemonParameters;
@@ -31,18 +30,14 @@ import java.io.InputStream;
 public class DaemonClientServices extends DaemonClientServicesSupport {
     private final DaemonParameters daemonParameters;
 
-    public DaemonClientServices(ServiceRegistry loggingServices, DaemonParameters daemonParameters, InputStream buildStandardInput) {
-        super(loggingServices, buildStandardInput);
+    public DaemonClientServices(ServiceRegistry parent, DaemonParameters daemonParameters, InputStream buildStandardInput) {
+        super(parent, buildStandardInput);
         this.daemonParameters = daemonParameters;
-        add(new DaemonRegistryServices(daemonParameters.getBaseDir()));
+        addProvider(new DaemonRegistryServices(daemonParameters.getBaseDir()));
     }
 
-    public DaemonStarter createDaemonStarter() {
-        return new DefaultDaemonStarter(get(DaemonDir.class), daemonParameters, get(DaemonGreeter.class));
-    }
-
-    protected DaemonGreeter createDaemonGreeter() {
-        return new DaemonGreeter(get(DocumentationRegistry.class));
+    DaemonStarter createDaemonStarter(DaemonDir daemonDir, DaemonParameters daemonParameters, DaemonGreeter daemonGreeter, JvmVersionValidator jvmVersionValidator) {
+        return new DefaultDaemonStarter(daemonDir, daemonParameters, daemonGreeter, jvmVersionValidator);
     }
 
     protected void configureDaemonContextBuilder(DaemonContextBuilder builder) {
@@ -50,7 +45,7 @@ public class DaemonClientServices extends DaemonClientServicesSupport {
         builder.useDaemonParameters(daemonParameters);
     }
 
-    public DaemonParameters getDaemonParameters() {
+    DaemonParameters createDaemonParameters() {
         return daemonParameters;
     }
 }

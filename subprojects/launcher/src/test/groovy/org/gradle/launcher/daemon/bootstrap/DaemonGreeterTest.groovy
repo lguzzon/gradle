@@ -19,28 +19,36 @@ package org.gradle.launcher.daemon.bootstrap
 import org.gradle.api.GradleException
 import org.gradle.api.internal.DocumentationRegistry
 import org.gradle.launcher.daemon.logging.DaemonMessages
+import org.gradle.internal.remote.internal.inet.MultiChoiceAddress
 import org.gradle.process.ExecResult
 import spock.lang.Specification
 
-/**
- * by Szczepan Faber, created at: 4/10/12
- */
 class DaemonGreeterTest extends Specification {
 
-    DocumentationRegistry registry = Mock()
+    def registry = Mock(DocumentationRegistry)
 
     def "parses the process output"() {
         given:
-        def output = """hey joe!
+        def address = new MultiChoiceAddress(UUID.randomUUID(), 123, [])
+
+        def outputStream = new ByteArrayOutputStream()
+        def printStream = new PrintStream(outputStream)
+        printStream.print("""hey joe!
 another line of output...
-${new DaemonStartupCommunication().daemonStartedMessage(12, new File("12.log"))}"""
+""")
+
+        new DaemonStartupCommunication().printDaemonStarted(printStream, 12, "uid", address, new File("12.log"))
+        def output = new String(outputStream.toByteArray())
 
         when:
-        def diagnostics = new DaemonGreeter(registry).parseDaemonOutput(output, Mock(ExecResult))
+        def daemonStartupInfo = new DaemonGreeter(registry).parseDaemonOutput(output)
 
         then:
-        diagnostics.pid == 12
-        diagnostics.daemonLog == new File("12.log")
+        daemonStartupInfo.address == address
+        daemonStartupInfo.uid == "uid"
+        daemonStartupInfo.pid == 12
+        daemonStartupInfo.diagnostics.pid == 12
+        daemonStartupInfo.diagnostics.daemonLog == new File("12.log")
     }
 
     def "shouts if daemon did not start"() {
@@ -51,7 +59,7 @@ another line of output..."""
         ExecResult result = Mock()
 
         when:
-        new DaemonGreeter(registry).parseDaemonOutput(output, result);
+        new DaemonGreeter(registry).parseDaemonOutput(output);
 
         then:
         def ex = thrown(GradleException)
@@ -61,7 +69,7 @@ another line of output..."""
 
     def "shouts if daemon broke completely..."() {
         when:
-        new DaemonGreeter(registry).parseDaemonOutput("", Mock(ExecResult))
+        new DaemonGreeter(registry).parseDaemonOutput("")
 
         then:
         def ex = thrown(GradleException)

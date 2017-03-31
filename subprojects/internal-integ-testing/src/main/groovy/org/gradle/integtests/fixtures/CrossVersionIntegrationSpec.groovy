@@ -15,38 +15,84 @@
  */
 package org.gradle.integtests.fixtures
 
-import org.gradle.util.TestFile
+import org.gradle.integtests.fixtures.executer.GradleDistribution
+import org.gradle.integtests.fixtures.executer.GradleExecuter
+import org.gradle.integtests.fixtures.executer.IntegrationTestBuildContext
+import org.gradle.integtests.fixtures.executer.UnderDevelopmentGradleDistribution
+import org.gradle.test.fixtures.file.TestFile
+import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
+import org.gradle.test.fixtures.maven.MavenFileRepository
+import org.gradle.testing.internal.util.RetryRule
 import org.junit.Rule
 import org.junit.runner.RunWith
 import spock.lang.Specification
 
 @RunWith(CrossVersionTestRunner)
 abstract class CrossVersionIntegrationSpec extends Specification {
-    @Rule public final GradleDistribution current = new GradleDistribution()
-    static BasicGradleDistribution previous
+    @Rule TestNameTestDirectoryProvider temporaryFolder = new TestNameTestDirectoryProvider()
+    private final List<GradleExecuter> executers = []
+    final GradleDistribution current = new UnderDevelopmentGradleDistribution()
+    static GradleDistribution previous
+    private MavenFileRepository mavenRepo
+    private TestFile gradleUserHomeDir
 
-    BasicGradleDistribution getPrevious() {
+    @Rule
+    RetryRule retryRule = RetryRuleUtil.retryCrossVersionTestOnIssueWithReleasedGradleVersion(this)
+
+    boolean retryWithCleanProjectDir() {
+        temporaryFolder.testDirectory.listFiles().each {
+            it.deleteDir()
+        }
+        true
+    }
+
+    def cleanup() {
+        executers.each { it.cleanup() }
+    }
+
+    void requireOwnGradleUserHomeDir() {
+        gradleUserHomeDir = file("user-home-dir")
+    }
+
+    GradleDistribution getPrevious() {
         return previous
     }
 
-    protected TestFile getBuildFile() {
-        testDir.file('build.gradle')
+    String getReleasedGradleVersion() {
+        return previous.version.baseVersion.version
     }
 
-    protected TestFile getTestDir() {
-        current.getTestDir();
+    protected TestFile getBuildFile() {
+        testDirectory.file('build.gradle')
+    }
+
+    protected TestFile getSettingsFile() {
+        testDirectory.file('settings.gradle')
+    }
+
+    TestFile getTestDirectory() {
+        temporaryFolder.getTestDirectory();
     }
 
     protected TestFile file(Object... path) {
-        testDir.file(path);
+        testDirectory.file(path);
     }
 
-    def version(BasicGradleDistribution dist) {
-        def executer = dist.executer();
-        if (executer instanceof GradleDistributionExecuter) {
-            executer.withDeprecationChecksDisabled()
+    protected MavenFileRepository getMavenRepo() {
+        if (mavenRepo == null) {
+            mavenRepo = new MavenFileRepository(file("maven-repo"))
         }
-        executer.inDirectory(testDir)
-        return executer;
+        return mavenRepo
+    }
+
+    GradleExecuter version(GradleDistribution dist) {
+        def executer = dist.executer(temporaryFolder, IntegrationTestBuildContext.INSTANCE)
+        if (gradleUserHomeDir) {
+            executer.withGradleUserHomeDir(gradleUserHomeDir)
+        }
+        executer.expectDeprecationWarning()
+        executer.inDirectory(testDirectory)
+        executers << executer
+        return executer
     }
 }

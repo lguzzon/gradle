@@ -19,18 +19,18 @@ package org.gradle.plugins.ide.eclipse
 
 import org.gradle.api.Project
 import org.gradle.api.Task
-import org.gradle.api.internal.project.DefaultProject
 import org.gradle.api.tasks.Delete
+import org.gradle.internal.reflect.Instantiator
 import org.gradle.plugins.ide.eclipse.model.BuildCommand
-import org.gradle.util.HelperUtil
-import spock.lang.Specification
+import org.gradle.test.fixtures.AbstractProjectBuilderSpec
 
-/**
- * @author Hans Dockter
- */
-class EclipsePluginTest extends Specification {
-    private final DefaultProject project = HelperUtil.createRootProject()
-    private final EclipsePlugin eclipsePlugin = new EclipsePlugin()
+class EclipsePluginTest extends AbstractProjectBuilderSpec {
+
+    private EclipsePlugin eclipsePlugin
+
+    def setup() {
+        eclipsePlugin = new EclipsePlugin(project.services.get(Instantiator))
+    }
 
     def applyToBaseProject_shouldOnlyHaveEclipseProjectTask() {
         when:
@@ -44,9 +44,9 @@ class EclipsePluginTest extends Specification {
 
     def applyToJavaProject_shouldOnlyHaveProjectAndClasspathTaskForJava() {
         when:
-        project.apply(plugin: 'java-base')
         eclipsePlugin.apply(project)
-
+        project.apply(plugin: 'java-base')
+        project.evaluate()
         then:
         assertThatCleanEclipseDependsOn(project, project.cleanEclipseProject)
         assertThatCleanEclipseDependsOn(project, project.cleanEclipseClasspath)
@@ -58,32 +58,36 @@ class EclipsePluginTest extends Specification {
         project.apply(plugin: 'java')
 
         then:
-        checkEclipseClasspath([project.configurations.testRuntime])
+        checkEclipseClasspath([project.configurations.compileClasspath, project.configurations.runtimeClasspath, project.configurations.testCompileClasspath, project.configurations.testRuntimeClasspath])
     }
 
     def applyToScalaProject_shouldHaveProjectAndClasspathTaskForScala() {
+        def scalaIdeContainer = ['org.scala-ide.sdt.launching.SCALA_CONTAINER']
+
         when:
-        project.apply(plugin: 'scala-base')
         eclipsePlugin.apply(project)
+        project.apply(plugin: 'scala-base')
+        project.evaluate()
 
         then:
         assertThatCleanEclipseDependsOn(project, project.cleanEclipseProject)
         assertThatCleanEclipseDependsOn(project, project.cleanEclipseClasspath)
         checkEclipseProjectTask([new BuildCommand('org.scala-ide.sdt.core.scalabuilder')],
                 ['org.scala-ide.sdt.core.scalanature', 'org.eclipse.jdt.core.javanature'])
-        checkEclipseClasspath([])
+        checkEclipseClasspath([], scalaIdeContainer)
 
         when:
         project.apply(plugin: 'scala')
 
         then:
-        checkEclipseClasspath([project.configurations.testRuntime])
+        checkEclipseClasspath([project.configurations.compileClasspath, project.configurations.runtimeClasspath, project.configurations.testCompileClasspath, project.configurations.testRuntimeClasspath], scalaIdeContainer)
     }
 
     def applyToGroovyProject_shouldHaveProjectAndClasspathTaskForGroovy() {
         when:
-        project.apply(plugin: 'groovy-base')
         eclipsePlugin.apply(project)
+        project.apply(plugin: 'groovy-base')
+        project.evaluate()
 
         then:
         assertThatCleanEclipseDependsOn(project, project.cleanEclipseProject)
@@ -96,7 +100,7 @@ class EclipsePluginTest extends Specification {
         project.apply(plugin: 'groovy')
 
         then:
-        checkEclipseClasspath([project.configurations.testRuntime])
+        checkEclipseClasspath([project.configurations.compileClasspath, project.configurations.runtimeClasspath, project.configurations.testCompileClasspath, project.configurations.testRuntimeClasspath])
     }
 
     def "creates empty classpath model for non java projects"() {
@@ -104,8 +108,8 @@ class EclipsePluginTest extends Specification {
         eclipsePlugin.apply(project)
 
         then:
-        eclipsePlugin.model.classpath
-        eclipsePlugin.model.classpath.defaultOutputDir
+        project.eclipse.classpath
+        project.eclipse.classpath.defaultOutputDir
     }
 
     def "configures internal class folders"() {
@@ -131,18 +135,26 @@ class EclipsePluginTest extends Specification {
         assert eclipseProjectTask instanceof GenerateEclipseProject
         assert project.tasks.eclipse.taskDependencies.getDependencies(project.tasks.eclipse).contains(eclipseProjectTask)
         assert eclipseProjectTask.outputFile == project.file('.project')
+
+        assert project.eclipse.project.buildCommands == buildCommands
+        assert project.eclipse.project.natures == natures
     }
 
-    private void checkEclipseClasspath(def configurations) {
-        GenerateEclipseClasspath eclipseClasspath = project.tasks.eclipseClasspath
-        assert eclipseClasspath instanceof GenerateEclipseClasspath
-        assert project.tasks.eclipse.taskDependencies.getDependencies(project.tasks.eclipse).contains(eclipseClasspath)
-        assert eclipseClasspath.sourceSets == project.sourceSets
-        assert eclipseClasspath.plusConfigurations == configurations
-        assert eclipseClasspath.minusConfigurations == []
-        assert eclipseClasspath.containers == ['org.eclipse.jdt.launching.JRE_CONTAINER'] as Set
-        assert eclipseClasspath.outputFile == project.file('.classpath')
-        assert eclipseClasspath.defaultOutputDir == new File(project.projectDir, 'bin')
+    private void checkEclipseClasspath(def configurations, def additionalContainers = []) {
+        def classpath = project.eclipse.classpath
+        def classpathTask = project.tasks.eclipseClasspath
+
+        assert classpathTask instanceof GenerateEclipseClasspath
+        assert classpathTask.classpath == classpath
+        assert classpathTask.outputFile == project.file('.classpath')
+        assert project.tasks.eclipse.taskDependencies.getDependencies(project.tasks.eclipse).contains(classpathTask)
+
+        assert classpath.sourceSets == project.sourceSets
+        assert classpath.plusConfigurations == configurations
+        assert classpath.minusConfigurations == []
+
+        assert classpath.containers == ["org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/${project.eclipse.jdt.getJavaRuntimeName()}/"] + additionalContainers as Set
+        assert classpath.defaultOutputDir == new File(project.projectDir, 'bin')
     }
 
     private void checkEclipseJdt() {

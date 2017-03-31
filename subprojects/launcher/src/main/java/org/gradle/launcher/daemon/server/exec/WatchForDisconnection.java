@@ -17,36 +17,27 @@ package org.gradle.launcher.daemon.server.exec;
 
 import org.gradle.api.logging.Logger;
 import org.gradle.api.logging.Logging;
-import org.gradle.messaging.remote.internal.DisconnectAwareConnection;
+import org.gradle.launcher.daemon.server.api.DaemonCommandAction;
+import org.gradle.launcher.daemon.server.api.DaemonCommandExecution;
 
 public class WatchForDisconnection implements DaemonCommandAction {
-
     private static final Logger LOGGER = Logging.getLogger(WatchForDisconnection.class);
+    public static final String EXPIRATION_REASON = "client disconnected";
 
     public void execute(final DaemonCommandExecution execution) {
-        DisconnectAwareConnection connection = execution.getConnection();
-
         // Watch for the client disconnecting before we call stop()
-        connection.onDisconnect(new Runnable() {
+        execution.getConnection().onDisconnect(new Runnable() {
             public void run() {
-                LOGGER.warn("client disconnection detected, stopping the daemon");
-                
-                /*
-                    When the daemon was started through the DaemonMain entry point, this will cause the entire
-                    JVM to exit with code 1 (which is what we want) because the call to awaitIdleTimeout() in 
-                    DaemonMain#doAction will throw a DaemonStoppedException. Note that at this point we will also 
-                    immediately remove the daemon from the registry.
-                */
-                execution.getDaemonStateControl().requestStop();
+                LOGGER.warn("thread {}: client disconnection detected, canceling the build", Thread.currentThread().getId());
+                execution.getDaemonStateControl().requestCancel();
             }
         });
 
         try {
             execution.proceed();
         } finally {
-            // TODO - Do we need to remove the disconnect handler here?
-            // I think we should because if the client disconnects after we run the build we may as well stay up
-            connection.onDisconnect(null);
+            // Remove the handler
+            execution.getConnection().onDisconnect(null);
         }
     }
 

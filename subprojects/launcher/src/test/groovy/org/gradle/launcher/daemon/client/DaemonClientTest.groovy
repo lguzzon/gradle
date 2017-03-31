@@ -15,125 +15,188 @@
  */
 package org.gradle.launcher.daemon.client
 
-import org.gradle.initialization.GradleLauncherAction
+import org.gradle.api.BuildCancelledException
+import org.gradle.initialization.BuildCancellationToken
+import org.gradle.initialization.BuildRequestContext
 import org.gradle.internal.id.IdGenerator
+import org.gradle.internal.invocation.BuildAction
+import org.gradle.internal.service.ServiceRegistry
 import org.gradle.launcher.daemon.context.DaemonCompatibilitySpec
-import org.gradle.launcher.exec.BuildActionParameters
-import org.gradle.logging.internal.OutputEventListener
-import org.gradle.messaging.remote.internal.Connection
-import org.gradle.util.ConcurrentSpecification
+import org.gradle.launcher.daemon.context.DaemonConnectDetails
 import org.gradle.launcher.daemon.protocol.*
+import org.gradle.launcher.daemon.server.api.DaemonStoppedException
+import org.gradle.launcher.exec.BuildActionParameters
+import org.gradle.internal.logging.events.OutputEventListener
+import org.gradle.internal.nativeintegration.ProcessEnvironment;
+import org.gradle.util.ConcurrentSpecification
 
 class DaemonClientTest extends ConcurrentSpecification {
     final DaemonConnector connector = Mock()
-    final DaemonConnection daemonConnection = Mock()
-    final Connection<Object> connection = Mock()
+    final DaemonClientConnection connection = Mock()
     final OutputEventListener outputEventListener = Mock()
     final DaemonCompatibilitySpec compatibilitySpec = Mock()
     final IdGenerator<?> idGenerator = {12} as IdGenerator
-    final DaemonClient client = new DaemonClient(connector, outputEventListener, compatibilitySpec, new ByteArrayInputStream(new byte[0]), executorFactory, idGenerator)
-
-    def setup() {
-        daemonConnection.getConnection() >> connection
-    }
-
-    def stopsTheDaemonWhenRunning() {
-        when:
-        client.stop()
-
-        then:
-        2 * connector.maybeConnect(compatibilitySpec) >>> [daemonConnection, null]
-        1 * connection.dispatch({it instanceof Stop})
-        1 * connection.receive() >> new Success(null)
-        1 * connection.stop()
-        daemonConnection.getConnection() >> connection // why do I need this? Why doesn't the interaction specified in setup cover me?
-        0 * _
-    }
-
-    def stopsTheDaemonWhenNotRunning() {
-        when:
-        client.stop()
-
-        then:
-        1 * connector.maybeConnect(compatibilitySpec) >> null
-        0 * _
-    }
-
-    def "stops all compatible daemons"() {
-        when:
-        client.stop()
-
-        then:
-        3 * connector.maybeConnect(compatibilitySpec) >>> [daemonConnection, daemonConnection, null]
-        2 * connection.dispatch({it instanceof Stop})
-        2 * connection.receive() >> new Success(null)
-    }
+    final ProcessEnvironment processEnvironment = Mock()
+    final DaemonClient client = new DaemonClient(connector, outputEventListener, compatibilitySpec, new ByteArrayInputStream(new byte[0]), executorFactory, idGenerator, processEnvironment)
 
     def executesAction() {
         when:
-        def result = client.execute(Mock(GradleLauncherAction), Mock(BuildActionParameters))
+        def result = client.execute(Stub(BuildAction), Stub(BuildRequestContext), Stub(BuildActionParameters), Stub(ServiceRegistry))
 
         then:
         result == '[result]'
-        1 * connector.connect(compatibilitySpec) >> daemonConnection
+        1 * processEnvironment.maybeGetPid()
+        1 * connector.connect(compatibilitySpec) >> connection
+        _ * connection.daemon >> Stub(DaemonConnectDetails)
         1 * connection.dispatch({it instanceof Build})
-        2 * connection.receive() >>> [Mock(BuildStarted), new Success('[result]')]
+        2 * connection.receive() >>> [Stub(BuildStarted), new Success('[result]')]
+        1 * connection.dispatch({it instanceof CloseInput})
+        1 * connection.dispatch({it instanceof Finished})
         1 * connection.stop()
+        0 * _
     }
 
     def rethrowsFailureToExecuteAction() {
-        GradleLauncherAction<String> action = Mock()
-        BuildActionParameters parameters = Mock()
         RuntimeException failure = new RuntimeException()
 
         when:
-        client.execute(Mock(GradleLauncherAction), Mock(BuildActionParameters))
+        client.execute(Stub(BuildAction), Stub(BuildRequestContext), Stub(BuildActionParameters), Stub(ServiceRegistry))
 
         then:
         RuntimeException e = thrown()
         e == failure
-        1 * connector.connect(compatibilitySpec) >> daemonConnection
+        1 * processEnvironment.maybeGetPid()
+        1 * connector.connect(compatibilitySpec) >> connection
+        _ * connection.daemon >> Stub(DaemonConnectDetails)
         1 * connection.dispatch({it instanceof Build})
-        2 * connection.receive() >>> [Mock(BuildStarted), new CommandFailure(failure)]
+        2 * connection.receive() >>> [Stub(BuildStarted), new Failure(failure)]
+        1 * connection.dispatch({it instanceof CloseInput})
+        1 * connection.dispatch({it instanceof Finished})
         1 * connection.stop()
+        0 * _
     }
-    
-    def "tries to find a different daemon if getting the first result from the daemon fails"() {
+
+    def "throws an exception when build is cancelled and daemon is forcefully stopped"() {
+        def cancellationToken = Mock(BuildCancellationToken)
+        def buildRequestContext = Stub(BuildRequestContext) {
+            getCancellationToken() >> cancellationToken
+        }
+
         when:
-        client.execute(Mock(GradleLauncherAction), Mock(BuildActionParameters))
+        client.execute(Stub(BuildAction), buildRequestContext, Stub(BuildActionParameters), Stub(ServiceRegistry))
 
         then:
-        2 * connector.connect(compatibilitySpec) >> daemonConnection
-        connection.dispatch({it instanceof Build}) >> { throw new RuntimeException("Boo!")} >> { /* success */ }
-        2 * connection.receive() >>> [Mock(BuildStarted), new Success('')]
+        BuildCancelledException gce = thrown()
+        1 * processEnvironment.maybeGetPid()
+        1 * connector.connect(compatibilitySpec) >> connection
+        _ * connection.daemon >> Stub(DaemonConnectDetails)
+        1 * cancellationToken.addCallback(_) >> { Runnable callback ->
+            callback.run()
+            return false
+        }
+
+        1 * connection.dispatch({it instanceof Build})
+        2 * connection.receive() >>> [ Stub(BuildStarted), new Failure(new DaemonStoppedException())]
+        1 * connection.dispatch({it instanceof Cancel})
+        1 * connection.dispatch({it instanceof CloseInput})
+        1 * connection.dispatch({it instanceof Finished})
+        1 * cancellationToken.cancellationRequested >> true
+        1 * cancellationToken.removeCallback(_)
+        1 * connection.stop()
+        0 * _
+    }
+
+    def "throws an exception when build is cancelled and correctly finishes build"() {
+        def cancellationToken = Mock(BuildCancellationToken)
+        def cancelledException = new BuildCancelledException()
+        def buildRequestContext = Stub(BuildRequestContext) {
+            getCancellationToken() >> cancellationToken
+        }
+
+        when:
+        client.execute(Stub(BuildAction), buildRequestContext, Stub(BuildActionParameters), Stub(ServiceRegistry))
+
+        then:
+        BuildCancelledException gce = thrown()
+        gce == cancelledException
+        1 * processEnvironment.maybeGetPid()
+        1 * connector.connect(compatibilitySpec) >> connection
+        _ * connection.daemon >> Stub(DaemonConnectDetails)
+        1 * cancellationToken.addCallback(_) >> { Runnable callback ->
+            // simulate cancel request processing
+            callback.run()
+            return false
+        }
+        1 * cancellationToken.removeCallback(_)
+
+        1 * connection.dispatch({it instanceof Build})
+        2 * connection.receive() >>> [ Stub(BuildStarted), new Failure(cancelledException)]
+        1 * connection.dispatch({it instanceof Cancel})
+        1 * connection.dispatch({it instanceof CloseInput})
+        1 * connection.dispatch({it instanceof Finished})
+        1 * connection.stop()
+        0 * _
+    }
+
+    def "tries to find a different daemon if connected to a stale daemon address"() {
+        DaemonClientConnection connection2 = Mock()
+
+        when:
+        client.execute(Stub(BuildAction), Stub(BuildRequestContext), Stub(BuildActionParameters), Stub(ServiceRegistry))
+
+        then:
+        2 * connector.connect(compatibilitySpec) >>> [connection, connection2]
+        _ * connection.daemon >> Stub(DaemonConnectDetails)
+        1 * connection.dispatch({it instanceof Build}) >> { throw new StaleDaemonAddressException("broken", new RuntimeException())}
+        1 * connection.stop()
+        _ * connection2.daemon >> Stub(DaemonConnectDetails)
+        2 * connection2.receive() >>> [Stub(BuildStarted), new Success('')]
+        0 * connection._
     }
 
     def "tries to find a different daemon if the daemon is busy"() {
+        DaemonClientConnection connection2 = Mock()
+
         when:
-        client.execute(Mock(GradleLauncherAction), Mock(BuildActionParameters))
+        client.execute(Stub(BuildAction), Stub(BuildRequestContext), Stub(BuildActionParameters), Stub(ServiceRegistry))
 
         then:
-        2 * connector.connect(compatibilitySpec) >> daemonConnection
-        connection.receive() >>> [Mock(DaemonBusy), Mock(BuildStarted), new Success('')]
+        2 * connector.connect(compatibilitySpec) >>> [connection, connection2]
+        _ * connection.daemon >> Stub(DaemonConnectDetails)
+        1 * connection.dispatch({it instanceof Build})
+        1 * connection.receive() >> Stub(DaemonUnavailable)
+        1 * connection.dispatch({it instanceof Finished})
+        1 * connection.stop()
+        _ * connection2.daemon >> Stub(DaemonConnectDetails)
+        2 * connection2.receive() >>> [Stub(BuildStarted), new Success('')]
+        0 * connection._
     }
 
     def "tries to find a different daemon if the first result is null"() {
+        DaemonClientConnection connection2 = Mock()
+
         when:
-        client.execute(Mock(GradleLauncherAction), Mock(BuildActionParameters))
+        client.execute(Stub(BuildAction), Stub(BuildRequestContext), Stub(BuildActionParameters), Stub(ServiceRegistry))
 
         then:
-        3 * connector.connect(compatibilitySpec) >> daemonConnection
-        //first busy, then null, then build started...
-        connection.receive() >>> [Mock(DaemonBusy), null, Mock(BuildStarted), new Success('')]
+        2 * connector.connect(compatibilitySpec) >>> [connection, connection2]
+        _ * connection.daemon >> Stub(DaemonConnectDetails)
+        1 * connection.dispatch({it instanceof Build})
+        1 * connection.receive() >> null
+        1 * connection.stop()
+        _ * connection2.daemon >> Stub(DaemonConnectDetails)
+        2 * connection2.receive() >>> [Stub(BuildStarted), new Success('')]
+        0 * connection._
     }
 
     def "does not loop forever finding usable daemons"() {
         given:
-        connector.connect(compatibilitySpec) >> daemonConnection
-        connection.receive() >> Mock(DaemonBusy)
-        
+        connector.connect(compatibilitySpec) >> connection
+        connection.daemon >> Stub(DaemonConnectDetails)
+        connection.receive() >> Mock(DaemonUnavailable)
+
         when:
-        client.execute(Mock(GradleLauncherAction), Mock(BuildActionParameters))
+        client.execute(Stub(BuildAction), Stub(BuildRequestContext), Stub(BuildActionParameters), Stub(ServiceRegistry))
 
         then:
         thrown(NoUsableDaemonFoundException)

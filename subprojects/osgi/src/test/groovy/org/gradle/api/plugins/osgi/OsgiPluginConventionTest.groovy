@@ -15,24 +15,20 @@
  */
 package org.gradle.api.plugins.osgi
 
-import org.gradle.util.HelperUtil
-import org.gradle.api.internal.project.DefaultProject
+import org.gradle.api.Action
 import org.gradle.api.internal.plugins.osgi.DefaultOsgiManifest
 import org.gradle.api.internal.plugins.osgi.OsgiHelper
 import org.gradle.api.plugins.JavaBasePlugin
-
-import spock.lang.Specification
+import org.gradle.test.fixtures.AbstractProjectBuilderSpec
 import spock.lang.Issue
 
-/**
- * @author Hans Dockter
- */
-class OsgiPluginConventionTest extends Specification {
-    DefaultProject project = HelperUtil.createRootProject()
-    OsgiPluginConvention osgiPluginConvention = new OsgiPluginConvention(project)
+class OsgiPluginConventionTest extends AbstractProjectBuilderSpec {
+
+    OsgiPluginConvention osgiPluginConvention
 
     def setup() {
-        new JavaBasePlugin().apply(project)
+        osgiPluginConvention = new OsgiPluginConvention(project)
+        project.pluginManager.apply(JavaBasePlugin)
     }
 
     def osgiManifestWithNoClosure() {
@@ -44,8 +40,18 @@ class OsgiPluginConventionTest extends Specification {
 
     def osgiManifestWithClosure() {
         OsgiManifest osgiManifest = osgiPluginConvention.osgiManifest {
-            description = 'myDescription'    
+            description = 'myDescription'
         }
+
+        expect:
+        matchesExpectedConfig(osgiManifest)
+        osgiManifest.description == 'myDescription'
+    }
+
+    def osgiManifestWithAction() {
+        OsgiManifest osgiManifest = osgiPluginConvention.osgiManifest({ OsgiManifest manifest ->
+            manifest.description = 'myDescription'
+        } as Action<OsgiManifest>)
 
         expect:
         matchesExpectedConfig(osgiManifest)
@@ -68,14 +74,24 @@ class OsgiPluginConventionTest extends Specification {
     @Issue("GRADLE-1670")
     def "computes its defaults lazily"() {
         def manifest = osgiPluginConvention.osgiManifest()
-        project.version = 2.1
+        def i = 0
+        project.version = "${->++i}"
         project.group = "my.group"
         project.archivesBaseName = "myarchive"
 
         expect:
-        manifest.version == "2.1"
+        manifest.version == "1"
+        manifest.version == "2"
         manifest.name == "myarchive"
         manifest.symbolicName == "my.group.myarchive"
+
+        when:
+        project.group = "changed.group"
+        project.archivesBaseName = "changedarchive"
+
+        then:
+        manifest.name == "changedarchive"
+        manifest.symbolicName == "changed.group.changedarchive"
     }
 
     void matchesExpectedConfig(DefaultOsgiManifest osgiManifest) {

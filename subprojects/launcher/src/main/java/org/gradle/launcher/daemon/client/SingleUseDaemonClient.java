@@ -19,40 +19,40 @@ package org.gradle.launcher.daemon.client;
 import org.gradle.api.internal.DocumentationRegistry;
 import org.gradle.api.internal.specs.ExplainingSpec;
 import org.gradle.api.internal.specs.ExplainingSpecs;
-import org.gradle.initialization.GradleLauncherAction;
+import org.gradle.api.logging.Logger;
+import org.gradle.api.logging.Logging;
+import org.gradle.internal.invocation.BuildAction;
+import org.gradle.initialization.BuildRequestContext;
 import org.gradle.internal.concurrent.ExecutorFactory;
 import org.gradle.internal.id.IdGenerator;
+import org.gradle.internal.nativeintegration.ProcessEnvironment;
+import org.gradle.internal.service.ServiceRegistry;
 import org.gradle.launcher.daemon.context.DaemonContext;
 import org.gradle.launcher.daemon.protocol.Build;
 import org.gradle.launcher.daemon.protocol.BuildAndStop;
 import org.gradle.launcher.exec.BuildActionParameters;
-import org.gradle.logging.internal.OutputEventListener;
-import org.gradle.messaging.remote.internal.Connection;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.gradle.internal.logging.events.OutputEventListener;
 
 import java.io.InputStream;
 
 public class SingleUseDaemonClient extends DaemonClient {
-    private static final Logger LOGGER = LoggerFactory.getLogger(SingleUseDaemonClient.class);
+    public static final String MESSAGE = "To honour the JVM settings for this build a new JVM will be forked.";
+    private static final Logger LOGGER = Logging.getLogger(SingleUseDaemonClient.class);
     private final DocumentationRegistry documentationRegistry;
 
     public SingleUseDaemonClient(DaemonConnector connector, OutputEventListener outputEventListener, ExplainingSpec<DaemonContext> compatibilitySpec, InputStream buildStandardInput,
-                                 ExecutorFactory executorFactory, IdGenerator<?> idGenerator, DocumentationRegistry documentationRegistry) {
-        super(connector, outputEventListener, compatibilitySpec, buildStandardInput, executorFactory, idGenerator);
+                                 ExecutorFactory executorFactory, IdGenerator<?> idGenerator, DocumentationRegistry documentationRegistry, ProcessEnvironment processEnvironment) {
+        super(connector, outputEventListener, compatibilitySpec, buildStandardInput, executorFactory, idGenerator, processEnvironment);
         this.documentationRegistry = documentationRegistry;
     }
 
     @Override
-    public <T> T execute(GradleLauncherAction<T> action, BuildActionParameters parameters) {
-        LOGGER.warn("Note: in order to honour the org.gradle.jvmargs and/or org.gradle.java.home values specified for this build, it is necessary to fork a new JVM.");
-        LOGGER.warn("To avoid the slowdown associated with this extra process, you might want to consider running Gradle with the daemon enabled.");
-        LOGGER.warn("Please see the user guide chapter on the daemon at {}.", documentationRegistry.getDocumentationFor("gradle_daemon"));
-        Build build = new BuildAndStop(getIdGenerator().generateId(), action, parameters);
+    public Object execute(BuildAction action, BuildRequestContext buildRequestContext, BuildActionParameters parameters, ServiceRegistry contextServices) {
+        LOGGER.lifecycle("{} Please consider using the daemon: {}.", MESSAGE, documentationRegistry.getDocumentationFor("gradle_daemon"));
 
-        DaemonConnection daemonConnection = getConnector().createConnection(ExplainingSpecs.<DaemonContext>satisfyAll());
-        Connection<Object> connection = daemonConnection.getConnection();
+        DaemonClientConnection daemonConnection = getConnector().startDaemon(ExplainingSpecs.<DaemonContext>satisfyAll());
+        Build build = new BuildAndStop(getIdGenerator().generateId(), daemonConnection.getDaemon().getToken(), action, buildRequestContext.getClient(), buildRequestContext.getBuildTimeClock().getStartTime(), parameters);
 
-        return (T) executeBuild(build, connection);
+        return executeBuild(build, daemonConnection, buildRequestContext.getCancellationToken(), buildRequestContext.getEventConsumer());
     }
 }

@@ -16,31 +16,27 @@
 
 package org.gradle.internal.concurrent;
 
-import org.gradle.internal.CompositeStoppable;
-import org.gradle.internal.Stoppable;
-import org.gradle.internal.UncheckedException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.util.Set;
-import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.CopyOnWriteArraySet;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 public class DefaultExecutorFactory implements ExecutorFactory, Stoppable {
-    private static final Logger LOGGER = LoggerFactory.getLogger(DefaultExecutorFactory.class);
-    private final Set<StoppableExecutorImpl> executors = new CopyOnWriteArraySet<StoppableExecutorImpl>();
+    private final Set<StoppableExecutor> executors = new CopyOnWriteArraySet<StoppableExecutor>();
 
     public void stop() {
         try {
-            new CompositeStoppable(executors).stop();
+            CompositeStoppable.stoppable(executors).stop();
         } finally {
             executors.clear();
         }
     }
 
     public StoppableExecutor create(String displayName) {
-        StoppableExecutorImpl executor = new StoppableExecutorImpl(createExecutor(displayName));
+        StoppableExecutor executor = new TrackedStoppableExecutor(createExecutor(displayName), new ExecutorPolicy.CatchAndRecordFailures());
         executors.add(executor);
         return executor;
     }
@@ -49,80 +45,54 @@ public class DefaultExecutorFactory implements ExecutorFactory, Stoppable {
         return Executors.newCachedThreadPool(new ThreadFactoryImpl(displayName));
     }
 
-    private class StoppableExecutorImpl implements StoppableExecutor {
-        private final ExecutorService executor;
-        private final ThreadLocal<Runnable> executing = new ThreadLocal<Runnable>();
-        private final AtomicReference<Throwable> failure = new AtomicReference<Throwable>();
+    public StoppableExecutor create(String displayName, int fixedSize) {
+        StoppableExecutor executor = new TrackedStoppableExecutor(createExecutor(displayName, fixedSize), new ExecutorPolicy.CatchAndRecordFailures());
+        executors.add(executor);
+        return executor;
+    }
 
-        public StoppableExecutorImpl(ExecutorService executor) {
-            this.executor = executor;
-        }
+    protected ExecutorService createExecutor(String displayName, int fixedSize) {
+        return Executors.newFixedThreadPool(fixedSize, new ThreadFactoryImpl(displayName));
+    }
 
-        public void execute(final Runnable command) {
-            executor.execute(new Runnable() {
-                public void run() {
-                    executing.set(command);
-                    try {
-                        command.run();
-                    } catch (Throwable throwable) {
-                        if (!failure.compareAndSet(null, throwable)) {
-                            LOGGER.error(String.format("Failed to execute %s.", command), throwable);
-                        }
-                    } finally {
-                        executing.set(null);
-                    }
-                }
-            });
-        }
+    @Override
+    public StoppableScheduledExecutor createScheduled(String displayName, int fixedSize) {
+        ScheduledExecutorService delegate = createScheduledExecutor(displayName, fixedSize);
+        StoppableScheduledExecutor executor = new TrackedScheduledStoppableExecutor(delegate, new ExecutorPolicy.CatchAndRecordFailures());
+        executors.add(executor);
+        return executor;
+    }
 
-        public void requestStop() {
-            executor.shutdown();
-        }
+    private ScheduledExecutorService createScheduledExecutor(String displayName, int fixedSize) {
+        return new ScheduledThreadPoolExecutor(fixedSize, new ThreadFactoryImpl(displayName));
+    }
 
-        public void stop() {
-            stop(Integer.MAX_VALUE, TimeUnit.SECONDS);
+    private class TrackedStoppableExecutor extends StoppableExecutorImpl {
+        public TrackedStoppableExecutor(ExecutorService executor, ExecutorPolicy executorPolicy) {
+            super(executor, executorPolicy);
         }
 
         public void stop(int timeoutValue, TimeUnit timeoutUnits) throws IllegalStateException {
-            requestStop();
-            if (executing.get() != null) {
-                throw new IllegalStateException("Cannot stop this executor from an executor thread.");
-            }
             try {
-                try {
-                    if (!executor.awaitTermination(timeoutValue, timeoutUnits)) {
-                        executor.shutdownNow();
-                        throw new IllegalStateException("Timeout waiting for concurrent jobs to complete.");
-                    }
-                } catch (InterruptedException e) {
-                    throw new UncheckedException(e);
-                }
-                if (failure.get() != null) {
-                    throw UncheckedException.throwAsUncheckedException(failure.get());
-                }
+                super.stop(timeoutValue, timeoutUnits);
             } finally {
                 executors.remove(this);
             }
         }
     }
 
-    private static class ThreadFactoryImpl implements ThreadFactory {
-        private final AtomicLong counter = new AtomicLong();
-        private final String displayName;
+    private class TrackedScheduledStoppableExecutor extends StoppableScheduledExecutorImpl {
 
-        public ThreadFactoryImpl(String displayName) {
-            this.displayName = displayName;
+        public TrackedScheduledStoppableExecutor(ScheduledExecutorService executor, ExecutorPolicy executorPolicy) {
+            super(executor, executorPolicy);
         }
 
-        public Thread newThread(Runnable r) {
-            Thread thread = new Thread(r);
-            long count = counter.incrementAndGet();
-            if (count == 1) {
-                thread.setName(displayName);
-            } else {
-                thread.setName(String.format("%s Thread %s", displayName, count));
+        public void stop(int timeoutValue, TimeUnit timeoutUnits) throws IllegalStateException {
+            try {
+                super.stop(timeoutValue, timeoutUnits);
+            } finally {
+                executors.remove(this);
             }
-            return thread;
         }
     }
 }

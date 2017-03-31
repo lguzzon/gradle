@@ -15,30 +15,34 @@
  */
 package org.gradle.integtests.samples
 
-import org.gradle.integtests.fixtures.GradleDistribution
-import org.gradle.integtests.fixtures.GradleDistributionExecuter
+import org.gradle.integtests.fixtures.AbstractIntegrationSpec
 import org.gradle.integtests.fixtures.Sample
-import org.gradle.util.TestFile
+import org.gradle.test.fixtures.file.TestFile
+import org.gradle.util.Requires
 import org.junit.Rule
-import org.junit.Test
 
-/**
- * @author Hans Dockter
- */
-class SamplesCodeQualityIntegrationTest {
-    @Rule public final GradleDistribution dist = new GradleDistribution()
-    @Rule public final GradleDistributionExecuter executer = new GradleDistributionExecuter()
-    @Rule public final Sample sample = new Sample('codeQuality')
+import static org.gradle.util.TestPrecondition.JDK8_OR_EARLIER
 
-    @Test
-    public void checkReportsGenerated() {
+class SamplesCodeQualityIntegrationTest extends AbstractIntegrationSpec {
+    @Rule public final Sample sample = new Sample(temporaryFolder, 'codeQuality')
+
+    @Requires(JDK8_OR_EARLIER)
+    def checkReportsGenerated() {
         TestFile projectDir = sample.dir
         TestFile buildDir = projectDir.file('build')
 
-        executer.inDirectory(projectDir).withForkingExecuter().withTasks('check').run()
+        when:
+        executer.inDirectory(projectDir).requireGradleDistribution().withTasks('check').run()
 
-        buildDir.file('reports/checkstyle/main.xml').assertIsFile()
+        then:
+        buildDir.file('reports/checkstyle/main.xml').assertDoesNotExist()
+        buildDir.file('reports/checkstyle/main.html').assertIsFile()
         buildDir.file('reports/codenarc/main.html').assertIsFile()
         buildDir.file('reports/codenarc/test.html').assertIsFile()
+        buildDir.file('reports/findbugs/main.html').assertIsFile()
+        buildDir.file('reports/jdepend/main.xml').assertIsFile()
+        buildDir.file('reports/jdepend/test.xml').assertIsFile()
+        buildDir.file('reports/pmd/main.html').assertIsFile()
+        buildDir.file('reports/pmd/main.xml').assertIsFile()
     }
 }

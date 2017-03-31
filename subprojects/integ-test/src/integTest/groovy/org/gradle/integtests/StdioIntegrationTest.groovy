@@ -23,22 +23,32 @@ class StdioIntegrationTest extends AbstractIntegrationSpec {
 
     def "build can read stdin when stdin has bounded length"() {
         given:
-        distribution.requireOwnUserHomeDir()
+        executer.requireOwnGradleUserHomeDir()
         buildFile << '''
-task echo << {
-    def reader = new BufferedReader(new InputStreamReader(System.in))
-    while (true) {
-        def line = reader.readLine() // readline will chomp the newline off the end
-        if (!line || line == 'close') {
-            break
+task echo {
+    doLast {
+        def reader = new BufferedReader(new InputStreamReader(System.in))
+        while (true) {
+            def line = reader.readLine() // readline will chomp the newline off the end
+            if (!line || line == 'close') {
+                break
+            }
+            print "[$line]"
         }
-        print "[$line]"
     }
 }
 '''
+        executer.withStdinPipe(new PipedOutputStream() {
+            @Override
+            void connect(PipedInputStream snk) throws IOException {
+                super.connect(snk)
+                write(TextUtil.toPlatformLineSeparators("abc\n123").bytes)
+                close()
+            }
+        })
 
         when:
-        executer.withStdIn("abc\n123").withArguments("-s", "--info")
+        executer.withArguments("-s", "--info")
         run "echo"
 
         then:
@@ -46,28 +56,30 @@ task echo << {
     }
 
     def "build can read stdin when stdin has unbounded length"() {
-        def writeEnd = new PipedOutputStream()
-        def readEnd = new PipedInputStream(writeEnd)
-
         given:
-        distribution.requireOwnUserHomeDir()
+        requireOwnGradleUserHomeDir()
         buildFile << '''
-task echo << {
-    def reader = new BufferedReader(new InputStreamReader(System.in))
-    while (true) {
-        def line = reader.readLine() // readline will chomp the newline off the end
-        if (!line || line == 'close') {
-            break
+task echo {
+    doLast {
+        def reader = new BufferedReader(new InputStreamReader(System.in))
+        while (true) {
+            def line = reader.readLine() // readline will chomp the newline off the end
+            if (!line || line == 'close') {
+                break
+            }
+            print "[$line]"
         }
-        print "[$line]"
     }
 }
 '''
-        and:
-        writeEnd.write(TextUtil.toPlatformLineSeparators("abc\n123\nclose\n").bytes)
-
         when:
-        executer.withStdIn(readEnd).withArguments("-s", "--info")
+        executer.withArguments("-s", "--info").withStdinPipe(new PipedOutputStream() {
+            @Override
+            void connect(PipedInputStream snk) throws IOException {
+                super.connect(snk)
+                write(TextUtil.toPlatformLineSeparators("abc\n123\nclose\n").bytes)
+            }
+        })
         run "echo"
 
         then:

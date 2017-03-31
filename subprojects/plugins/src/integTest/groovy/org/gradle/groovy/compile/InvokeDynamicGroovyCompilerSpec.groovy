@@ -16,12 +16,13 @@
 
 package org.gradle.groovy.compile
 
-import org.gradle.util.Requires
-import org.gradle.util.TestPrecondition
 import org.gradle.integtests.fixtures.TargetVersions
+import org.gradle.test.fixtures.file.LeaksFileHandles
+import org.gradle.util.TestPrecondition
+import spock.lang.Issue
 
-@Requires(TestPrecondition.JDK7)
-@TargetVersions(['2.0.0-beta-3:indy'])
+@TargetVersions(['2.4.10:indy'])
+@LeaksFileHandles
 class InvokeDynamicGroovyCompilerSpec extends ApiGroovyCompilerIntegrationSpec {
     def canEnableAndDisableInvokeDynamicOptimization() {
         when:
@@ -34,9 +35,14 @@ class InvokeDynamicGroovyCompilerSpec extends ApiGroovyCompilerIntegrationSpec {
     String compilerConfiguration() {
         '''
 tasks.withType(GroovyCompile) {
-    groovyOptions.useAnt = false
     groovyOptions.fork = false
 }
         '''
+    }
+
+    @Override
+    @Issue('gradle/core-issues/#125')
+    protected boolean gradleLeaksIntoAnnotationProcessor() {
+        return !TestPrecondition.FIX_TO_WORK_ON_JAVA9.fulfilled
     }
 }

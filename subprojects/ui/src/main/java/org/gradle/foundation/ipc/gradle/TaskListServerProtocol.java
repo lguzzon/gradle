@@ -18,7 +18,7 @@ package org.gradle.foundation.ipc.gradle;
 import org.gradle.api.logging.LogLevel;
 import org.gradle.foundation.ProjectView;
 import org.gradle.foundation.ipc.basic.MessageObject;
-import org.gradle.logging.ShowStacktrace;
+import org.gradle.api.logging.configuration.ShowStacktrace;
 
 import java.io.File;
 import java.util.List;
@@ -26,8 +26,6 @@ import java.util.List;
 /**
  * This manages the communication between the UI and an externally-launched copy of Gradle when using socket-based inter-process communication. This is the server side for building a task list. This
  * listens for messages from the gradle client.
- *
- * @author mhunsicker
  */
 public class TaskListServerProtocol extends AbstractGradleServerProtocol {
     private static final String INIT_SCRIPT_NAME = "refresh-tasks-init-script";
@@ -94,7 +92,7 @@ public class TaskListServerProtocol extends AbstractGradleServerProtocol {
     }
 
     /**
-     * This is called when when the client exits. This does not mean it succeeded. This is probably the only way you'll get ALL of the client's output as it continues to output things like error
+     * This is called when the client exits. This does not mean it succeeded. This is probably the only way you'll get ALL of the client's output as it continues to output things like error
      * messages after it sends us an executionFinished message.
      *
      * @param returnCode the return code of the application

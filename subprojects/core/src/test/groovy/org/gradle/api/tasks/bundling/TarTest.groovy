@@ -16,46 +16,49 @@
 
 package org.gradle.api.tasks.bundling
 
-import static org.junit.Assert.*
-import static org.hamcrest.Matchers.*
-import org.junit.Before
-import org.junit.Test;
-
-/**
- * @author Hans Dockter
- */
 class TarTest extends AbstractArchiveTaskTest {
     Tar tar
 
-    @Before public void setUp()  {
-        super.setUp()
+    def setup()  {
         tar = createTask(Tar)
         configure(tar)
-        tar.from tmpDir.createFile('file.txt')
     }
 
+    @Override
     AbstractArchiveTask getArchiveTask() {
         tar
     }
 
-    @Test public void testDefaultValues() {
-        assertThat(tar.compression, equalTo(Compression.NONE))
-        assertThat(tar.extension, equalTo('tar'))
+    def "default values"() {
+        expect:
+        tar.compression == Compression.NONE
+        tar.extension == 'tar'
     }
-    
-    @Test public void testCompressionDeterminesDefaultExtension() {
-        tar.compression = Compression.GZIP
-        assertThat(tar.extension, equalTo('tgz'))
 
+    def "compression determines default extension"() {
+        when:
+        tar.compression = Compression.GZIP
+
+        then:
+        tar.extension == 'tgz'
+
+        when:
         tar.compression = Compression.BZIP2
-        assertThat(tar.extension, equalTo('tbz2'))
 
+        then:
+        tar.extension == 'tbz2'
+
+        when:
         tar.compression = Compression.NONE
-        assertThat(tar.extension, equalTo('tar'))
 
+        then:
+        tar.extension == 'tar'
+
+        when:
         tar.extension = 'bin'
-
         tar.compression = Compression.GZIP
-        assertThat(tar.extension, equalTo('bin'))
+
+        then:
+        tar.extension == 'bin'
     }
 }

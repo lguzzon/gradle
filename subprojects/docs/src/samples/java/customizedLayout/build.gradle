@@ -5,17 +5,17 @@ repositories {
 }
 
 dependencies {
-    testCompile group: 'junit', name: 'junit', version: '4.8.2'
+    testCompile 'junit:junit:4.12'
 }
 
 // START SNIPPET define-main
 sourceSets {
     main {
         java {
-            srcDir 'src/java'
+            srcDirs = ['src/java']
         }
         resources {
-            srcDir 'src/resources'
+            srcDirs = ['src/resources']
         }
     }
 // END SNIPPET define-main

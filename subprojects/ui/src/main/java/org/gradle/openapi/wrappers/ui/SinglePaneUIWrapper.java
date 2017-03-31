@@ -16,19 +16,30 @@
 package org.gradle.openapi.wrappers.ui;
 
 import org.gradle.gradleplugin.userinterface.swing.generic.SinglePaneUIInstance;
+import org.gradle.openapi.external.ui.SettingsNodeVersion1;
 import org.gradle.openapi.external.ui.SinglePaneUIInteractionVersion1;
 import org.gradle.openapi.external.ui.SinglePaneUIVersion1;
+import org.gradle.openapi.wrappers.NoLongerSupportedException;
 
 import javax.swing.*;
 
 /**
  * This wraps a SinglePaneUIVersion1 for the purpose of being instantiated for an external tool such an IDE plugin. It wraps several interfaces and uses delegation in an effort to make this backward
  * and forward compatible. Most of the work is done in AbstractOpenAPIUIWrapper
- *
- * @author mhunsicker
  */
 public class SinglePaneUIWrapper extends AbstractOpenAPIUIWrapper<SinglePaneUIInstance> implements SinglePaneUIVersion1 {
     public SinglePaneUIWrapper(SinglePaneUIInteractionVersion1 singlePaneUIArguments) {
+        super(notSupported(), null);
+    }
+
+    private static SettingsNodeVersion1 notSupported() {
+        throw new NoLongerSupportedException();
+    }
+
+    /**
+     * The open API uses the other constructor.
+     */
+    public SinglePaneUIWrapper(SinglePaneUIInteractionVersion1 singlePaneUIArguments, boolean dummy) {
 
         super(singlePaneUIArguments.instantiateSettings(), singlePaneUIArguments.instantiateAlternateUIInteraction());
 
@@ -36,6 +47,10 @@ public class SinglePaneUIWrapper extends AbstractOpenAPIUIWrapper<SinglePaneUIIn
         SinglePaneUIInstance singlePaneUIInstance = new SinglePaneUIInstance();
         singlePaneUIInstance.initialize(settingsVersionWrapper, alternateUIInteractionVersionWrapper);
         initialize(singlePaneUIInstance);
+    }
+
+    public int getNumberOfOpenedOutputTabs() {
+        return getGradleUI().getOutputUILord().getTabCount();
     }
 
     /**

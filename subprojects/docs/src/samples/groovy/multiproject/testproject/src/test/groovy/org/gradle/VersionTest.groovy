@@ -1,13 +1,14 @@
 package org.gradle
 
 import org.junit.Test
-import static org.junit.Assert.*
+
+import static org.junit.Assert.assertEquals
 
 class GroovycVersionTest {
   def groovycVersion
 
   @Test
-  void versionShouldBe1_8_4() {
-    assertEquals("1.8.4", groovycVersion)
+  void versionShouldBeCurrent() {
+    assertEquals("2.4.10", groovycVersion)
   }
 }

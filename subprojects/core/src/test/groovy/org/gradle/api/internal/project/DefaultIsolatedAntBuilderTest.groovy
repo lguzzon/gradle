@@ -15,9 +15,6 @@
  */
 package org.gradle.api.internal.project
 
-import ch.qos.logback.classic.Level
-import ch.qos.logback.core.AppenderBase
-import org.apache.tools.ant.BuildException
 import org.apache.tools.ant.Project
 import org.apache.tools.ant.taskdefs.ConditionTask
 import org.gradle.api.GradleException
@@ -26,65 +23,40 @@ import org.gradle.api.internal.DefaultClassPathProvider
 import org.gradle.api.internal.DefaultClassPathRegistry
 import org.gradle.api.internal.classpath.DefaultModuleRegistry
 import org.gradle.api.internal.classpath.ModuleRegistry
-import org.gradle.api.internal.project.ant.BasicAntBuilder
-import org.gradle.logging.LoggingTestHelper
-import org.gradle.util.DefaultClassLoaderFactory
+import org.gradle.api.internal.project.antbuilder.DefaultIsolatedAntBuilder
+import org.gradle.api.logging.LogLevel
+import org.gradle.internal.classloader.ClasspathUtil
+import org.gradle.internal.classloader.DefaultClassLoaderFactory
+import org.gradle.internal.installation.CurrentGradleInstallation
+import org.gradle.internal.logging.ConfigureLogging
+import org.gradle.internal.logging.TestOutputEventListener
 import org.junit.After
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
+
 import static org.hamcrest.Matchers.*
 import static org.junit.Assert.assertThat
 import static org.junit.Assert.fail
-import org.apache.tools.ant.Task
-import org.gradle.util.ClasspathUtil
 
 class DefaultIsolatedAntBuilderTest {
-    private final ModuleRegistry moduleRegistry = new DefaultModuleRegistry()
+    private final ModuleRegistry moduleRegistry = new DefaultModuleRegistry(CurrentGradleInstallation.get())
     private final ClassPathRegistry registry = new DefaultClassPathRegistry(new DefaultClassPathProvider(moduleRegistry))
-    private final DefaultIsolatedAntBuilder builder = new DefaultIsolatedAntBuilder(registry, new DefaultClassLoaderFactory())
-    private final TestAppender appender = new TestAppender()
-    private final LoggingTestHelper helper = new LoggingTestHelper(appender)
+    private final DefaultIsolatedAntBuilder builder = new DefaultIsolatedAntBuilder(registry, new DefaultClassLoaderFactory(), moduleRegistry)
+    private final TestOutputEventListener outputEventListener = new TestOutputEventListener()
+    @Rule
+    public final ConfigureLogging logging = new ConfigureLogging(outputEventListener)
     private Collection<File> classpath
 
     @Before
     public void attachAppender() {
-        classpath = registry.getClassPath("GROOVY").asFiles
-        helper.attachAppender()
-        helper.setLevel(Level.INFO);
+        classpath = moduleRegistry.getExternalModule("groovy-all").getClasspath().asFiles
+        logging.setLevel(LogLevel.INFO)
     }
 
     @After
-    public void detachAppender() {
-        helper.detachAppender()
-    }
-
-    @Test
-    public void executesClosureAgainstDifferentVersionOfAntAndGroovy() {
-        Object antBuilder = null
-        Object antProject = null
-        builder.withGroovy(classpath).execute {
-            antBuilder = delegate.builder
-            antProject = delegate.antProject
-        }
-        assertThat(antBuilder, notNullValue())
-        assertThat(antProject, notNullValue())
-
-        ClassLoader loader = antBuilder.class.classLoader
-        assertThat(loader, not(sameInstance(AntBuilder.classLoader)))
-
-        assertThat(antBuilder, not(instanceOf(BasicAntBuilder)))
-        assertThat(antBuilder, instanceOf(loader.loadClass(BasicAntBuilder.name)))
-
-        assertThat(antBuilder, not(instanceOf(AntBuilder)))
-        assertThat(antBuilder, instanceOf(loader.loadClass(AntBuilder.name)))
-
-        assertThat(antProject, not(instanceOf(Project)))
-        assertThat(antProject, instanceOf(loader.loadClass(Project.name)))
-
-        assertThat(loader.loadClass(AntBuilder.name).classLoader, sameInstance(loader.loadClass(Project.name).classLoader))
-
-        assertThat(loader.loadClass(BuildException.name), not(sameInstance(BuildException)))
-        assertThat(loader.loadClass(Closure.name), not(sameInstance(Closure)))
+    public void cleanup() {
+        builder.stop()
     }
 
     @Test
@@ -108,7 +80,7 @@ class DefaultIsolatedAntBuilderTest {
     public void canAccessAntBuilderFromWithinClosures() {
         builder.execute {
             assertThat(ant, sameInstance(delegate))
-            
+
             ant.property(name: 'prop', value: 'a message')
             assertThat(project.properties.prop, equalTo('a message'))
         }
@@ -121,7 +93,7 @@ class DefaultIsolatedAntBuilderTest {
             echo('${message}')
         }
 
-        assertThat(appender.writer.toString(), equalTo('[[ant:echo] a message]'))
+        assertThat(outputEventListener.toString(), equalTo('[[WARN] [org.gradle.api.internal.project.ant.AntLoggingAdapter] [ant:echo] a message]'))
     }
 
     @Test
@@ -133,9 +105,9 @@ class DefaultIsolatedAntBuilderTest {
             loggingTask()
         }
 
-        assertThat(appender.writer.toString(), containsString('[a jcl log message]'))
-        assertThat(appender.writer.toString(), containsString('[an slf4j log message]'))
-        assertThat(appender.writer.toString(), containsString('[a log4j log message]'))
+        assertThat(outputEventListener.toString(), containsString('[[INFO] [ant-test] a jcl log message]'))
+        assertThat(outputEventListener.toString(), containsString('[[INFO] [ant-test] an slf4j log message]'))
+        assertThat(outputEventListener.toString(), containsString('[[INFO] [ant-test] a log4j log message]'))
     }
 
     @Test
@@ -146,21 +118,7 @@ class DefaultIsolatedAntBuilderTest {
     }
 
     @Test
-    public void cachesClassloaderForGivenClassPath() {
-        Object antBuilder1 = null
-        builder.execute {
-            antBuilder1 = delegate.builder
-        }
-        Object antBuilder2 = null
-        builder.withGroovy(classpath).execute {
-            antBuilder2 = delegate.builder
-        }
-
-        assertThat(antBuilder1.class, sameInstance(antBuilder2.class))
-    }
-
-    @Test
-    public void cachesClassloaderForGivenAntAndGroovyImplementationClassPath() {
+    public void reusesAntGroovyClassloader() {
         ClassLoader antClassLoader = null
         builder.withClasspath([new File("no-existo.jar")]).execute {
             antClassLoader = project.class.classLoader
@@ -171,6 +129,30 @@ class DefaultIsolatedAntBuilderTest {
         }
 
         assertThat(antClassLoader, sameInstance(antClassLoader2))
+    }
+
+    @Test
+    public void reusesClassloaderForImplementation() {
+        ClassLoader loader1 = null
+        ClassLoader loader2 = null
+        def classpath = [new File("no-existo.jar")]
+        builder.withClasspath(classpath).execute {
+            loader1 = delegate.antlibClassLoader
+            owner.builder.withClasspath(classpath).execute {
+                loader2 = delegate.antlibClassLoader
+            }
+        }
+
+
+        assertThat(loader1, sameInstance(loader2))
+
+
+        ClassLoader loader3 = null
+        builder.withClasspath(classpath + [new File("unknown.jar")]).execute {
+            loader3 = delegate.antlibClassLoader
+        }
+
+        assertThat(loader1, not(sameInstance(loader3)))
     }
 
     @Test
@@ -201,28 +183,5 @@ class DefaultIsolatedAntBuilderTest {
         } catch (ClassNotFoundException e) {
             // expected
         }
-    }
-}
-
-class TestAntTask extends Task {
-    @Override
-    void execute() {
-        org.apache.commons.logging.LogFactory.getLog('ant-test').info("a jcl log message")
-        org.slf4j.LoggerFactory.getLogger('ant-test').info("an slf4j log message")
-        org.apache.log4j.Logger.getLogger('ant-test').info("a log4j log message")
-    }
-}
-
-class TestAppender<LoggingEvent> extends AppenderBase<LoggingEvent> {
-    final StringWriter writer = new StringWriter()
-
-    synchronized void doAppend(LoggingEvent e) {
-        append(e)
-    }
-
-    protected void append(LoggingEvent e) {
-        writer.append("[")
-        writer.append(e.formattedMessage)
-        writer.append("]")
     }
 }

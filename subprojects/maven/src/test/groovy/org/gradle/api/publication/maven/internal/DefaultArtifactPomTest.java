@@ -17,15 +17,17 @@ package org.gradle.api.publication.maven.internal;
 
 import org.apache.ivy.core.module.descriptor.Artifact;
 import org.apache.ivy.core.module.descriptor.DefaultArtifact;
-import org.apache.ivy.core.module.id.ModuleRevisionId;
 import org.gradle.api.InvalidUserDataException;
 import org.gradle.api.artifacts.ConfigurationContainer;
 import org.gradle.api.artifacts.Dependency;
 import org.gradle.api.artifacts.PublishArtifact;
 import org.gradle.api.artifacts.maven.Conf2ScopeMappingContainer;
 import org.gradle.api.artifacts.maven.MavenPom;
+import org.gradle.api.internal.artifacts.ivyservice.IvyUtil;
 import org.gradle.api.internal.file.FileResolver;
-import org.gradle.util.TemporaryFolder;
+import org.gradle.api.publication.maven.internal.pom.DefaultMavenPom;
+import org.gradle.api.publication.maven.internal.pom.PomDependenciesConverter;
+import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider;
 import org.jmock.Expectations;
 import org.jmock.Mockery;
 import org.jmock.integration.junit4.JUnit4Mockery;
@@ -44,15 +46,12 @@ import static org.hamcrest.Matchers.*;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.fail;
 
-/**
- * @author Hans Dockter
- */
 public class DefaultArtifactPomTest {
     private DefaultArtifactPom artifactPom;
     private MavenPom testPom;
 
     @Rule
-    public TemporaryFolder tmpDir = new TemporaryFolder();
+    public TestNameTestDirectoryProvider tmpDir = new TestNameTestDirectoryProvider();
 
     Mockery context = new JUnit4Mockery();
 
@@ -161,7 +160,7 @@ public class DefaultArtifactPomTest {
         assertThat(artifactPom.getPom().getVersion(), equalTo("1.0"));
         assertThat(artifactPom.getPom().getPackaging(), equalTo("mainPackaging"));
     }
-    
+
     @Test(expected = InvalidUserDataException.class)
     public void addClassifierTwiceShouldThrowInvalidUserDataEx() {
         File classifierFile = new File("someClassifierFile");
@@ -240,18 +239,18 @@ public class DefaultArtifactPomTest {
         if (classifier != null) {
             extraAttributes.put(Dependency.CLASSIFIER, classifier);
         }
-        return new DefaultArtifact(ModuleRevisionId.newInstance("org", name, "1.0"), null, name, type, type, extraAttributes);
+        return new DefaultArtifact(IvyUtil.createModuleRevisionId("org", name, "1.0"), null, name, type, type, extraAttributes);
     }
 
     @Test
     public void writePom() {
         final MavenPom mavenPomMock = context.mock(MavenPom.class);
         DefaultArtifactPom artifactPom = new DefaultArtifactPom(mavenPomMock);
-        final File somePomFile = new File(tmpDir.getDir(), "someDir/somePath");
+        final File somePomFile = new File(tmpDir.getTestDirectory(), "someDir/somePath");
         context.checking(new Expectations() {{
             allowing(mavenPomMock).getArtifactId();
             will(returnValue("artifactId"));
-            one(mavenPomMock).writeTo(with(any(FileOutputStream.class)));
+            oneOf(mavenPomMock).writeTo(with(any(FileOutputStream.class)));
         }});
 
         PublishArtifact artifact = artifactPom.writePom(somePomFile);

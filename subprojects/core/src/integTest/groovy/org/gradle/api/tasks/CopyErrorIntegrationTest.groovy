@@ -15,25 +15,49 @@
  */
 package org.gradle.api.tasks
 
-import org.gradle.integtests.fixtures.ExecutionFailure
 import org.gradle.integtests.fixtures.AbstractIntegrationTest
-import org.gradle.util.TestFile
+import org.gradle.integtests.fixtures.executer.ExecutionFailure
+import org.gradle.test.fixtures.file.TestFile
+import org.gradle.util.PreconditionVerifier
 import org.gradle.util.Requires
 import org.gradle.util.TestPrecondition
-import org.gradle.util.PreconditionVerifier
+import org.hamcrest.Matchers
 import org.junit.Assert
-import org.junit.Test
 import org.junit.Rule
-import org.gradle.internal.nativeplatform.filesystem.FileSystems
+import org.junit.Test
 
 class CopyErrorIntegrationTest extends AbstractIntegrationTest {
     @Rule public PreconditionVerifier verifier = new PreconditionVerifier()
 
     @Test
+    public void givesReasonableErrorMessageWhenPathCannotBeConverted() {
+        file('src/thing.txt').createFile()
+
+        testFile('build.gradle') << '''
+            task copy(type: Copy) {
+                from('src') {
+                    into project.repositories
+                }
+                into 'dest'
+            }
+'''
+
+        ExecutionFailure failure = inTestDirectory().withTasks('copy').runWithFailure()
+        failure.assertHasCause("""Cannot convert the provided notation to a String: repository container.
+The following types/formats are supported:
+  - String or CharSequence instances, for example 'some/path'.
+  - Boolean values, for example true, Boolean.TRUE.
+  - Number values, for example 42, 3.14.
+  - A File instance
+  - A Closure that returns any supported value.
+  - A Callable that returns any supported value.""")
+    }
+
+    @Test
     @Requires(TestPrecondition.SYMLINKS)
     public void reportsSymLinkWhichPointsToNothing() {
         TestFile link = testFile('src/file')
-        FileSystems.default.createSymbolicLink(link, testFile('missing'))
+        link.createLink(testFile('missing'))
 
         Assert.assertFalse(link.isDirectory())
         Assert.assertFalse(link.isFile())
@@ -71,7 +95,10 @@ class CopyErrorIntegrationTest extends AbstractIntegrationTest {
     '''
 
             ExecutionFailure failure = inTestDirectory().withTasks('copy').runWithFailure()
-            failure.assertHasDescription("Could not list contents of directory '${dir}' as it is not readable.")
+            failure.assertThatDescription(Matchers.anyOf(
+                Matchers.startsWith("Could not list contents of directory '${dir}' as it is not readable."),
+                Matchers.startsWith("Could not read path '${dir}'.")
+            ))
         } finally {
             dir.permissions = oldPermissions
         }

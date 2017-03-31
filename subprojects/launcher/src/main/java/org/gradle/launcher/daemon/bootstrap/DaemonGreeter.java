@@ -18,13 +18,9 @@ package org.gradle.launcher.daemon.bootstrap;
 
 import org.gradle.api.GradleException;
 import org.gradle.api.internal.DocumentationRegistry;
-import org.gradle.launcher.daemon.diagnostics.DaemonDiagnostics;
+import org.gradle.launcher.daemon.diagnostics.DaemonStartupInfo;
 import org.gradle.launcher.daemon.logging.DaemonMessages;
-import org.gradle.process.ExecResult;
 
-/**
- * by Szczepan Faber, created at: 1/19/12
- */
 public class DaemonGreeter {
     private final DocumentationRegistry documentationRegistry;
 
@@ -32,31 +28,25 @@ public class DaemonGreeter {
         this.documentationRegistry = documentationRegistry;
     }
 
-    public DaemonDiagnostics parseDaemonOutput(String output, ExecResult result) {
-        if (!new DaemonStartupCommunication().containsGreeting(output)) {
-            throw new GradleException(prepareMessage(output, result));
+    public DaemonStartupInfo parseDaemonOutput(String output) {
+        DaemonStartupCommunication startupCommunication = new DaemonStartupCommunication();
+        if (!startupCommunication.containsGreeting(output)) {
+            throw new GradleException(prepareMessage(output));
         }
         String[] lines = output.split("\n");
-        //TODO SF don't assume it is the last line
+        //Assuming that the diagnostics were printed out to the last line. It's not bullet-proof but seems to be doing fine.
         String lastLine = lines[lines.length-1];
-        return new DaemonStartupCommunication().readDiagnostics(lastLine);
+        return startupCommunication.readDiagnostics(lastLine);
     }
 
-    private String prepareMessage(String output, ExecResult result) {
+    private String prepareMessage(String output) {
         StringBuilder sb = new StringBuilder();
         sb.append(DaemonMessages.UNABLE_TO_START_DAEMON);
-        //TODO SF if possible, include the exit value.
-//        if (result.getExitValue()) {
-//            sb.append("\nThe process has exited with value: ");
-//            sb.append(result.getExecResult().getExitValue()).append(".");
-//        } else {
-//            sb.append("\nThe process may still be running.");
-//        }
         sb.append("\nThis problem might be caused by incorrect configuration of the daemon.");
         sb.append("\nFor example, an unrecognized jvm option is used.");
         sb.append("\nPlease refer to the user guide chapter on the daemon at ");
         sb.append(documentationRegistry.getDocumentationFor("gradle_daemon"));
-        sb.append("\nPlease read below process output to find out more:");
+        sb.append("\nPlease read the following process output to find out more:");
         sb.append("\n-----------------------\n");
         sb.append(output);
         return sb.toString();

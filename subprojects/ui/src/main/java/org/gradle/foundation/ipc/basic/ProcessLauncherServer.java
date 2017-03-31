@@ -20,6 +20,7 @@ import org.gradle.api.logging.Logger;
 import org.gradle.api.logging.Logging;
 import org.gradle.foundation.common.ObserverLord;
 import org.gradle.process.ExecResult;
+import org.gradle.process.internal.DefaultExecHandleBuilder;
 import org.gradle.process.internal.ExecHandle;
 import org.gradle.process.internal.ExecHandleBuilder;
 
@@ -28,8 +29,6 @@ import java.io.ByteArrayOutputStream;
 /**
  * This launches an application as a separate process then listens for messages from it. You implement the Protocol interface to handle the specifics of the communications. To use this, instantiate
  * it, then call start. When the communications are finished, call requestShutdown(). Your server's protocol can call sendMessage once communication is started to respond to client's messages.
- *
- * @author mhunsicker
  */
 public class ProcessLauncherServer extends Server<ProcessLauncherServer.Protocol, ProcessLauncherServer.ServerObserver> {
     private volatile ExecHandle externalProcess;
@@ -94,7 +93,7 @@ public class ProcessLauncherServer extends Server<ProcessLauncherServer.Protocol
 
                     executionInfo = protocol.getExecutionInfo(getPort());
 
-                    ExecHandleBuilder builder = new ExecHandleBuilder();
+                    ExecHandleBuilder builder = new DefaultExecHandleBuilder();
                     builder.workingDir(executionInfo.getWorkingDirectory());
                     builder.commandLine((Object[]) executionInfo.getCommandLineArguments());
                     builder.environment(executionInfo.getEnvironmentVariables());

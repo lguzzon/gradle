@@ -27,8 +27,6 @@ import java.util.List;
 /**
  * Analog to gradle's Project but more light-weight and is better suited for using the gradle API from an IDE plugin. It is also easily serializable for passing across a socket. A project is a
  * collection of source files that have tasks associated with them. The tasks build the project. Projects can contain other projects. This is immutable and ultimately comes from gradle files.
- *
- * @author mhunsicker
  */
 public class ProjectView implements Comparable<ProjectView>, Serializable {
     private final String name;
@@ -36,7 +34,6 @@ public class ProjectView implements Comparable<ProjectView>, Serializable {
     // It is null for the root project.
     private final List<ProjectView> subProjects = new ArrayList<ProjectView>();
     private final List<TaskView> tasks = new ArrayList<TaskView>();
-    private final List<ProjectView> dependsOnProjects = new ArrayList<ProjectView>();
 
     private final File buildFile;
     private final String description;
@@ -93,22 +90,6 @@ public class ProjectView implements Comparable<ProjectView>, Serializable {
         subProjects.add(subProject);
     }
 
-    /**
-     * Sets the project that this project depends on. This is only meant to be called internally whenever generating a hierachy of projects and tasks.
-     */
-    /*package*/ void setDependsOnProjects(List<ProjectView> newDependsOnProjects) {
-        if (newDependsOnProjects == null) {
-            return;
-        }
-
-        this.dependsOnProjects.clear();
-        this.dependsOnProjects.addAll(newDependsOnProjects);
-    }
-
-    public List<ProjectView> getDependsOnProjects() {
-        return dependsOnProjects;
-    }
-
     public List<TaskView> getTasks() {
         return Collections.unmodifiableList(tasks);
     }
@@ -155,8 +136,7 @@ public class ProjectView implements Comparable<ProjectView>, Serializable {
 
         ProjectView subProject = getSubProject(portion.getFirstPart());
 
-        if (!portion.hasRemainder()) //if we have no remainder, then the path is just a sub project's name. We're done (even if subProject is null).
-        {
+        if (!portion.hasRemainder()) { //if we have no remainder, then the path is just a sub project's name. We're done (even if subProject is null).
             return subProject;
         }
 
@@ -179,8 +159,7 @@ public class ProjectView implements Comparable<ProjectView>, Serializable {
         }
 
         PathParserPortion portion = new PathParserPortion(fullTaskName);
-        if (!portion.hasRemainder()) //if we have no remainder, then this is for a task.
-        {
+        if (!portion.hasRemainder()) { //if we have no remainder, then this is for a task.
             return getTask(portion.getFirstPart());
         }
 
@@ -205,8 +184,7 @@ public class ProjectView implements Comparable<ProjectView>, Serializable {
         } //if we're the root, our full project name is nothing.
 
         StringBuilder builder = new StringBuilder(name);
-        while (ancestorProject != null && ancestorProject.getParentProject() != null)   //we don't want to include the 'root' project
-        {
+        while (ancestorProject != null && ancestorProject.getParentProject() != null) {  //we don't want to include the 'root' project
             builder.insert(0, ancestorProject.getName() + ':');
             ancestorProject = ancestorProject.getParentProject();
         }

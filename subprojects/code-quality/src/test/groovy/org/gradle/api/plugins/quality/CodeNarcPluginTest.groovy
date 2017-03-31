@@ -15,130 +15,69 @@
  */
 package org.gradle.api.plugins.quality
 
-import org.gradle.api.Project
-import org.gradle.api.plugins.GroovyBasePlugin
-import org.gradle.api.tasks.SourceSet
-import org.gradle.util.HelperUtil
-import spock.lang.Specification
-import static org.gradle.util.Matchers.dependsOn
-import static org.hamcrest.Matchers.hasItems
-import static spock.util.matcher.HamcrestSupport.that
 import org.gradle.api.plugins.ReportingBasePlugin
+import org.gradle.test.fixtures.AbstractProjectBuilderSpec
 
-class CodeNarcPluginTest extends Specification {
-    Project project = HelperUtil.createRootProject()
+class CodeNarcPluginTest extends AbstractProjectBuilderSpec {
 
     def setup() {
-        project.plugins.apply(CodeNarcPlugin)
+        project.pluginManager.apply(CodeNarcPlugin)
     }
 
     def "applies reporting-base plugin"() {
         expect:
         project.plugins.hasPlugin(ReportingBasePlugin)
     }
-    
+
     def "adds codenarc configuration"() {
-        def config = project.configurations.findByName("codenarc")    
-        
+        def config = project.configurations.findByName("codenarc")
+
         expect:
         config != null
         !config.visible
         config.transitive
         config.description == 'The CodeNarc libraries to be used for this project.'
     }
-    
+
     def "adds codenarc extension"() {
         expect:
         CodeNarcExtension codenarc = project.extensions.codenarc
+        codenarc.config.inputFiles.singleFile == project.file("config/codenarc/codenarc.xml")
         codenarc.configFile == project.file("config/codenarc/codenarc.xml")
+        codenarc.maxPriority1Violations == 0
+        codenarc.maxPriority2Violations == 0
+        codenarc.maxPriority3Violations == 0
         codenarc.reportFormat == "html"
         codenarc.reportsDir == project.file("build/reports/codenarc")
         codenarc.sourceSets == []
         !codenarc.ignoreFailures
     }
 
-    def "adds codenarc task for each source set"() {
-        project.plugins.apply(GroovyBasePlugin)
-        project.sourceSets {
-            main
-            test
-            other
-        }
-
-        expect:
-        configuresCodeNarcTask("codenarcMain", project.sourceSets.main)
-        configuresCodeNarcTask("codenarcTest", project.sourceSets.test)
-        configuresCodeNarcTask("codenarcOther", project.sourceSets.other)
-    }
-
-    private void configuresCodeNarcTask(String taskName, SourceSet sourceSet) {
-        def task = project.tasks.findByName(taskName)
-        assert task instanceof CodeNarc
-        task.with {
-            assert description == "Run CodeNarc analysis for ${sourceSet.name} classes"
-            assert source as List == sourceSet.allGroovy  as List
-            assert codenarcClasspath == project.configurations.codenarc
-            assert configFile == project.file("config/codenarc/codenarc.xml")
-            assert reportFormat == "html"
-            assert reportFile == project.file("build/reports/codenarc/${sourceSet.name}.html")
-            assert ignoreFailures == false
-        }
-    }
-
-    def "can customize per-source-set tasks via extension"() {
-        project.plugins.apply(GroovyBasePlugin)
-        project.sourceSets {
-            main
-            test
-            other
-        }
-
-        project.codenarc {
-            checkTasks = ["codenarcMain"]
-            configFile = project.file("codenarc-config")
-            reportFormat = "xml"
-            reportsDir = project.file("codenarc-reports")
-            ignoreFailures = true
-        }
-
-        expect:
-        hasCustomizedSettings("codenarcMain", project.sourceSets.main)
-        hasCustomizedSettings("codenarcTest", project.sourceSets.test)
-        hasCustomizedSettings("codenarcOther", project.sourceSets.other)
-    }
-
-    private void hasCustomizedSettings(String taskName, SourceSet sourceSet) {
-        def task = project.tasks.findByName(taskName)
-        assert task instanceof CodeNarc
-        task.with {
-            assert description == "Run CodeNarc analysis for ${sourceSet.name} classes"
-            assert source as List == sourceSet.allGroovy as List
-            assert codenarcClasspath == project.configurations.codenarc
-            assert configFile == project.file("codenarc-config")
-            assert reportFormat == "xml"
-            assert reportFile == project.file("codenarc-reports/${sourceSet.name}.xml")
-            assert ignoreFailures == true
-        }
-    }
-
     def "configures any additional codenarc tasks"() {
-        def task = project.tasks.add("codenarcCustom", CodeNarc)
+        def task = project.tasks.create("codenarcCustom", CodeNarc)
 
         expect:
         task.description == null
         task.source.isEmpty()
         task.codenarcClasspath == project.configurations.codenarc
+        task.config.inputFiles.singleFile == project.file("config/codenarc/codenarc.xml")
         task.configFile == project.file("config/codenarc/codenarc.xml")
-        task.reportFormat == "html"
-        task.reportFile == project.file("build/reports/codenarc/custom.html")
+        task.maxPriority1Violations == 0
+        task.maxPriority2Violations == 0
+        task.maxPriority3Violations == 0
+        task.reports.enabled*.name == ["html"]
+        task.reports.html.destination == project.file("build/reports/codenarc/custom.html")
         task.ignoreFailures == false
     }
 
     def "can customize additional tasks via extension"() {
-        def task = project.tasks.add("codenarcCustom", CodeNarc)
+        def task = project.tasks.create("codenarcCustom", CodeNarc)
 
         project.codenarc {
-            configFile = project.file("codenarc-config")
+            config = project.resources.text.fromFile("codenarc-config")
+            maxPriority1Violations = 10
+            maxPriority2Violations = 50
+            maxPriority3Violations = 200
             reportFormat = "xml"
             reportsDir = project.file("codenarc-reports")
             ignoreFailures = true
@@ -148,52 +87,24 @@ class CodeNarcPluginTest extends Specification {
         task.description == null
         task.source.isEmpty()
         task.codenarcClasspath == project.configurations.codenarc
+        task.config.inputFiles.singleFile == project.file("codenarc-config")
         task.configFile == project.file("codenarc-config")
-        task.reportFormat == "xml"
-        task.reportFile == project.file("codenarc-reports/custom.xml")
+        task.maxPriority1Violations == 10
+        task.maxPriority2Violations == 50
+        task.maxPriority3Violations == 200
+        task.reports.enabled*.name == ["xml"]
+        task.reports.xml.destination == project.file("codenarc-reports/custom.xml")
         task.ignoreFailures == true
-    }
-    
-    def "adds codenarc tasks from each source sets to check lifecycle task"() {
-        project.plugins.apply(GroovyBasePlugin)
-        project.sourceSets {
-            main
-            test
-            other
-        }
-
-        project.tasks.add("codenarcCustom", CodeNarc)
-        
-        expect:
-        that(project.check, dependsOn(hasItems("codenarcMain", "codenarcTest", "codenarcOther")))
-    }
-
-    def "can customize which tasks are added to check lifecycle task"() {
-        project.plugins.apply(GroovyBasePlugin)
-        project.sourceSets {
-            main
-            test
-            other
-        }
-
-        project.tasks.add("codenarcCustom", CodeNarc)
-
-        project.codenarc {
-            sourceSets = [project.sourceSets.main]
-        }
-
-        expect:
-        that(project.check, dependsOn(hasItems("codenarcMain")))
     }
 
     def "can customize task directly"() {
-        CodeNarc task = project.tasks.add("codenarcCustom", CodeNarc)
+        CodeNarc task = project.tasks.create("codenarcCustom", CodeNarc)
 
         task.reports.xml {
             enabled true
-            destination "build/foo.xml" 
+            destination "build/foo.xml"
         }
-        
+
         expect:
         task.reports {
             assert enabled == [html, xml] as Set

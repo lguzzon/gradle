@@ -18,24 +18,27 @@ package org.gradle.api.plugins.quality;
 
 import org.gradle.api.reporting.ReportContainer;
 import org.gradle.api.reporting.SingleFileReport;
+import org.gradle.api.tasks.Internal;
 
 /**
- * The reporting configuration for the the {@link CodeNarc} test.
+ * The reporting configuration for the {@link CodeNarc} test.
  */
 public interface CodeNarcReports extends ReportContainer<SingleFileReport> {
 
     /**
-     * The codenarc xml report
+     * The codenarc XML report
      *
-     * @return The codenarc xml report
+     * @return The codenarc XML report
      */
+    @Internal
     SingleFileReport getXml();
 
     /**
-     * The codenarc html report
+     * The codenarc HTML report
      *
-     * @return The codenarc html report
+     * @return The codenarc HTML report
      */
+    @Internal
     SingleFileReport getHtml();
 
     /**
@@ -43,6 +46,6 @@ public interface CodeNarcReports extends ReportContainer<SingleFileReport> {
      *
      * @return The codenarc text report
      */
+    @Internal
     SingleFileReport getText();
-
 }

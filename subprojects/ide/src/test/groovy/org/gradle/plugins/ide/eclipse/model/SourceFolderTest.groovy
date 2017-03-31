@@ -17,9 +17,6 @@ package org.gradle.plugins.ide.eclipse.model
 
 import spock.lang.Specification
 
-/**
- * @author Hans Dockter
- */
 class SourceFolderTest extends Specification {
     final static String XML_TEXT = '''
                 <classpathentry including="**/Test1*|**/Test2*" excluding="**/Test3*|**/Test4*" kind="src" output="bin2" path="src">
@@ -83,11 +80,24 @@ class SourceFolderTest extends Specification {
         given:
         def one = createSourceFolder()
         one.dir = new File('/some/path/to/foo')
-
+        one.name = "foo"
         when:
-        one.trimPath()
+        one.trim()
 
         then:
         one.path == 'foo'
+    }
+
+    def "trims path with provided prefix"() {
+        given:
+        def one = createSourceFolder()
+        one.dir = new File('/some/path/to/foo')
+        one.name = "foo"
+        when:
+        one.trim("prefix")
+
+        then:
+        one.path == 'prefix-foo'
+        one.name== 'prefix-foo'
     }
 }

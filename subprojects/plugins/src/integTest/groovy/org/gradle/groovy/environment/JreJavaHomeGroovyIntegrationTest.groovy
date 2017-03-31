@@ -16,32 +16,30 @@
 
 package org.gradle.groovy.environment
 
+import org.gradle.integtests.fixtures.AbstractIntegrationSpec
 import org.gradle.integtests.fixtures.AvailableJavaHomes
 import org.gradle.util.Requires
 import org.gradle.util.TestPrecondition
 import spock.lang.IgnoreIf
 import spock.lang.Unroll
-import org.gradle.integtests.fixtures.AbstractIntegrationSpec
 
 class JreJavaHomeGroovyIntegrationTest extends AbstractIntegrationSpec {
 
-    @IgnoreIf({ AvailableJavaHomes.bestJreAlternative == null})
+    @IgnoreIf({ AvailableJavaHomes.bestJre == null})
     @Unroll
-    def "groovy java cross compilation works in forking mode = #forkMode and useAnt = #useAnt when JAVA_HOME is set to JRE"() {
+    def "groovy java cross compilation works in forking mode = #forkMode when JAVA_HOME is set to JRE"() {
         given:
-        def jreJavaHome = AvailableJavaHomes.bestJreAlternative
+        def jreJavaHome = AvailableJavaHomes.bestJre
         writeJavaTestSource("src/main/groovy")
         writeGroovyTestSource("src/main/groovy")
         file('build.gradle') << """
                 println "Used JRE: ${jreJavaHome.absolutePath.replace(File.separator, '/')}"
                 apply plugin:'groovy'
                 dependencies{
-                    groovy localGroovy()
+                    compile localGroovy()
                 }
                 compileGroovy{
                     options.fork = ${forkMode}
-                    options.useAnt = ${useAnt}
-                    groovyOptions.useAnt = ${useAnt}
                 }
                 """
         when:
@@ -51,37 +49,35 @@ class JreJavaHomeGroovyIntegrationTest extends AbstractIntegrationSpec {
         file("build/classes/main/org/test/GroovyClazz.class").exists()
 
         where:
-        forkMode << [false, true, false]
-        useAnt << [false, false, true]
+        forkMode << [true, false]
     }
 
     @Requires(TestPrecondition.WINDOWS)
-    def "groovy compiler works when gradle is started with no JAVA_HOME defined in forking mode = #forkMode and useAnt = #useAnt"() {
+    @Unroll
+    def "groovy compiler works when gradle is started with no JAVA_HOME defined in forking mode = #forkMode"() {
         given:
         writeJavaTestSource("src/main/groovy")
         writeGroovyTestSource("src/main/groovy")
         file('build.gradle') << """
             apply plugin:'groovy'
-            dependencies{
-                groovy localGroovy()
+            dependencies {
+                compile localGroovy()
             }
-            compileGroovy{
+            compileGroovy {
                 options.fork = ${forkMode}
-                options.useAnt = ${useAnt}
-                groovyOptions.useAnt = ${useAnt}
             }
             """
         when:
-        def envVars = System.getenv().findAll { it.key != 'JAVA_HOME' || it.key != 'Path'}
+        def envVars = System.getenv().findAll { !(it.key in ['GRADLE_OPTS', 'JAVA_HOME', 'Path']) }
         envVars.put("Path", "C:\\Windows\\System32")
         executer.withEnvironmentVars(envVars).withTasks("compileGroovy").run()
 
         then:
         file("build/classes/main/org/test/JavaClazz.class").exists()
         file("build/classes/main/org/test/GroovyClazz.class").exists()
+
         where:
-        forkMode << [false, true, false]
-        useAnt << [false, false, true]
+        forkMode << [true, false]
     }
 
     private writeJavaTestSource(String srcDir, String clazzName = "JavaClazz") {

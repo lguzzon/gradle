@@ -20,23 +20,21 @@ import org.gradle.foundation.ipc.basic.ProcessLauncherServer;
 import org.gradle.foundation.ipc.gradle.ExecuteGradleCommandServerProtocol;
 import org.gradle.foundation.queue.ExecutionQueue;
 import org.gradle.gradleplugin.foundation.GradlePluginLord;
-import org.gradle.logging.ShowStacktrace;
+import org.gradle.api.logging.configuration.ShowStacktrace;
 
 import java.io.File;
 
 /**
- * This represents a reques to gradle that is executed in a separate process using the ProcessLauncherServer. This version is for directly executing commands in gradle (the most common type of
+ * This represents a request to gradle that is executed in a separate process using the ProcessLauncherServer. This version is for directly executing commands in gradle (the most common type of
  * request).
- *
- * @author mhunsicker
  */
 public class ExecutionRequest extends AbstractRequest {
 
     public static final Type TYPE = new Type() {
     };
 
-    public ExecutionRequest(long requestID, String fullCommandLine, String displayName, boolean forceOutputToBeShown, ExecutionQueue executionQueue) {
-        super(requestID, fullCommandLine, displayName, forceOutputToBeShown, executionQueue);
+    public ExecutionRequest(long requestID, String fullCommandLine, String displayName, boolean forceOutputToBeShown, ExecutionQueue.RequestCancellation cancellation) {
+        super(requestID, fullCommandLine, displayName, forceOutputToBeShown, cancellation);
     }
 
     /**

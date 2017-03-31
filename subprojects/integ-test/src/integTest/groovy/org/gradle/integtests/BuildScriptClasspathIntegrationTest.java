@@ -16,13 +16,14 @@
 package org.gradle.integtests;
 
 import org.gradle.integtests.fixtures.AbstractIntegrationTest;
-import org.gradle.integtests.fixtures.ArtifactBuilder;
-import org.gradle.integtests.fixtures.ExecutionFailure;
+import org.gradle.integtests.fixtures.executer.ArtifactBuilder;
+import org.gradle.integtests.fixtures.executer.ExecutionFailure;
 import org.junit.Ignore;
 import org.junit.Test;
 
 import static org.junit.Assert.fail;
 
+@SuppressWarnings("ResultOfMethodCallIgnored")
 public class BuildScriptClasspathIntegrationTest extends AbstractIntegrationTest {
     @Test
     public void providesADefaultBuildForBuildSrcProject() {
@@ -56,7 +57,7 @@ public class BuildScriptClasspathIntegrationTest extends AbstractIntegrationTest
                 "sourceSets.main.java.srcDirs = ['../gradle/src']"
         );
         testFile("build.gradle").writelns(
-                "task test << { new BuildClass() }"
+                "task test { doLast { new BuildClass() } }"
         );
 
         inTestDirectory().withTasks("test").run();
@@ -115,12 +116,14 @@ public class BuildScriptClasspathIntegrationTest extends AbstractIntegrationTest
                 "    classpath name: 'test', version: '1.+'",
                 "  }",
                 "}",
-                "task hello << {",
-                "  new org.gradle.test.ImportedClass()",
-                "  println someValue",
-                "  println anotherValue",
-                "  new ImportedClass()",
-                "  new OnDemandImportedClass()",
+                "task hello {",
+                "  doLast {",
+                "    new org.gradle.test.ImportedClass()",
+                "    println someValue",
+                "    println anotherValue",
+                "    new ImportedClass()",
+                "    new OnDemandImportedClass()",
+                "  }",
                 "}",
                 "ext.a = new ImportedClass()",
                 "ext.b = OnDemandImportedClass",
@@ -183,17 +186,17 @@ public class BuildScriptClasspathIntegrationTest extends AbstractIntegrationTest
                 "include 'child'"
         );
         testFile("build.gradle").writelns(
-                "assert gradle.scriptClassLoader == buildscript.classLoader.parent",
                 "buildscript {",
                 "    repositories { flatDir { dirs 'repo' }}",
                 "    dependencies { classpath name: 'test', version: '1.3' }",
                 "}"
         );
         testFile("child/build.gradle").writelns(
-                "assert parent.buildscript.classLoader == buildscript.classLoader.parent",
-                "task hello << ",
-                "{",
-                "    new org.gradle.test.BuildClass()",
+                "assert parent.buildscript.classLoader == buildscript.classLoader",
+                "task hello {",
+                "    doLast {",
+                "        new org.gradle.test.BuildClass()",
+                "    }",
                 "}"
         );
         inTestDirectory().withTasks("hello").run();
@@ -208,7 +211,7 @@ public class BuildScriptClasspathIntegrationTest extends AbstractIntegrationTest
     public void canInjectClassPathIntoSubProjects() {
         fail("implement me");
     }
-    
+
     @Test @Ignore
     public void canReuseClassPathRepositories() {
         fail("implement me");

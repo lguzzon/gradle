@@ -18,18 +18,23 @@ package org.gradle.tooling.internal.consumer;
 import java.io.File;
 import java.util.concurrent.TimeUnit;
 
-public interface ConnectionParameters {
+public interface ConnectionParameters extends org.gradle.tooling.internal.protocol.ConnectionParameters {
+
     File getProjectDir();
 
     /**
      * Specifies whether to search for root project, or null to use default.
      */
     Boolean isSearchUpwards();
-
     /**
      * Returns the Gradle user home directory, or null to use default.
      */
     File getGradleUserHomeDir();
+
+    /**
+     * Returns the daemon base directory, or null to use default.
+     */
+    File getDaemonBaseDir();
 
     Boolean isEmbedded();
 

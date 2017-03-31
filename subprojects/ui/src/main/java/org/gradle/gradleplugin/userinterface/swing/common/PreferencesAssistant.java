@@ -25,8 +25,6 @@ import java.io.IOException;
 
 /**
  * This class just helps do some of the mundane tasks of saving and restoring the location of something.
- *
- * @author mhunsicker
  */
 public class PreferencesAssistant {
     private static final String WINDOW_X = "window_x";
@@ -129,7 +127,7 @@ public class PreferencesAssistant {
     /**
      * Saves the settings of the file chooser; and by settings I mean the 'last visited directory'.
      *
-     * @param saveCurrentDirectoryVsSelectedFilesParent this should be true true if you're selecting only directories, false if you're selecting only files. I don't know what if you allow both.
+     * @param saveCurrentDirectoryVsSelectedFilesParent this should be true if you're selecting only directories, false if you're selecting only files. I don't know what if you allow both.
      */
     public static void saveSettings(SettingsNode settingsNode, JFileChooser fileChooser, String id, Class fileChooserClass, boolean saveCurrentDirectoryVsSelectedFilesParent) {
         SettingsNode childNode = settingsNode.addChildIfNotPresent(getPrefix(fileChooserClass, id));

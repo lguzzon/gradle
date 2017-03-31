@@ -15,18 +15,31 @@
  */
 package org.gradle.launcher.daemon.client
 
+import org.gradle.initialization.BuildLayoutParameters
+import org.gradle.internal.service.ServiceRegistryBuilder
+import org.gradle.internal.service.scopes.GlobalScopeServices
 import org.gradle.launcher.daemon.configuration.DaemonParameters
+import org.gradle.launcher.daemon.context.DaemonContext
 import org.gradle.launcher.daemon.registry.DaemonRegistry
 import org.gradle.launcher.daemon.registry.PersistentDaemonRegistry
-import org.gradle.logging.LoggingServiceRegistry
-import org.gradle.util.TemporaryFolder
+import org.gradle.internal.logging.services.LoggingServiceRegistry
+import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
+import org.gradle.testfixtures.internal.NativeServicesTestFixture
+import org.gradle.util.UsesNativeServices
 import org.junit.Rule
 import spock.lang.Specification
 
+@UsesNativeServices
 class DaemonClientServicesTest extends Specification {
-    @Rule TemporaryFolder tmp = new TemporaryFolder()
-    final DaemonParameters parameters = new DaemonParameters(baseDir: tmp.testDir)
-    final DaemonClientServices services = new DaemonClientServices(LoggingServiceRegistry.newEmbeddableLogging(), parameters, System.in)
+    @Rule TestNameTestDirectoryProvider tmp = new TestNameTestDirectoryProvider()
+    final DaemonParameters parameters = new DaemonParameters(new BuildLayoutParameters()).setBaseDir(tmp.testDirectory)
+    final parentServices = ServiceRegistryBuilder.builder()
+            .parent(LoggingServiceRegistry.newEmbeddableLogging())
+            .parent(NativeServicesTestFixture.instance)
+            .provider(new GlobalScopeServices(false))
+            .provider(new DaemonClientGlobalServices())
+            .build()
+    final services = new DaemonClientServices(parentServices, parameters, System.in)
 
     def "makes a DaemonRegistry available"() {
         expect:
@@ -42,4 +55,10 @@ class DaemonClientServicesTest extends Specification {
         expect:
         services.get(DaemonClient) != null
     }
+
+    def "context includes locale"() {
+        expect:
+        services.get(DaemonContext).daemonOpts.contains("-Duser.language=${Locale.default.language}".toString())
+    }
+
 }

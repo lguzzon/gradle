@@ -15,17 +15,13 @@
  */
 package org.gradle.api.tasks.testing.testng
 
+import org.gradle.api.internal.tasks.testing.testng.TestNGTestFramework
+import org.gradle.api.tasks.testing.AbstractTestFrameworkOptionsTest
 import org.junit.Before
 import org.junit.Test
-import static org.junit.Assert.*;
-import static org.hamcrest.Matchers.*
-import org.gradle.api.tasks.testing.AbstractTestFrameworkOptionsTest
-import org.gradle.api.JavaVersion
-import org.gradle.api.internal.tasks.testing.testng.TestNGTestFramework
 
-/**
- * @author Tom Eyckmans
- */
+import static org.hamcrest.Matchers.hasItems
+import static org.junit.Assert.*
 
 public class TestNGOptionsTest extends AbstractTestFrameworkOptionsTest<TestNGTestFramework> {
 
@@ -42,11 +38,6 @@ public class TestNGOptionsTest extends AbstractTestFrameworkOptionsTest<TestNGTe
 
     @Test public void verifyDefaults()
     {
-        assertFalse(testngOptions.javadocAnnotations)
-        assertEquals(TestNGOptions.JDK_ANNOTATIONS, testngOptions.annotations)
-
-        assertNull(testngOptions.testResources)
-
         assertNotNull(testngOptions.includeGroups)
         assertTrue(testngOptions.includeGroups.empty)
 
@@ -63,24 +54,12 @@ public class TestNGOptionsTest extends AbstractTestFrameworkOptionsTest<TestNGTe
         assertEquals('Gradle suite', testngOptions.suiteName)
 
         assertEquals('Gradle test', testngOptions.testName)
-    }
 
-    @Test public void jdk14SourceCompatibilityAnnotationsDefaulting()
-    {
-        testngOptions.setAnnotationsOnSourceCompatibility(JavaVersion.VERSION_1_4)
-        assertEquals(testngOptions.annotations, TestNGOptions.JAVADOC_ANNOTATIONS)
-    }
+        assertEquals(TestNGOptions.DEFAULT_CONFIG_FAILURE_POLICY, testngOptions.configFailurePolicy)
 
-    @Test public void jdk15SourceCompatibilityAnnotationsDefaulting()
-    {
-        testngOptions.setAnnotationsOnSourceCompatibility(JavaVersion.VERSION_1_5)
-        assertEquals(testngOptions.annotations, TestNGOptions.JDK_ANNOTATIONS)
-    }
+        assertFalse(testngOptions.preserveOrder)
 
-    @Test public void jdk16SourceCompatibilityAnnotationsDefaulting()
-    {
-        testngOptions.setAnnotationsOnSourceCompatibility(JavaVersion.VERSION_1_6)
-        assertEquals(testngOptions.annotations, TestNGOptions.JDK_ANNOTATIONS)
+        assertFalse(testngOptions.groupByInstances)
     }
 
     @Test public void testIncludeGroups()

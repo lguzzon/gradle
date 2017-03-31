@@ -1,4 +1,5 @@
-task consume(dependsOn: ':producer:produce') << {
-    println("Consuming message: " +
-            (rootProject.hasProperty('producerMessage') ? rootProject.producerMessage : 'null'))
+task consume(dependsOn: ':producer:produce') {
+    doLast {
+        println("Consuming message: ${rootProject.producerMessage}")
+    }
 }

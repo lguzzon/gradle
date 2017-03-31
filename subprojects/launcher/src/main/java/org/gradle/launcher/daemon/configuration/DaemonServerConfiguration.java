@@ -19,14 +19,13 @@ package org.gradle.launcher.daemon.configuration;
 import java.io.File;
 import java.util.List;
 
-/**
- * by Szczepan Faber, created at: 2/21/12
- */
 public interface DaemonServerConfiguration {
 
     File getBaseDir();
 
     int getIdleTimeout();
+
+    int getPeriodicCheckIntervalMs();
 
     String getUid();
 

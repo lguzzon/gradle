@@ -15,11 +15,13 @@
  */
 package org.gradle.java.compile
 
+import org.gradle.util.TestPrecondition
+import spock.lang.Issue
+
 class InProcessJavaCompilerIntegrationTest extends JavaCompilerIntegrationSpec {
     def compilerConfiguration() {
         '''
 compileJava.options.with {
-    useAnt = false
     fork = false
 }
 '''
@@ -27,5 +29,11 @@ compileJava.options.with {
 
     def logStatement() {
         "Java compiler API"
+    }
+
+    @Override
+    @Issue('gradle/core-issues/#125')
+    protected boolean gradleLeaksIntoAnnotationProcessor() {
+        return !TestPrecondition.FIX_TO_WORK_ON_JAVA9.fulfilled
     }
 }

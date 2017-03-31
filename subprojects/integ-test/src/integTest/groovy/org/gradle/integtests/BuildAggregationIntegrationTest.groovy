@@ -15,21 +15,16 @@
  */
 package org.gradle.integtests
 
-import org.gradle.integtests.fixtures.ExecutionFailure
-import org.gradle.integtests.fixtures.GradleDistribution
-import org.gradle.integtests.fixtures.GradleDistributionExecuter
-import org.gradle.util.TestFile
-import org.junit.Rule
-import org.junit.Test
-import static org.hamcrest.Matchers.*
+import org.gradle.integtests.fixtures.AbstractIntegrationSpec
+import org.gradle.test.fixtures.file.TestFile
+import org.hamcrest.Matchers
+import spock.lang.Issue
 
-class BuildAggregationIntegrationTest {
-    @Rule public final GradleDistribution dist = new GradleDistribution()
-    @Rule public final GradleDistributionExecuter executer = new GradleDistributionExecuter()
+class BuildAggregationIntegrationTest extends AbstractIntegrationSpec {
 
-    @Test
-    public void canExecuteAnotherBuildFromBuild() {
-        dist.testFile('build.gradle') << '''
+    def canExecuteAnotherBuildFromBuild() {
+        when:
+        buildFile << '''
             assert gradle.parent == null
             task build(type: GradleBuild) {
                 dir = 'other'
@@ -38,58 +33,111 @@ class BuildAggregationIntegrationTest {
             }
 '''
 
-        dist.testFile('other/build.gradle') << '''
+        and:
+        file('other/build.gradle') << '''
             assert gradle.parent != null
-            task dostuff << {
-                assert gradle.parent != null
+            task dostuff {
+                doLast {
+                    assert gradle.parent != null
+                }
             }
 '''
 
-        executer.withTasks('build').run()
+        then:
+        succeeds "build"
     }
 
-    @Test
-    public void treatsBuildSrcProjectAsANestedBuild() {
-        dist.testFile('build.gradle') << '''
+    def treatsBuildSrcProjectAsANestedBuild() {
+        when:
+        buildFile << '''
             assert gradle.parent == null
             task build
 '''
 
-        dist.testFile('buildSrc/build.gradle') << '''
+        file('buildSrc/build.gradle') << '''
             apply plugin: 'java'
             assert gradle.parent != null
-            classes << {
-                assert gradle.parent != null
+            classes {
+                doLast {
+                    assert gradle.parent != null
+                }
             }
 '''
 
-        executer.withTasks('build').run()
+        then:
+        succeeds "build"
     }
 
-    @Test
-    public void reportsNestedBuildFailure() {
-        TestFile other = dist.testFile('other.gradle') << '''
+    def reportsNestedBuildFailure() {
+        when:
+        TestFile other = file('other/other.gradle') << '''
             throw new ArithmeticException('broken')
 '''
 
-        dist.testFile('build.gradle') << '''
+        buildFile << '''
             task build(type: GradleBuild) {
-                buildFile = 'other.gradle'
+                buildFile = 'other/other.gradle'
                 startParameter.searchUpwards = false
             }
 '''
 
-        ExecutionFailure failure = executer.withTasks('build').runWithFailure()
+        then:
+        fails "build"
+
+        and:
         failure.assertHasFileName("Build file '${other}'")
         failure.assertHasLineNumber(2)
-        failure.assertHasDescription('A problem occurred evaluating root project')
+        failure.assertThatDescription(Matchers.startsWith("A problem occurred evaluating project ':other'"))
         failure.assertHasCause('broken')
     }
 
-    @Test
-    public void reportsBuildSrcFailure() {
-        dist.testFile('buildSrc/src/main/java/Broken.java') << 'broken!'
-        ExecutionFailure failure = executer.runWithFailure()
-        failure.assertHasDescription('Execution failed for task \':compileJava\'')
+    def reportsBuildSrcFailure() {
+        when:
+        file('buildSrc/src/main/java/Broken.java') << 'broken!'
+
+        then:
+        fails()
+
+        and:
+        failure.assertHasDescription("Execution failed for task ':buildSrc:compileJava'.")
+    }
+
+    @Issue("https://issues.gradle.org//browse/GRADLE-3052")
+    def buildTaskCanHaveInputsAndOutputs() {
+        file("input") << "foo"
+        settingsFile << "rootProject.name = 'proj'"
+        buildFile << """
+            class UpperFile extends DefaultTask {
+                @InputFile
+                File input
+
+                @OutputFile
+                File output
+
+                @TaskAction
+                void upper() {
+                  output.text = input.text.toUpperCase()
+                }
+            }
+
+            task upper(type: UpperFile) {
+                input = file("input")
+                output = file("output")
+            }
+
+            task build(type: GradleBuild) {
+              dependsOn upper
+              tasks = ["upper"]
+              startParameter.searchUpwards = false
+              outputs.file "build.gradle" // having an output (or input) triggers the bug
+            }
+        """
+
+        when:
+        succeeds "build"
+
+        then:
+        executed ":upper", ":build", ":proj:upper"
+        skippedTasks == [":proj:upper"] as Set
     }
 }

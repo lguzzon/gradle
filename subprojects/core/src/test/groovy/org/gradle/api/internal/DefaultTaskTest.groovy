@@ -16,37 +16,38 @@
 
 package org.gradle.api.internal
 
-import java.util.concurrent.Callable
+import com.google.common.collect.Lists
 import org.gradle.api.Action
 import org.gradle.api.DefaultTask
+import org.gradle.api.InvalidUserDataException
+import org.gradle.api.Project
 import org.gradle.api.Task
 import org.gradle.api.tasks.AbstractTaskTest
+import org.gradle.api.tasks.TaskDependency
 import org.gradle.api.tasks.TaskExecutionException
-import org.gradle.listener.ListenerManager
-import org.junit.After
-import org.junit.Before
-import org.junit.Test
-import static org.gradle.util.Matchers.isEmpty
-import static org.hamcrest.Matchers.*
-import static org.junit.Assert.*
+import org.gradle.api.tasks.TaskInstantiationException
+import org.gradle.internal.Actions
+import org.gradle.internal.event.ListenerManager
+import org.gradle.util.WrapUtil
+import spock.lang.Issue
 
-/**
- * @author Hans Dockter
- */
+import java.util.concurrent.Callable
+
+import static org.gradle.api.tasks.TaskDependencyMatchers.dependsOn
+
 class DefaultTaskTest extends AbstractTaskTest {
     ClassLoader cl
     DefaultTask defaultTask
 
-    Object testCustomPropValue;
+    Object testCustomPropValue
 
-    @Before public void setUp() {
-        super.setUp()
+    def setup() {
         testCustomPropValue = new Object()
         defaultTask = createTask(DefaultTask.class)
         cl = Thread.currentThread().contextClassLoader
     }
 
-    @After public void cleanup() {
+    def cleanup() {
         Thread.currentThread().contextClassLoader = cl
     }
 
@@ -54,179 +55,424 @@ class DefaultTaskTest extends AbstractTaskTest {
         defaultTask
     }
 
-    @Test public void testDefaultTask() {
-        assertThat(defaultTask.dependsOn, isEmpty())
-        assertEquals([], defaultTask.actions)
+    def "default task"() {
+        given:
+        Task task = AbstractTask.injectIntoNewInstance(project, TEST_TASK_NAME, Task, { new DefaultTask() } as Callable)
+
+        expect:
+        task.dependsOn.isEmpty()
+        task.actions == []
     }
 
-    @Test public void testHasUsefulToString() {
-        assertEquals('task \':taskname\'', task.toString())
+    def "useful toString()"() {
+        expect:
+        'task \':testTask\'' == task.toString()
     }
 
-    @Test public void testCanInjectValuesIntoTaskWhenUsingNoArgsConstructor() {
-        DefaultTask task = AbstractTask.injectIntoNewInstance(project, TEST_TASK_NAME, { new DefaultTask() } as Callable)
-        assertThat(task.project, sameInstance(project))
-        assertThat(task.name, equalTo(TEST_TASK_NAME))
+    def "can inject values into task when using no-args constructor"() {
+        given:
+        def task = AbstractTask.injectIntoNewInstance(project, TEST_TASK_NAME, Task, { new DefaultTask() } as Callable)
+
+        expect:
+        task.project.is(project)
+        task.name == TEST_TASK_NAME
     }
 
-    @Test
-    public void testConfigure() {
-        Closure action1 = { Task t -> }
-        assertSame(task, task.configure {
+    def "dependsOn() works"() {
+        given:
+        def dependsOnTask = createTask(project, "somename")
+        def task = createTask(project, TEST_TASK_NAME)
+        project.getTasks().create("path1")
+        project.getTasks().create("path2")
+
+        when:
+        task.dependsOn(Project.PATH_SEPARATOR + "path1")
+
+        then:
+        task dependsOn("path1")
+
+        when:
+        task.dependsOn("path2", dependsOnTask)
+
+        then:
+        task dependsOn("path1", "path2", "somename")
+    }
+
+    def "test mustRunAfter()"() {
+        given:
+        def mustRunAfterTask = createTask(project, "mustRunAfter")
+        def mustRunAfterTaskUsingPath = project.getTasks().create("path")
+        def task = createTask(project, TEST_TASK_NAME)
+        task.mustRunAfter(mustRunAfterTask, "path")
+
+        expect:
+        task.mustRunAfter.getDependencies(task) == [mustRunAfterTask, mustRunAfterTaskUsingPath] as Set
+    }
+
+    def "test finalizedBy()"() {
+        given:
+        def finalizer = createTask(project, "finalizer")
+        def finalizerFromPath = project.getTasks().create("path")
+        def finalized = createTask(project, TEST_TASK_NAME)
+        finalized.finalizedBy(finalizer, "path")
+
+        expect:
+        finalized.finalizedBy.getDependencies(finalized) == [finalizer, finalizerFromPath] as Set
+    }
+
+    def "test set finalizedBy()"() {
+        given:
+        def finalizer = createTask(project, "finalizer")
+        def finalizerFromPath = project.getTasks().create("path")
+        def finalized = createTask(project, TEST_TASK_NAME)
+        finalized.finalizedBy = [finalizer, "path"]
+
+        expect:
+        finalized.finalizedBy.getDependencies(finalized) == [finalizer, finalizerFromPath] as Set
+    }
+
+    def "test shouldRunAfter()"() {
+        given:
+        def shouldRunAfterTask = createTask(project, "shouldRunAfter")
+        def shouldRunAfterFromPath = project.getTasks().create("path")
+        def task = createTask(project, TEST_TASK_NAME)
+        task.shouldRunAfter(shouldRunAfterTask, shouldRunAfterFromPath)
+
+        expect:
+        task.shouldRunAfter.getDependencies(task) == [shouldRunAfterTask, shouldRunAfterFromPath] as Set
+    }
+
+    def "test set shouldRunAfter()"() {
+        given:
+        def shouldRunAfterTask = createTask(project, "shouldRunAfter")
+        def shouldRunAfterFromPath = project.getTasks().create("path")
+        def task = createTask(project, TEST_TASK_NAME)
+        task.shouldRunAfter = [shouldRunAfterTask, shouldRunAfterFromPath]
+
+        expect:
+        task.shouldRunAfter.getDependencies(task) == [shouldRunAfterTask, shouldRunAfterFromPath] as Set
+    }
+
+    def "test configure()"() {
+        given:
+        def action1 = { Task t -> }
+
+        expect:
+        task.is(task.configure {
             doFirst(action1)
-        });
-        assertEquals(1, task.actions.size())
+        })
+        task.actions.size() == 1
     }
 
-    @Test
-    public void testDoFirstAddsActionToTheStartOfActionsList() {
-        Action<Task> action1 = createTaskAction();
-        Action<Task> action2 = createTaskAction();
+    def "doFirst() adds actions to the start of action list"() {
+        given:
+        Action<Task> action1 = Actions.doNothing()
+        Action<Task> action2 = Actions.doNothing()
 
-        assertSame(defaultTask, defaultTask.doFirst(action1));
-        assertEquals(1, defaultTask.actions.size());
+        expect:
+        defaultTask.is(defaultTask.doFirst(action1))
+        1 == defaultTask.actions.size()
 
-        assertSame(defaultTask, defaultTask.doFirst(action2));
-        assertEquals(2, defaultTask.actions.size());
+        defaultTask.is(defaultTask.doFirst(action2))
+        2 == defaultTask.actions.size()
 
-        assertSame(action2, defaultTask.actions[0].action)
-        assertSame(action1, defaultTask.actions[1].action)
+        action2.is(defaultTask.actions[0].action)
+        action1.is(defaultTask.actions[1].action)
     }
 
-    @Test
-    public void testDoLastAddsActionToTheEndOfActionsList() {
-        Action<Task> action1 = createTaskAction();
-        Action<Task> action2 = createTaskAction();
+    def "doLast() adds action to the end of actions list"() {
+        given:
+        Action<Task> action1 = Actions.doNothing()
+        Action<Task> action2 = Actions.doNothing()
 
-        assertSame(defaultTask, defaultTask.doLast(action1));
-        assertEquals(1, defaultTask.actions.size());
+        expect:
+        defaultTask.is(defaultTask.doLast(action1))
+        1 == defaultTask.actions.size()
 
-        assertSame(defaultTask, defaultTask.doLast(action2));
-        assertEquals(2, defaultTask.actions.size());
+        defaultTask.is(defaultTask.doLast(action2))
+        2 == defaultTask.actions.size()
 
-        assertSame(action1, defaultTask.actions[0].action)
-        assertSame(action2, defaultTask.actions[1].action)
+        action1.is(defaultTask.actions[0].action)
+        action2.is(defaultTask.actions[1].action)
     }
 
-    @Test public void testSetsContextClassLoaderWhenExecutingAction() {
-        Action<Task> testAction = context.mock(Action)
-        context.checking {
-            one(testAction).execute(defaultTask)
-            will {
-                assert Thread.currentThread().contextClassLoader == testAction.getClass().classLoader
-            }
-        }
+    def "sets contextClassLoader when executing action"() {
+        given:
+        Action<Task> testAction = Mock(Action)
 
+        when:
         defaultTask.doFirst(testAction)
-
         Thread.currentThread().contextClassLoader = new ClassLoader(getClass().classLoader) {}
         defaultTask.actions[0].execute(defaultTask)
+
+        then:
+        1 * testAction.execute(defaultTask) >> {
+            assert Thread.currentThread().contextClassLoader.is(testAction.getClass().classLoader)
+        }
     }
 
-    @Test public void testClosureActionDelegatesToTask() {
-        Closure testAction = {
+    def "closure action delegates to task"() {
+        given:
+        def testAction = {
             assert delegate == defaultTask
             assert resolveStrategy == Closure.DELEGATE_FIRST
         }
+
+        expect:
         defaultTask.doFirst(testAction)
         defaultTask.actions[0].execute(defaultTask)
     }
 
-    @Test public void testSetsContextClassLoaderWhenRunningClosureAction() {
-        Closure testAction = {
-            assert Thread.currentThread().contextClassLoader == getClass().classLoader
+    def "sets contextClassLoader when running closure action"() {
+        given:
+        def testAction = {
+            assert Thread.currentThread().contextClassLoader.is(getClass().classLoader)
         }
-
-        defaultTask.doFirst(testAction)
-
         Thread.currentThread().contextClassLoader = new ClassLoader(getClass().classLoader) {}
+
+        expect:
+        defaultTask.doFirst(testAction)
         defaultTask.actions[0].execute(defaultTask)
     }
 
-    @Test public void testDoFirstWithClosureAddsActionToTheStartOfActionsList() {
-        Closure testAction1 = { }
-        Closure testAction2 = { }
-        Closure testAction3 = { }
+    def "doLast() with closure adds action to the end of actions list"() {
+        given:
+        def testAction1 = {}
+        def testAction2 = {}
+        def testAction3 = {}
         defaultTask.doLast(testAction1)
         defaultTask.doLast(testAction2)
         defaultTask.doLast(testAction3)
 
-        assertSame(defaultTask.actions[0].closure, testAction1)
-        assertSame(defaultTask.actions[1].closure, testAction2)
-        assertSame(defaultTask.actions[2].closure, testAction3)
+        expect:
+        defaultTask.actions[0].closure.is(testAction1)
+        defaultTask.actions[1].closure.is(testAction2)
+        defaultTask.actions[2].closure.is(testAction3)
     }
 
-    @Test public void testDoLastWithClosureAddsActionToTheEndOfActionsList() {
-        Closure testAction1 = { }
-        Closure testAction2 = { }
-        Closure testAction3 = { }
+    def "doFirst() with closure adds action to the start of actions list"() {
+        given:
+        def testAction1 = {}
+        def testAction2 = {}
+        def testAction3 = {}
         defaultTask.doFirst(testAction1)
         defaultTask.doFirst(testAction2)
         defaultTask.doFirst(testAction3)
 
-        assertSame(defaultTask.actions[0].closure, testAction3)
-        assertSame(defaultTask.actions[1].closure, testAction2)
-        assertSame(defaultTask.actions[2].closure, testAction1)
+        expect:
+        defaultTask.actions[0].closure.is(testAction3)
+        defaultTask.actions[1].closure.is(testAction2)
+        defaultTask.actions[2].closure.is(testAction1)
     }
 
-    @Test public void testExecuteThrowsExecutionFailure() {
+    @Issue("GRADLE-2774")
+    def "add closure action to actions and execute"() {
+        given:
+        def actionExecuted = false
+        def closureAction = { t -> actionExecuted = true } as Action
+        defaultTask.actions.add(closureAction)
+
+        when:
+        execute(defaultTask)
+
+        then:
+        actionExecuted
+    }
+
+    @Issue("GRADLE-2774")
+    def "addAll actions to actions and execute"() {
+        given:
+        def actionExecuted = false
+        def closureAction = { t -> actionExecuted = true } as Action
+        defaultTask.actions.addAll(Lists.newArrayList(closureAction))
+
+        when:
+        execute(defaultTask)
+
+        then:
+        actionExecuted
+    }
+
+    @Issue("GRADLE-2774")
+    def "addAll actions to actions with index and execute"() {
+        given:
+        def actionExecuted = false
+        def closureAction = { t -> actionExecuted = true } as Action
+        defaultTask.actions.addAll(0, Lists.newArrayList(closureAction))
+
+        when:
+        execute(defaultTask)
+
+        then:
+        actionExecuted
+    }
+
+    @Issue("GRADLE-2774")
+    def "addAll actions to actions with iterator and execute"() {
+        given:
+        def actionExecuted = false
+        def closureAction = { t -> actionExecuted = true } as Action
+        defaultTask.actions.listIterator().add(closureAction)
+
+        when:
+        execute(defaultTask)
+
+        then:
+        actionExecuted
+    }
+
+    def "added actions can be removed"() {
+        given:
+        def closureAction = { t -> } as Action
+
+        when:
+        defaultTask.actions.add(closureAction)
+
+        then:
+        defaultTask.actions.size() == 1
+
+        when:
+        defaultTask.actions.remove(closureAction)
+
+        then:
+        defaultTask.actions.isEmpty()
+
+        when:
+        defaultTask.actions.add(closureAction)
+
+        then:
+        defaultTask.actions.size() == 1
+
+        when:
+        defaultTask.actions.removeAll([closureAction])
+
+        then:
+        defaultTask.actions.isEmpty()
+    }
+
+    def "add null to actions throws"() {
+        when:
+        defaultTask.actions.add(null);
+
+        then:
+        thrown(InvalidUserDataException)
+    }
+
+    def "add null to actions with index throws"() {
+        when:
+        defaultTask.actions.add(0, null);
+
+        then:
+        thrown(InvalidUserDataException)
+    }
+
+    def "addAll null to actions throws"() {
+        when:
+        defaultTask.actions.addAll((Collection) null);
+
+        then:
+        thrown(InvalidUserDataException)
+    }
+
+    def "addAll null to actions with index throws"() {
+        when:
+        defaultTask.actions.addAll(0, null);
+
+        then:
+        thrown(InvalidUserDataException)
+    }
+
+    def "execute() throws TaskExecutionException"() {
+        when:
         def failure = new RuntimeException()
         defaultTask.doFirst { throw failure }
+        defaultTask.execute()
 
-        try {
-            defaultTask.execute()
-            fail()
-        } catch (TaskExecutionException e) {
-            assertThat(e.cause, sameInstance(failure))
-        }
-
-        assertThat(defaultTask.state.failure, instanceOf(TaskExecutionException))
-        assertThat(defaultTask.state.failure.cause, sameInstance(failure))
+        then:
+        RuntimeException actual = thrown()
+        actual.cause.is(failure)
+        defaultTask.state.failure instanceof TaskExecutionException
+        defaultTask.state.failure.cause.is(failure)
     }
 
-    @Test public void testExecuteWithoutThrowingTaskFailureThrowsExecutionFailure() {
-        def failure = new RuntimeException()
-        defaultTask.doFirst { throw failure }
-
-        defaultTask.executeWithoutThrowingTaskFailure()
-
-        assertThat(defaultTask.state.failure, instanceOf(TaskExecutionException))
-        assertThat(defaultTask.state.failure.cause, sameInstance(failure))
-    }
-
-    @Test
-    void getAndSetConventionProperties() {
-        TestConvention convention = new TestConvention()
+    def "get and set convention properties"() {
+        given:
+        def convention = new TestConvention()
         defaultTask.convention.plugins.test = convention
-        assertTrue(defaultTask.hasProperty('conventionProperty'))
+
+        expect:
+        defaultTask.hasProperty('conventionProperty')
+
+        when:
         defaultTask.conventionProperty = 'value'
-        assertEquals(defaultTask.conventionProperty, 'value')
-        assertEquals(convention.conventionProperty, 'value')
+
+        then:
+        defaultTask.conventionProperty == 'value'
+        convention.conventionProperty == 'value'
     }
 
-    @Test
-    void canCallConventionMethods() {
+    def "can call convention methods"() {
+        given:
         defaultTask.convention.plugins.test = new TestConvention()
-        assertEquals(defaultTask.conventionMethod('a', 'b').toString(), "a.b")
+
+        expect:
+        defaultTask.conventionMethod('a', 'b').toString() == "a.b"
     }
 
-    @Test(expected = MissingPropertyException)
-    void accessNonExistingProperty() {
+    def "accessing missing property throws"() {
+        when:
         defaultTask."unknownProp"
+
+        then:
+        thrown(MissingPropertyException)
     }
 
-    @Test
-    void canGetTemporaryDirectory() {
-        File tmpDir = new File(project.buildDir, "tmp/taskname")
-        assertFalse(tmpDir.exists())
+    def "can get temporary directory"() {
+        given:
+        def tmpDir = new File(project.buildDir, "tmp/testTask")
 
-        assertThat(defaultTask.temporaryDir, equalTo(tmpDir))
-        assertTrue(tmpDir.isDirectory())
+        expect:
+        !tmpDir.exists()
+        defaultTask.temporaryDir == tmpDir
+        tmpDir.isDirectory()
     }
 
-    @Test
-    void canAccessServices() {
-        assertNotNull(defaultTask.services.get(ListenerManager))
+    def "can access services"() {
+        expect:
+        defaultTask.services.get(ListenerManager) != null
+    }
+
+    def "test dependsOnTaskDidWork()"() {
+        given:
+        final task1 = Mock(Task)
+        final task2 = Mock(Task)
+        final dependencyMock = Mock(TaskDependency)
+        dependencyMock.getDependencies(getTask()) >> WrapUtil.toList(task1, task2)
+
+        when:
+        getTask().dependsOn(dependencyMock)
+        assert !getTask().dependsOnTaskDidWork()
+
+        then:
+        1 * task1.getDidWork() >> false
+        1 * task2.getDidWork() >> false
+
+        when:
+        assert getTask().dependsOnTaskDidWork()
+
+        then:
+        1 * task1.getDidWork() >> false
+        1 * task2.getDidWork() >> true
+    }
+
+    @Issue("https://issues.gradle.org/browse/GRADLE-2022")
+    def "good error message when task instantiated directly"() {
+        when:
+        new DefaultTask()
+
+        then:
+        TaskInstantiationException e = thrown()
+        e.message.contains("has been instantiated directly which is not supported")
     }
 }
 

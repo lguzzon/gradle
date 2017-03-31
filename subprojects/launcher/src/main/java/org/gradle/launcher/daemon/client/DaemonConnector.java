@@ -15,28 +15,42 @@
  */
 package org.gradle.launcher.daemon.client;
 
+import org.gradle.api.Nullable;
 import org.gradle.api.internal.specs.ExplainingSpec;
+import org.gradle.launcher.daemon.context.DaemonConnectDetails;
 import org.gradle.launcher.daemon.context.DaemonContext;
 
 /**
- * A daemon connector establishes a connection to either an already running daemon, or a newly started daemon.
+ * A daemon connector establishes a connection to a daemon.
  */
 public interface DaemonConnector {
+
+    /**
+     * Attempts to connect to a daemon at the given address.
+     *
+     * @return A connection to a matching daemon, or null if not running.
+     */
+    @Nullable
+    DaemonClientConnection maybeConnect(DaemonConnectDetails daemonAddress);
 
     /**
      * Attempts to connect to a daemon that matches the given constraint.
      *
      * @return A connection to a matching daemon, or null if none running.
      */
-    public DaemonConnection maybeConnect(ExplainingSpec<DaemonContext> constraint);
+    @Nullable
+    DaemonClientConnection maybeConnect(ExplainingSpec<DaemonContext> constraint);
 
     /**
      * Connects to a daemon that matches the given constraint, starting one if required.
      *
      * @return A connection to a matching daemon. Never returns null.
      */
-    public DaemonConnection connect(ExplainingSpec<DaemonContext> constraint);
+    DaemonClientConnection connect(ExplainingSpec<DaemonContext> constraint);
 
-    public DaemonConnection createConnection(ExplainingSpec<DaemonContext> constraint);
+    /**
+     * Starts a new daemon and returns a connection to it.
+     */
+    DaemonClientConnection startDaemon(ExplainingSpec<DaemonContext> constraint);
 
 }

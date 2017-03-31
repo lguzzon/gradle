@@ -15,35 +15,33 @@
  */
 package org.gradle.tooling.internal.consumer;
 
+import org.gradle.api.Transformer;
 import org.gradle.tooling.GradleConnectionException;
 import org.gradle.tooling.ModelBuilder;
-import org.gradle.tooling.ProgressListener;
 import org.gradle.tooling.ResultHandler;
-import org.gradle.tooling.internal.consumer.async.AsyncConnection;
+import org.gradle.tooling.internal.consumer.async.AsyncConsumerActionExecutor;
+import org.gradle.tooling.internal.consumer.connection.ConsumerAction;
+import org.gradle.tooling.internal.consumer.connection.ConsumerConnection;
 import org.gradle.tooling.internal.consumer.parameters.ConsumerOperationParameters;
-import org.gradle.tooling.internal.consumer.protocoladapter.ModelPropertyHandler;
-import org.gradle.tooling.internal.consumer.protocoladapter.ProtocolToModelAdapter;
-import org.gradle.tooling.model.Model;
 import org.gradle.tooling.model.UnsupportedMethodException;
 import org.gradle.tooling.model.internal.Exceptions;
 
-import java.io.File;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.util.List;
 
-public class DefaultModelBuilder<T extends Model, P> implements ModelBuilder<T> {
+public class DefaultModelBuilder<T> extends AbstractLongRunningOperation<DefaultModelBuilder<T>> implements ModelBuilder<T> {
     private final Class<T> modelType;
-    private final Class<P> protocolType;
-    private final AsyncConnection connection;
-    private final ProtocolToModelAdapter adapter;
-    private ConsumerOperationParameters operationParameters;
+    private final AsyncConsumerActionExecutor connection;
 
-    public DefaultModelBuilder(Class<T> modelType, Class<P> protocolType, AsyncConnection connection, ProtocolToModelAdapter adapter, ConnectionParameters parameters) {
-        operationParameters = new ConsumerOperationParameters(parameters);
+    public DefaultModelBuilder(Class<T> modelType, AsyncConsumerActionExecutor connection, ConnectionParameters parameters) {
+        super(parameters);
         this.modelType = modelType;
-        this.protocolType = protocolType;
         this.connection = connection;
-        this.adapter = adapter;
+        operationParamsBuilder.setEntryPoint("ModelBuilder API");
+    }
+
+    @Override
+    protected DefaultModelBuilder<T> getThis() {
+        return this;
     }
 
     public T get() throws GradleConnectionException {
@@ -53,69 +51,45 @@ public class DefaultModelBuilder<T extends Model, P> implements ModelBuilder<T> 
     }
 
     public void get(final ResultHandler<? super T> handler) throws IllegalStateException {
-        ResultHandler<P> adaptingHandler = new ProtocolToModelAdaptingHandler(handler);
-        connection.getModel(protocolType, operationParameters, new ResultHandlerAdapter<P>(adaptingHandler) {
-            @Override
-            protected String connectionFailureMessage(Throwable failure) {
-                String message = String.format("Could not fetch model of type '%s' using %s.", modelType.getSimpleName(), connection.getDisplayName());
-                if (!(failure instanceof UnsupportedMethodException)
-                        && failure instanceof UnsupportedOperationException) {
-                    message += "\n" + Exceptions.INCOMPATIBLE_VERSION_HINT;
-                }
-                return message;
+        final ConsumerOperationParameters operationParameters = getConsumerOperationParameters();
+        connection.run(new ConsumerAction<T>() {
+            public ConsumerOperationParameters getParameters() {
+                return operationParameters;
             }
-        });
+            public T run(ConsumerConnection connection) {
+                T model = connection.run(modelType, operationParameters);
+                return model;
+            }
+        }, new ResultHandlerAdapter<T>(handler));
     }
 
-    public DefaultModelBuilder<T, P> withArguments(String... arguments) {
-        operationParameters.setArguments(arguments);
+    public DefaultModelBuilder<T> forTasks(String... tasks) {
+        // only set a non-null task list on the operationParamsBuilder if at least one task has been given to this method,
+        // this is needed since any non-null list, even if empty, is treated as 'execute these tasks before building the model'
+        // this would cause an error when fetching the BuildEnvironment model
+        List<String> rationalizedTasks = rationalizeInput(tasks);
+        operationParamsBuilder.setTasks(rationalizedTasks);
         return this;
     }
 
-    public DefaultModelBuilder<T, P> setStandardOutput(OutputStream outputStream) {
-        operationParameters.setStandardOutput(outputStream);
+    @Override
+    public ModelBuilder<T> forTasks(Iterable<String> tasks) {
+        operationParamsBuilder.setTasks(rationalizeInput(tasks));
         return this;
     }
 
-    public DefaultModelBuilder<T, P> setStandardError(OutputStream outputStream) {
-        operationParameters.setStandardError(outputStream);
-        return this;
-    }
-
-    public DefaultModelBuilder<T, P> setStandardInput(InputStream inputStream) {
-        operationParameters.setStandardInput(inputStream);
-        return this;
-    }
-
-    public DefaultModelBuilder<T, P> setJavaHome(File javaHome) {
-        operationParameters.setJavaHome(javaHome);
-        return this;
-    }
-
-    public DefaultModelBuilder<T, P> setJvmArguments(String... jvmArguments) {
-        operationParameters.setJvmArguments(jvmArguments);
-        return this;
-    }
-
-    public DefaultModelBuilder<T, P> addProgressListener(ProgressListener listener) {
-        operationParameters.addProgressListener(listener);
-        return this;
-    }
-
-    private class ProtocolToModelAdaptingHandler implements ResultHandler<P> {
-        private final ResultHandler<? super T> handler;
-
-        public ProtocolToModelAdaptingHandler(ResultHandler<? super T> handler) {
-            this.handler = handler;
-        }
-
-        public void onComplete(P result) {
-            ModelPropertyHandler propertyHandler = new ModelPropertyHandler(connection.getVersionDetails());
-            handler.onComplete(adapter.adapt(modelType, result, propertyHandler));
-        }
-
-        public void onFailure(GradleConnectionException failure) {
-            handler.onFailure(failure);
+    private class ResultHandlerAdapter<T> extends org.gradle.tooling.internal.consumer.ResultHandlerAdapter<T> {
+        public ResultHandlerAdapter(ResultHandler<? super T> handler) {
+            super(handler, new ExceptionTransformer(new Transformer<String, Throwable>() {
+                @Override
+                public String transform(Throwable failure) {
+                    String message = String.format("Could not fetch model of type '%s' using %s.", modelType.getSimpleName(), connection.getDisplayName());
+                    if (!(failure instanceof UnsupportedMethodException) && failure instanceof UnsupportedOperationException) {
+                        message += "\n" + Exceptions.INCOMPATIBLE_VERSION_HINT;
+                    }
+                    return message;
+                }
+            }));
         }
     }
 }

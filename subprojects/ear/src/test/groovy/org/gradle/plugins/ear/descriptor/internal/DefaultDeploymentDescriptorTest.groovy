@@ -16,24 +16,38 @@
 
 package org.gradle.plugins.ear.descriptor.internal
 
-import javax.xml.parsers.DocumentBuilderFactory
+import org.gradle.api.Action
+import org.gradle.api.internal.DependencyInjectingInstantiator
+import org.gradle.api.internal.file.FileResolver
+import org.gradle.internal.reflect.Instantiator
+import org.gradle.internal.service.DefaultServiceRegistry
+import org.gradle.plugins.ear.descriptor.EarSecurityRole
+import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
+import org.junit.Rule
 import spock.lang.Specification
+import spock.lang.Unroll
+
+import javax.xml.parsers.DocumentBuilderFactory
+
 import static org.gradle.util.TextUtil.toPlatformLineSeparators
 
-/**
- * @author: Szczepan Faber, created at: 6/3/11
- */
 class DefaultDeploymentDescriptorTest extends Specification {
 
-    def out = new StringWriter()
-    def descriptor = new DefaultDeploymentDescriptor(null)
+    private DefaultServiceRegistry serviceRegistry = new DefaultServiceRegistry();
+    private Instantiator instantiator = new DependencyInjectingInstantiator(serviceRegistry, new DependencyInjectingInstantiator.ConstructorCache());
+
+
+    def descriptor = new DefaultDeploymentDescriptor({ it } as FileResolver, instantiator)
+    @Rule TestNameTestDirectoryProvider tmpDir
 
     def "writes default descriptor"() {
+        def file = tmpDir.file("out.xml")
+
         when:
-        descriptor.writeTo(out)
+        descriptor.writeTo(file)
 
         then:
-        def root = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(new ByteArrayInputStream(out.toString().getBytes("utf-8"))).documentElement
+        def root = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(new ByteArrayInputStream(file.bytes)).documentElement
         root.nodeName == 'application'
         root.getAttribute("xmlns") == "http://java.sun.com/xml/ns/javaee"
         root.getAttribute("xmlns:xsi") == "http://www.w3.org/2001/XMLSchema-instance"
@@ -42,20 +56,80 @@ class DefaultDeploymentDescriptorTest extends Specification {
         root.childNodes.length == 0
     }
 
-    def "writes version 1.3 default descriptor"() {
-        descriptor.version = '1.3'
+    @Unroll
+    def "writes version #version default descriptor"() {
+        def out = new StringWriter()
+        descriptor.version = version
 
         when:
         descriptor.writeTo(out)
 
         then:
-        out.toString() == toPlatformLineSeparators("""<?xml version="1.0"?>
+        def stringOutput = out.toString()
+        acceptableDescriptors.contains(stringOutput)
+
+        where:
+        version | _
+        '1.3'   | _
+        '1.4'   | _
+        '5'     | _
+        '6'     | _
+        '7'     | _
+        acceptableDescriptors = defaultDescriptorForVersion(version)
+    }
+
+    private List<String>defaultDescriptorForVersion(version) {
+        // Groovy XML Node put attributes in a HashMap so does not guarantee rendering order for attributes
+        // This method generates all permutations so we can assert we have at least one
+        def attributesPermutations = { String template, List<String> attributes ->
+            def permutations = []
+            attributes.eachPermutation { attrs ->
+                permutations << template.replace('##ATTRIBUTES##', attrs.join(' '))
+            }
+            permutations
+        }
+        switch (version) {
+            case '1.3':
+                return [toPlatformLineSeparators('''<?xml version="1.0"?>
 <!DOCTYPE application PUBLIC "-//Sun Microsystems, Inc.//DTD J2EE Application 1.3//EN" "http://java.sun.com/dtd/application_1_3.dtd">
 <application version="1.3"/>
-""")
+''')]
+            case '1.4':
+                def attributes = [
+                    'xmlns="http://java.sun.com/xml/ns/j2ee"',
+                    'xsi:schemaLocation="http://java.sun.com/xml/ns/j2ee http://java.sun.com/xml/ns/j2ee/application_1_4.xsd"',
+                    'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"',
+                    'version="1.4"'
+                ]
+                return attributesPermutations('<?xml version="1.0"?>\n<application ##ATTRIBUTES##/>\n', attributes).collect { String descriptor ->
+                    toPlatformLineSeparators(descriptor)
+                }
+            case '5':
+            case '6':
+                def attributes = [
+                    'xmlns="http://java.sun.com/xml/ns/javaee"',
+                    "xsi:schemaLocation=\"http://java.sun.com/xml/ns/javaee http://java.sun.com/xml/ns/javaee/application_${version}.xsd\"",
+                    'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"',
+                    "version=\"${version}\""
+                ]
+                return attributesPermutations('<?xml version="1.0"?>\n<application ##ATTRIBUTES##/>\n', attributes).collect { String descriptor ->
+                    toPlatformLineSeparators(descriptor)
+                }
+            default:
+                def attributes = [
+                    'xmlns="http://xmlns.jcp.org/xml/ns/javaee"',
+                    "xsi:schemaLocation=\"http://xmlns.jcp.org/xml/ns/javaee http://xmlns.jcp.org/xml/ns/javaee/application_${version}.xsd\"",
+                    'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"',
+                    "version=\"${version}\""
+                ]
+                return attributesPermutations('<?xml version="1.0"?>\n<application ##ATTRIBUTES##/>\n', attributes).collect { String descriptor ->
+                    toPlatformLineSeparators(descriptor)
+                }
+        }
     }
 
     def "writes customized descriptor"() {
+        def out = new StringWriter()
         descriptor.fileName = "myApp.xml"
         descriptor.version = "1.3"
         descriptor.applicationName = "myapp"
@@ -66,7 +140,10 @@ class DefaultDeploymentDescriptorTest extends Specification {
         descriptor.module("my.jar", "java")
         descriptor.webModule("my.war", "/")
         descriptor.securityRole "admin"
-        descriptor.securityRole "superadmin"
+        descriptor.securityRole({ role ->
+            role.roleName = "superadmin"
+            role.description = "Role of super admin"
+        } as Action<EarSecurityRole>)
         descriptor.withXml { it.asNode().appendNode("data-source", "my/data/source") }
 
         when:
@@ -93,6 +170,7 @@ class DefaultDeploymentDescriptorTest extends Specification {
     <role-name>admin</role-name>
   </security-role>
   <security-role>
+    <description>Role of super admin</description>
     <role-name>superadmin</role-name>
   </security-role>
   <library-directory>APP-INF/lib</library-directory>

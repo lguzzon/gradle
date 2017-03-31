@@ -13,6 +13,7 @@
   ~ See the License for the specific language governing permissions and
   ~ limitations under the License.
   -->
+
 <section>
     <section>
         <title>Properties</title>
@@ -22,38 +23,6 @@
                     <td>Name</td>
                 </tr>
             </thead>
-<!--
-            <tr>
-                <td>events</td>
-            </tr>
-            <tr>
-                <td>minGranularity</td>
-            </tr>
-            <tr>
-                <td>maxGranularity</td>
-            </tr>
-            <tr>
-                <td>displayGranularity</td>
-            </tr>
-            <tr>
-                <td>showExceptions</td>
-            </tr>
-            <tr>
-                <td>showCauses</td>
-            </tr>
-            <tr>
-                <td>showStackTraces</td>
-            </tr>
-            <tr>
-                <td>showStandardStreams</td>
-            </tr>
-            <tr>
-                <td>exceptionFormat</td>
-            </tr>
-            <tr>
-                <td>stackTraceFilters</td>
-            </tr>
--->
             <tr>
                 <td>debug</td>
             </tr>

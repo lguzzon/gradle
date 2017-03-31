@@ -20,13 +20,13 @@ import org.gradle.internal.reflect.DirectInstantiator
 
 class NestedConfigureAutoCreateNamedDomainObjectContainerSpec extends Specification {
 
-    def instantiator = new ClassGeneratorBackedInstantiator(new AsmBackedClassGenerator(), new DirectInstantiator())
+    def instantiator = new ClassGeneratorBackedInstantiator(new AsmBackedClassGenerator(), DirectInstantiator.INSTANCE)
 
     static class Container extends FactoryNamedDomainObjectContainer {
         String parentName
         String name
         Container(String parentName, String name, Closure factory) {
-            super(Object, new ClassGeneratorBackedInstantiator(new AsmBackedClassGenerator(), new DirectInstantiator()), new DynamicPropertyNamer(), factory)
+            super(Object, new ClassGeneratorBackedInstantiator(new AsmBackedClassGenerator(), DirectInstantiator.INSTANCE), new DynamicPropertyNamer(), factory)
             this.parentName = parentName
             this.name = name
         }
@@ -99,11 +99,11 @@ class NestedConfigureAutoCreateNamedDomainObjectContainerSpec extends Specificat
 
 
         then:
-        def e = thrown(MissingMethodException)
+        def e = thrown(groovy.lang.MissingMethodException)
         e.method == "somethingThatDoesntExist"
         parent.c1.m1.prop == "c1c1m1"
         
-        // make sure the somethingThatDoesntExist() call didn't resolve against any of the parent containers, creating an entry
+        // make sure the somethingThatDoesntExist() call didn't resolve against any of the root containers, creating an entry
         parent.size() == 1
         parent.c1.size() == 1
     }

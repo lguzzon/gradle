@@ -15,12 +15,21 @@
  */
 package org.gradle.api.internal.artifacts.dsl.dependencies
 
+import org.gradle.api.artifacts.ClientModule
+import org.gradle.api.artifacts.Configuration
+import org.gradle.api.artifacts.ConfigurationContainer
+import org.gradle.api.artifacts.Dependency
+import org.gradle.api.artifacts.DependencySet
+import org.gradle.api.artifacts.ExternalDependency
+import org.gradle.api.artifacts.ProjectDependency
+import org.gradle.api.artifacts.dsl.ComponentMetadataHandler
+import org.gradle.api.artifacts.dsl.ComponentModuleMetadataHandler
+import org.gradle.api.internal.artifacts.VariantTransformRegistry
+import org.gradle.api.attributes.AttributesSchema
+import org.gradle.api.internal.AsmBackedClassGenerator
+import org.gradle.api.internal.artifacts.query.ArtifactResolutionQueryFactory
 import spock.lang.Specification
-import org.gradle.api.artifacts.*
 
-/**
- * @author Hans Dockter
- */
 class DefaultDependencyHandlerTest extends Specification {
     private static final String TEST_CONF_NAME = "someConf"
     private ConfigurationContainer configurationContainer = Mock()
@@ -29,7 +38,9 @@ class DefaultDependencyHandlerTest extends Specification {
     private ProjectFinder projectFinder = Mock()
     private DependencySet dependencySet = Mock()
 
-    private DefaultDependencyHandler dependencyHandler = new DefaultDependencyHandler(configurationContainer, dependencyFactory, projectFinder)
+    private DefaultDependencyHandler dependencyHandler = new AsmBackedClassGenerator().newInstance(DefaultDependencyHandler,
+        configurationContainer, dependencyFactory, projectFinder, Stub(ComponentMetadataHandler), Stub(ComponentModuleMetadataHandler), Stub(ArtifactResolutionQueryFactory),
+        Stub(AttributesSchema), Stub(VariantTransformRegistry))
 
     void setup() {
         _ * configurationContainer.findByName(TEST_CONF_NAME) >> configuration
@@ -159,6 +170,24 @@ class DefaultDependencyHandlerTest extends Specification {
         1 * dependencySet.add(dependency2)
     }
 
+    void "dynamic method fails for unknown configuration"() {
+        when:
+        dependencyHandler.unknown("someDep")
+
+        then:
+        def e = thrown(MissingMethodException)
+        e.message.startsWith('Could not find method unknown() for arguments [someDep] on ')
+    }
+
+    void "dynamic method fails for no args"() {
+        when:
+        dependencyHandler.someConf()
+
+        then:
+        def e = thrown(MissingMethodException)
+        e.message.startsWith('Could not find method someConf() for arguments [] on ')
+    }
+
     void "creates a project dependency from map"() {
         ProjectDependency projectDependency = Mock()
 
@@ -242,6 +271,19 @@ class DefaultDependencyHandlerTest extends Specification {
         1 * dependencyFactory.createDependency(DependencyFactory.ClassPathNotation.GRADLE_API) >> dependency
     }
 
+    void "creates Gradle test-kit dependency"() {
+        Dependency dependency = Mock()
+
+        when:
+        def result = dependencyHandler.gradleTestKit()
+
+        then:
+        result == dependency
+
+        and:
+        1 * dependencyFactory.createDependency(DependencyFactory.ClassPathNotation.GRADLE_TEST_KIT) >> dependency
+    }
+
     void "creates local groovy dependency"() {
         Dependency dependency = Mock()
 
@@ -261,5 +303,13 @@ class DefaultDependencyHandlerTest extends Specification {
 
         then:
         thrown(MissingMethodException)
+    }
+
+    void "reasonable error when supplying null as a dependency notation"() {
+        when:
+        dependencyHandler."$TEST_CONF_NAME"(null)
+
+        then:
+        1 * dependencyFactory.createDependency(null)
     }
 }

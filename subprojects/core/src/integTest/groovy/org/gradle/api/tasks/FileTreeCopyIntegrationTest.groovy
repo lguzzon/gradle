@@ -15,28 +15,33 @@
  */
 package org.gradle.api.tasks
 
+import org.gradle.integtests.fixtures.AbstractIntegrationTest
 import org.gradle.integtests.fixtures.TestResources
-import org.gradle.util.TestFile
+import org.gradle.test.fixtures.file.TestFile
 import org.junit.Rule
 import org.junit.Test
-import org.gradle.integtests.fixtures.AbstractIntegrationTest
 
 public class FileTreeCopyIntegrationTest extends AbstractIntegrationTest {
     @Rule
-    public final TestResources resources = new TestResources("copyTestResources")
+    public final TestResources resources = new TestResources(testDirectoryProvider, "copyTestResources")
 
     @Test public void testCopyWithClosure() {
         TestFile buildFile = testFile("build.gradle").writelns(
-                """task cpy << {
-                   fileTree('src') {
-                      exclude '**/ignore/**'
-                   }.copy { into 'dest'}
-                }"""
+            """
+                task cpy {
+                    doLast {
+                        fileTree('src') {
+                            exclude '**/ignore/**'
+                        }.copy { into 'dest'}
+                    }
+                }
+            """
         )
         usingBuildFile(buildFile).withTasks("cpy").run()
         testFile('dest').assertHasDescendants(
                 'root.a',
                 'root.b',
+                'accents.c',
                 'one/one.a',
                 'one/one.b',
                 'one/sub/onesub.a',
@@ -48,14 +53,19 @@ public class FileTreeCopyIntegrationTest extends AbstractIntegrationTest {
 
     @Test public void testCopyWithClosureBaseDir() {
         TestFile buildFile = testFile("build.gradle").writelns(
-                """task cpy << {
-                   fileTree((Object){ 'src' }).exclude('**/ignore/**').copy { into 'dest'}
-                }"""
+                """
+                    task cpy {
+                        doLast {
+                            fileTree((Object){ 'src' }).exclude('**/ignore/**').copy { into 'dest'}
+                        }
+                    }
+                """
         )
         usingBuildFile(buildFile).withTasks("cpy").run()
         testFile('dest').assertHasDescendants(
                 'root.a',
                 'root.b',
+                'accents.c',
                 'one/one.a',
                 'one/one.b',
                 'one/sub/onesub.a',
@@ -67,14 +77,19 @@ public class FileTreeCopyIntegrationTest extends AbstractIntegrationTest {
 
     @Test public void testCopyWithMap() {
         TestFile buildFile = testFile("build.gradle").writelns(
-                """task cpy << {
-                   fileTree(dir:'src', excludes:['**/ignore/**', '**/sub/**']).copy { into 'dest'}
-                }"""
+                """
+                    task cpy {
+                        doLast {
+                            fileTree(dir:'src', excludes:['**/ignore/**', '**/sub/**']).copy { into 'dest'}
+                        }
+                    }
+                """
         )
         usingBuildFile(buildFile).withTasks("cpy").run()
         testFile('dest').assertHasDescendants(
                 'root.a',
                 'root.b',
+                'accents.c',
                 'one/one.a',
                 'one/one.b',
                 'two/two.a',
@@ -84,14 +99,19 @@ public class FileTreeCopyIntegrationTest extends AbstractIntegrationTest {
 
     @Test public void testCopyFluent() {
         TestFile buildFile = testFile("build.gradle").writelns(
-                """task cpy << {
-                   fileTree(dir:'src').exclude('**/ignore/**', '**/sub/*.?').copy { into 'dest' }
-                }"""
+                """
+                    task cpy {
+                        doLast {
+                            fileTree(dir:'src').exclude('**/ignore/**', '**/sub/*.?').copy { into 'dest' }
+                        }
+                    }
+                """
         )
         usingBuildFile(buildFile).withTasks("cpy").run()
         testFile('dest').assertHasDescendants(
                 'root.a',
                 'root.b',
+                'accents.c',
                 'one/one.a',
                 'one/one.b',
                 'two/two.a',

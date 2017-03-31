@@ -30,12 +30,12 @@ public class CompositeIdGenerator implements IdGenerator<Object> {
     public Object generateId() {
         return new CompositeId(scope, generator.generateId());
     }
-    
-    private static class CompositeId implements Serializable {
+
+    public static class CompositeId implements Serializable {
         private final Object scope;
         private final Object id;
 
-        private CompositeId(Object scope, Object id) {
+        public CompositeId(Object scope, Object id) {
             this.id = id;
             this.scope = scope;
         }
@@ -58,9 +58,17 @@ public class CompositeIdGenerator implements IdGenerator<Object> {
             return scope.hashCode() ^ id.hashCode();
         }
 
+        public Object getScope() {
+            return scope;
+        }
+
+        public Object getId() {
+            return id;
+        }
+
         @Override
         public String toString() {
-            return String.format("%s.%s", scope, id);
+            return scope + "." + id;
         }
     }
 }

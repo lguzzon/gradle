@@ -1,143 +1,214 @@
 ## New and noteworthy
 
-Here are the new features introduced in Gradle 1.1-rc-1
+Here are the new features introduced in this Gradle release.
 
-### Test Logging
+<!--
+IMPORTANT: if this is a patch release, ensure that a prominent link is included in the foreword to all releases of the same minor stream.
+Add-->
 
-In previous versions, Gradle didn't show much information about what happened during test execution.
-In Gradle 1.1-rc-1, the default output is more useful, and can be tuned to your preferences in many ways.
-All features are supported both for JUnit and TestNG.
+### More work avoidance when using `@Classpath` task properties
 
-#### Show Exceptions
+For built-in and custom tasks that use the `@Classpath` annotation, Gradle now performs deeper inspection of the classpath to filter out some differences that do not affect task execution.  Gradle will ignore changes to timestamps within a jar file and the order of entries inside a jar file.
+ 
+In previous versions, for tasks like `Javadoc`, `Checkstyle` and `Test`, Gradle would consider the task out-of-date if the content of the classpath changed in any way (order of classes in a jar, timestamps of class files, etc). 
 
-One of the most useful options is to show the exceptions thrown by failed tests. By default, Gradle will
-log a succinct message for every test exception. To get more detailed output, configure the `exceptionFormat`:
+### Extensions now have a public type
 
-<pre>
-test {
-    testLogging {
-        exceptionFormat "full"
+Extensions can now be registered in `ExtensionContainer`s with an explicit public type.
+ This allows plugin authors to hide their implementation type from build scripts and
+ allow `ExtensionContainer`s to expose a schema of all the registered extensions.
+
+For example, if you have a `FancyExtension` type, implemented by some `DefaultFancyExtension` type, here is how
+ you should register it:
+
+    // If you want to delegate the extension instance creation to Gradle:
+    project.extensions.create FancyExtension, 'fancy', DefaultFancyExtension
+
+    // Or if you need to create the extension instance yourself:
+    FancyExtension fancyInstance = new DefaultFancyExtension(...)
+    project.extensions.add FancyExtension, 'fancy', fancyInstance
+
+### Public type for representing lazily evaluated properties
+
+Because Gradle's build lifecycle clearly distinguishes between configuration phase and execution phase the evaluation of property
+ values has to be deferred under certain conditions to properly capture end user input. A typical use case is the mapping of
+ extension properties to custom task properties as part of a plugin implementation. In the past, many plugin developers were forced to solve evaluation order problems by using the concept of convention mapping, an internal API in Gradle subject to change.
+ 
+This release of Gradle introduces a mutable type to the public API representing a property with state. The relevant interface is called [`PropertyState`](javadoc/org/gradle/api/provider/PropertyState.html). An instance of this type can be created through the method [`Project.property(Class)`](javadoc/org/gradle/api/Project.html#property-java.lang.Class-).
+
+The following example demonstrates how to use the property state API to map an extension property to a custom task property without
+running into evaluation ordering issues:
+
+    apply plugin: GreetingPlugin
+    
+    greeting {
+        message = 'Hi from Gradle'
+        outputFiles = files('a.txt', 'b.txt')
     }
-}
-</pre>
-
-#### Stack Trace Filters
-
-Stack traces of test exceptions are automatically truncated not to show anything below the entry point into
-the test code. This filters out Gradle internals and internals of the test framework. A number of other
-filters are available. For example, when dealing with Groovy code it makes sense to add the `groovy` filter:
-
-<pre>
-test {
-    testLogging {
-        stackTraceFilters "truncate", "groovy"
-    }
-}
-</pre>
-
-#### Show Other Test Events
-
-Besides a test having failed, a number of other test events can be logged:
-
-<pre>
-test {
-    testLogging {
-        events "started", "passed", "skipped", "failed", "standardOut", "standardError"
-        minGranularity 0
-    }
-}
-</pre>
-
-By setting `minGranularity`, these events aren't only shown for individual tests, but also for test classes and suites.
-
-#### Individual Logging Per Log Level
-
-Test logging can be configured separately per log level:
-
-<pre>
-test {
-    testLogging {
-        quiet {
-            events "failed"
+    
+    class GreetingPlugin implements Plugin<Project> {
+        void apply(Project project) {
+            // Add the 'greeting' extension object
+            def extension = project.extensions.create('greeting', GreetingPluginExtension, project)
+            // Add a task that uses the configuration
+            project.tasks.create('hello', Greeting) {
+                message = extension.messageProvider
+                outputFiles = extension.outputFiles
+            }
         }
     }
-}
-</pre>
+    
+    class GreetingPluginExtension {
+        final PropertyState<String> message
+        final ConfigurableFileCollection outputFiles
+    
+        GreetingPluginExtension(Project project) {
+            message = project.property(String)
+            setMessage('Hello from GreetingPlugin')
+            outputFiles = project.files()
+        }
+    
+        String getMessage() {
+            message.get()
+        }
+    
+        Provider<String> getMessageProvider() {
+            message
+        }
+    
+        void setMessage(String message) {
+            this.message.set(message)
+        }
+    
+        FileCollection getOutputFiles() {
+            outputFiles
+        }
+    
+        void setOutputFiles(FileCollection outputFiles) {
+            this.outputFiles.setFrom(outputFiles)
+        }
+    }
+    
+    class Greeting extends DefaultTask {
+        final PropertyState<String> message = project.property(String)
+        final ConfigurableFileCollection outputFiles = project.files()
+    
+        @Input
+        String getMessage() {
+            message.get()
+        }
+    
+        void setMessage(String message) {
+            this.message.set(message)
+        }
+    
+        void setMessage(Provider<String> message) {
+            this.message.set(message)
+        }
+    
+        FileCollection getOutputFiles() {
+            outputFiles
+        }
+    
+        void setOutputFiles(FileCollection outputFiles) {
+            this.outputFiles.setFrom(outputFiles)
+        }
+    
+        @TaskAction
+        void printMessage() {
+            getOutputFiles().each {
+                it.text = getMessage()
+            }
+        }
+    }
 
-On log levels `LIFECYCLE`, `INFO`, and `DEBUG`, some test events (most importantly failed tests) are already shown by default.
-For detailed documentation about all test logging related options, see
-[TestLogging](http://gradle.org/docs/nightly/javadoc/org/gradle/api/tasks/testing/logging/TestLogging.html)
-and [TestLoggingContainer](http://gradle.org/docs/nightly/javadoc/org/gradle/api/tasks/testing/logging/TestLoggingContainer.html).
+### BuildActionExecutor supports running tasks
 
-### Tooling API provides Gradle module information for external dependencies
+Tooling API clients can now run tasks before running a build action. This allows them to fetch tooling models which depend on the result of
+executing some task. This mirrors the existing `ModelBuilder.forTasks()` API.
 
-The Tooling API can be used to obtain the model of the project which includes the information about the dependencies/libraries.
-Now the Tooling API also provides Gradle module information, i.e. group, name, version of the dependency.
-Please see the javadoc for [ExternalGradleModule](http://gradle.org/docs/nightly/javadoc/org/gradle/tooling/model/ExternalGradleModule.html).
-You can obtain the Gradle module information iva [ExternalDependency.getExternalGradleModule()] (http://gradle.org/docs/nightly/javadoc/org/gradle/tooling/model/ExternalDependency.html#getExternalGradleModule()).
+### Support for multi-value Javadoc options
 
-### Some feature
+Gradle has added support for command-line options to doclets that can appear [multiple times and have multiple values](javadoc/org/gradle/external/javadoc/CoreJavadocOptions.html#addMultilineMultiValueOption-java.lang.String-).
 
-#### Some detail
+In previous versions of Gradle, it was not possible to supply command-line options like:
 
-Some details about the feature.
+    -myoption 'foo' 'bar'
+    -myoption 'baz'
+    
+Gradle would produce a single `-myoption` or combine the option's value into a single argument.
 
-## Upgrading from Gradle 1.0
+    javadoc {
+        options {
+            def myoption = addMultilineMultiValueOption("myoption")
+            myoption.setValue([
+                [ "foo", "bar" ],
+                [ "baz" ]
+            ])
+        }
+    }
 
-Please let us know if you encounter any issues during the upgrade to Gradle 1.1-rc-1, that are not listed below.
+### Default Zinc compiler upgraded from 0.3.7 to 0.3.13
+This will take advantage of performance optimizations in the latest [Zinc](https://github.com/typesafehub/zinc) releases. 
 
-### Deprecations
+<!--
+### Example new and noteworthy
+-->
 
-#### Statement Labels
+## Promoted features
 
-As in Java, statement labels are rarely used in Groovy. The following example shows a frequent pitfall where a
-statement label is erroneously used in an attempt to configure an object:
+Promoted features are features that were incubating in previous versions of Gradle but are now supported and subject to backwards compatibility.
+See the User guide section on the “[Feature Lifecycle](userguide/feature_lifecycle.html)” for more information.
 
-<pre>
-task foo {
-    dependsOn: bar // does nothing; correct is 'dependsOn bar' or 'dependsOn = [bar]'
-}
-</pre>
+The following are the features that have been promoted in this Gradle release.
 
-To prevent such mistakes, the usage of statement labels in build scripts has been deprecated.
+<!--
+### Example promoted
+-->
 
-#### DSL
+## Fixed issues
 
-##### `Project.fileTree(Object)` - Removal of incorrect `@deprecation` tag
+## Deprecations
 
-The `Project.fileTree(Object)` method was incorrectly annotated with the `@deprecated`
-Javadoc tag in Gradle 1.0-milestone-8. This method has not been deprecated and the Javadoc tag has been removed.
+Features that have become superseded or irrelevant due to the natural evolution of Gradle become *deprecated*, and scheduled to be removed
+in the next major Gradle version (Gradle 4.0). See the User guide section on the “[Feature Lifecycle](userguide/feature_lifecycle.html)” for more information.
 
-##### `Project.fileTree(Closure)` - Addition of `@deprecation` tag
+The following are the newly deprecated items in this Gradle release. If you have concerns about a deprecation, please raise it via the [Gradle Forums](https://discuss.gradle.org).
 
-The `Project.fileTree(Closure)` method was deprecated in Gradle 1.0-milestone-8. The method was not
-annotated with the `@deprecated` javadoc tag at that time. This has been added for this release.
+<!--
+### Example deprecation
+-->
 
-#### API
+## Potential breaking changes
 
-##### `org.gradle.api.tasks.testing.TestLogging` - Moved into `logging` subpackage
+<!--
+### Example breaking change
+-->
 
-The `org.gradle.api.tasks.testing.TestLogging` interface was moved into package
-`org.gradle.api.tasks.testing.logging` (and subsequently enhanced with new methods).
-For backwards compatibility reasons, the old interface was kept at its original location,
-but is now deprecated.
+### Changes to previously deprecated APIs
 
-### Potential breaking changes
+- The `JacocoPluginExtension` methods `getLogger()`, `setLogger(Logger)` are removed.
+- The `JacocoTaskExtension` methods `getClassDumpFile()`, `setClassDumpFile(File)`, `getAgent()` and `setAgent(JacocoAgentJar)` are removed.
 
-##### `idea.project.jdkName`
+## External contributions
 
-We've decided to change the IDEA plugin's default JDK name. The new default is now smarter. Without this change,
-many users had to configure the JDK name explicitly in the builds or manually tweak the JDK name in IDEA after running
-the `gradle idea` task. The current default uses the Java version that Gradle runs with.
+We would like to thank the following community members for making contributions to this release of Gradle.
 
-Although we believe the new default is much better for majority of users, there might be some builds out there
-that preferred the old default. If you happen to prefer the old default (`1.6`) please configure
-that explicitly in your build via [idea.project.jdkName](http://gradle.org/docs/current/dsl/org.gradle.plugins.ide.idea.model.IdeaProject.html#org.gradle.plugins.ide.idea.model.IdeaProject:jdkName)
+- [Ion Alberdi](https://github.com/yetanotherion) - Fix lazy evaluation of parent/grand-parent pom's properties ([gradle/gradle#1192](https://github.com/gradle/gradle/pull/1192))
+- [Guillaume Delente](https://github.com/GuillaumeDelente) - Fix typo in user guide ([gradle/gradle#1562](https://github.com/gradle/gradle/pull/1562))
+- [Guillaume Le Floch](https://github.com/glefloch) - Support of compileOnly scope in buildInit plugin ([gradle/gradle#1536](https://github.com/gradle/gradle/pull/1536))
+- [Eitan Adler](https://github.com/grimreaper) - Remove some some duplicated words from documentation ([gradle/gradle#1513](https://github.com/gradle/gradle/pull/1513))
+- [Eitan Adler](https://github.com/grimreaper) - Remove extraneous letter in documentation ([gradle/gradle#1459](https://github.com/gradle/gradle/pull/1459))
+- [Pierre Noel](https://github.com/petersg83) - Add missing comma in `FileReferenceFactory.toString()` ([gradle/gradle#1440](https://github.com/gradle/gradle/pull/1440))
+- [Hugo Bijmans](https://github.com/HugooB) - Fixed some typos and spelling in the JavaPlugin user guide ([gradle/gradle#1514](https://github.com/gradle/gradle/pull/1514))
+- [Andy Wilkinson](https://github.com/wilkinsona) - Copy resolution listeners when a configuration is copied ([gradle/gradle#1603](https://github.com/gradle/gradle/pull/1603))
+- [Tim Hunt](https://github.com/mitnuh) - Allow the use of single quote characters in Javadoc task options header and footer ([gradle/gradle#1288](https://github.com/gradle/gradle/pull/1288))
+- [Jenn Strater](https://github.com/jlstrater) - Add groovy-application project init type ([gradle/gradle#1480](https://github.com/gradle/gradle/pull/1480))
+- [Jacob Ilsoe](https://github.com/jacobilsoe) - Update Zinc to 0.3.13 ([gradle/gradle#1463](https://github.com/gradle/gradle/issues/1463))
+- [Shintaro Katafuchi](https://github.com/hotchemi) - Issue: #952 Make project.sync() a public API ([gradle/gradle#1137](https://github.com/gradle/gradle/pull/1137))
 
-##### maven settings.xml
+We love getting contributions from the Gradle community. For information on contributing, please see [gradle.org/contribute](https://gradle.org/contribute).
 
-We've updated the handling of the local maven cache to use the maven3 settings builder library to parse the maven `settings.xml`. When using the local maven cache via `mavenLocal()`, Gradle will fail the build if the settings builder cannot parse the `settings.xml` in `USER_HOME/.m2/settings.xml` or in `M2_HOME/conf/settings.xml`. If a custom location for the local repository is defined in the maven settings file, Gradle will use this location. If no `settings.xml` is available or it contains no local repository definition, Gradle uses the default location in `USER_HOME/.m2/repository`. 
+## Known issues
 
-## Fixed Issues
-
-The list of issues fixed between 1.0 and 1.1-rc-1 can be found [here](http://issues.gradle.org/sr/jira.issueviews:searchrequest-printable/temp/SearchRequest.html?jqlQuery=fixVersion+in+%28%221.1-rc-1%22%29+ORDER+BY+priority&tempMax=1000).
+Known issues are problems that were discovered post release that are directly related to changes made in this release.

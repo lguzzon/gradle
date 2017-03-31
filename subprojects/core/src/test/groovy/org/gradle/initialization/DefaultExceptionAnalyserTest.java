@@ -16,14 +16,13 @@
 package org.gradle.initialization;
 
 import org.gradle.api.GradleScriptException;
-import org.gradle.api.internal.LocationAwareException;
-import org.gradle.api.internal.Contextual;
-import org.gradle.api.internal.MultiCauseException;
 import org.gradle.api.tasks.TaskExecutionException;
 import org.gradle.groovy.scripts.Script;
 import org.gradle.groovy.scripts.ScriptSource;
-import org.gradle.listener.ListenerManager;
-import org.gradle.listener.ListenerNotificationException;
+import org.gradle.internal.event.ListenerManager;
+import org.gradle.internal.exceptions.Contextual;
+import org.gradle.internal.exceptions.LocationAwareException;
+import org.gradle.internal.exceptions.MultiCauseException;
 import org.gradle.util.JUnit4GroovyMockery;
 import org.jmock.Expectations;
 import org.jmock.integration.junit4.JMock;
@@ -48,6 +47,8 @@ public class DefaultExceptionAnalyserTest {
     private final StackTraceElement element = new StackTraceElement("class", "method", "filename", 7);
     private final StackTraceElement callerElement = new StackTraceElement("class", "method", "filename", 11);
     private final StackTraceElement otherElement = new StackTraceElement("class", "method", "otherfile", 11);
+    private final StackTraceElement elementWithNoSourceFile = new StackTraceElement("class", "method", null, 11);
+    private final StackTraceElement elementWithNoLineNumber = new StackTraceElement("class", "method", "filename", -1);
     private final ScriptSource source = context.mock(ScriptSource.class);
 
     @Before
@@ -55,15 +56,22 @@ public class DefaultExceptionAnalyserTest {
         context.checking(new Expectations() {{
             allowing(source).getFileName();
             will(returnValue("filename"));
+            allowing(source).getDisplayName();
+            will(returnValue("build file filename"));
         }});
     }
 
     @Test
-    public void usesOriginalExceptionWhenItIsNotAContextualException() {
+    public void wrapsOriginalExceptionWhenItIsNotAContextualException() {
         Throwable failure = new RuntimeException();
 
         DefaultExceptionAnalyser analyser = analyser();
-        assertThat(analyser.transform(failure), sameInstance(failure));
+        Throwable transformed = analyser.transform(failure);
+        assertThat(transformed, instanceOf(LocationAwareException.class));
+
+        LocationAwareException gse = (LocationAwareException) transformed;
+        assertThat(gse.getCause(), sameInstance(failure));
+        assertThat(gse.getReportableCauses(), isEmpty());
     }
 
     @Test
@@ -76,7 +84,6 @@ public class DefaultExceptionAnalyserTest {
         assertThat(transformedFailure, instanceOf(LocationAwareException.class));
 
         LocationAwareException gse = (LocationAwareException) transformedFailure;
-        assertThat(gse.getTarget(), sameInstance(failure));
         assertThat(gse.getCause(), sameInstance(failure));
         assertThat(gse.getReportableCauses(), isEmpty());
     }
@@ -92,15 +99,14 @@ public class DefaultExceptionAnalyserTest {
         assertThat(transformedFailure, instanceOf(LocationAwareException.class));
 
         LocationAwareException gse = (LocationAwareException) transformedFailure;
-        assertThat(gse.getTarget(), sameInstance(failure));
         assertThat(gse.getCause(), sameInstance(failure));
         assertThat(gse.getReportableCauses(), equalTo(toList(cause)));
     }
 
     @Test
-    public void addsLocationInfoFromDeepestStackFrame() {
+    public void addsLocationInfoFromDeepestStackFrameWithMatchingSourceFileAndLineInformation() {
         Throwable failure = new ContextualException();
-        failure.setStackTrace(toArray(element, otherElement, callerElement));
+        failure.setStackTrace(toArray(elementWithNoSourceFile, elementWithNoLineNumber, otherElement, element, callerElement));
 
         DefaultExceptionAnalyser analyser = analyser();
         notifyAnalyser(analyser, source);
@@ -109,7 +115,7 @@ public class DefaultExceptionAnalyserTest {
         assertThat(transformedFailure, instanceOf(LocationAwareException.class));
 
         LocationAwareException gse = (LocationAwareException) transformedFailure;
-        assertThat(gse.getScriptSource(), sameInstance(source));
+        assertThat(gse.getSourceDisplayName(), equalTo(source.getDisplayName()));
         assertThat(gse.getLineNumber(), equalTo(7));
     }
 
@@ -127,7 +133,7 @@ public class DefaultExceptionAnalyserTest {
         assertThat(transformedFailure, instanceOf(LocationAwareException.class));
 
         LocationAwareException gse = (LocationAwareException) transformedFailure;
-        assertThat(gse.getScriptSource(), sameInstance(source));
+        assertThat(gse.getSourceDisplayName(), equalTo(source.getDisplayName()));
         assertThat(gse.getLineNumber(), equalTo(7));
     }
 
@@ -138,7 +144,7 @@ public class DefaultExceptionAnalyserTest {
         assertThat(transformedFailure, instanceOf(LocationAwareException.class));
 
         LocationAwareException gse = (LocationAwareException) transformedFailure;
-        assertThat(gse.getScriptSource(), nullValue());
+        assertThat(gse.getSourceDisplayName(), nullValue());
         assertThat(gse.getLineNumber(), nullValue());
     }
 
@@ -152,23 +158,8 @@ public class DefaultExceptionAnalyserTest {
         assertThat(transformedFailure, instanceOf(LocationAwareException.class));
 
         LocationAwareException gse = (LocationAwareException) transformedFailure;
-        assertThat(gse.getTarget(), sameInstance(failure));
         assertThat(gse.getCause(), sameInstance(failure));
         assertThat(gse.getReportableCauses(), equalTo(toList(cause1, cause2)));
-    }
-
-    @Test
-    public void unpacksListenerNotificationException() {
-        Throwable cause = new RuntimeException();
-        Throwable failure = new ListenerNotificationException("broken", cause);
-
-        Throwable transformedFailure = analyser().transform(failure);
-        assertThat(transformedFailure, instanceOf(LocationAwareException.class));
-
-        LocationAwareException gse = (LocationAwareException) transformedFailure;
-        assertThat(gse.getTarget(), sameInstance(cause));
-        assertThat(gse.getCause(), sameInstance(failure));
-        assertThat(gse.getReportableCauses(), isEmpty());
     }
 
     @Test
@@ -177,7 +168,7 @@ public class DefaultExceptionAnalyserTest {
 
         DefaultExceptionAnalyser analyser = analyser();
         notifyAnalyser(analyser, source);
-        
+
         assertThat(analyser.transform(failure), sameInstance(failure));
     }
 
@@ -190,7 +181,6 @@ public class DefaultExceptionAnalyserTest {
         assertThat(transformedFailure, instanceOf(LocationAwareException.class));
 
         LocationAwareException gse = (LocationAwareException) transformedFailure;
-        assertThat(gse.getTarget(), sameInstance(cause));
         assertThat(gse.getCause(), sameInstance(cause));
     }
 
@@ -213,7 +203,6 @@ public class DefaultExceptionAnalyserTest {
         assertThat(transformedFailure, instanceOf(LocationAwareException.class));
 
         LocationAwareException gse = (LocationAwareException) transformedFailure;
-        assertThat(gse.getTarget(), sameInstance(cause));
         assertThat(gse.getCause(), sameInstance(cause));
     }
 
@@ -225,6 +214,23 @@ public class DefaultExceptionAnalyserTest {
         DefaultExceptionAnalyser analyser = analyser();
 
         assertThat(analyser.transform(failure), sameInstance(cause));
+    }
+
+    @Test
+    public void wrapsArbitraryFailureWithLocationInformation() {
+        Throwable failure = new RuntimeException();
+        failure.setStackTrace(toArray(element, otherElement, callerElement));
+
+        DefaultExceptionAnalyser analyser = analyser();
+        notifyAnalyser(analyser, source);
+
+        Throwable transformedFailure = analyser.transform(failure);
+        assertThat(transformedFailure, instanceOf(LocationAwareException.class));
+
+        LocationAwareException gse = (LocationAwareException) transformedFailure;
+        assertThat(gse.getSourceDisplayName(), equalTo(source.getDisplayName()));
+        assertThat(gse.getLineNumber(), equalTo(7));
+        assertThat(gse.getCause(), sameInstance(failure));
     }
 
     private Throwable locationAwareException(final Throwable cause) {
@@ -239,17 +245,12 @@ public class DefaultExceptionAnalyserTest {
     }
 
     private void notifyAnalyser(DefaultExceptionAnalyser analyser, final ScriptSource source) {
-        final Script script = context.mock(Script.class);
-        context.checking(new Expectations() {{
-            allowing(script).getScriptSource();
-            will(returnValue(source));
-        }});
-        analyser.beforeScript(script);
+        analyser.scriptClassLoaded(source, Script.class);
     }
 
     private DefaultExceptionAnalyser analyser() {
         context.checking(new Expectations() {{
-            one(listenerManager).addListener(with(notNullValue(DefaultExceptionAnalyser.class)));
+            oneOf(listenerManager).addListener(with(notNullValue(DefaultExceptionAnalyser.class)));
         }});
         return new DefaultExceptionAnalyser(listenerManager);
     }
@@ -281,7 +282,7 @@ public class DefaultExceptionAnalyserTest {
     @Contextual
     public abstract static class TestException extends LocationAwareException {
         protected TestException(Throwable cause, ScriptSource source, Integer lineNumber) {
-            super(cause, cause, source, lineNumber);
+            super(cause, source, lineNumber);
         }
     }
 }

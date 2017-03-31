@@ -14,15 +14,11 @@
  * limitations under the License.
  */
 dependencies {
-    groovy libraries.groovy
-
+    compile libraries.commons_codec
     compile libraries.slf4j_api
+    compile libraries.commons_io
     compile project(':core')
-    compile project(':plugins')
-}
-
-if (!Jvm.current().java6Compatible) {
-    sourceSets.main.groovy.exclude '**/jdk6/**'
+    testRuntime project(':plugins')
 }
 
 useTestFixtures()

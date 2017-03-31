@@ -22,7 +22,7 @@
         which we have already seen in <xref linkend="tutorial_java_projects"/>.
     </para>
 
-    <section>
+    <section id="sec:a_basic_groovy_project">
         <title>A basic Groovy project</title>
 
         <para>Let's look at an example. To use the Groovy plugin, add the following to your build file:</para>
@@ -33,14 +33,14 @@
             extends the <literal>compile</literal> task to look for source files in directory
             <filename>src/main/groovy</filename>, and the <literal>compileTest</literal> task to look for test source
             files in directory <filename>src/test/groovy</filename>. The compile tasks use joint compilation for these
-            directories, which means they can contain a mixture of java and groovy source files.
+            directories, which means they can contain a mixture of Java and Groovy source files.
         </para>
-        <para>To use the groovy compilation tasks, you must also declare the Groovy version to use and where to find the
+        <para>To use the Groovy compilation tasks, you must also declare the Groovy version to use and where to find the
             Groovy libraries. You do this by adding a dependency to the <literal>groovy</literal> configuration.
-            The <literal>compile</literal> configuration inherits this dependency, so the groovy libraries will
-            be included in classpath when compiling Groovy and Java source.  For our sample, we will use Groovy 1.7.10
+            The <literal>compile</literal> configuration inherits this dependency, so the Groovy libraries will
+            be included in classpath when compiling Groovy and Java source.  For our sample, we will use Groovy 2.2.0
             from the public Maven repository:</para>
-        <sample id="groovyQuickstart" dir="groovy/quickstart" title="Dependency on Groovy 1.7.10">
+        <sample id="groovyQuickstart" dir="groovy/quickstart" title="Dependency on Groovy">
             <sourcefile file="build.gradle" snippet="groovy-dependency"/>
         </sample>
         <para>Here is our complete build file:</para>
@@ -50,7 +50,7 @@
         <para>Running <userinput>gradle build</userinput> will compile, test and JAR your project.</para>
     </section>
 
-    <section>
+    <section id="sec:groovy_tutorial_summary">
         <title>Summary</title>
         <para>This chapter describes a very simple Groovy project. Usually, a real project will require more than this.
             Because a Groovy project <emphasis>is</emphasis> a Java project, whatever you can do with a Java project,

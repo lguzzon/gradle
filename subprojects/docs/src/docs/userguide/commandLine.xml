@@ -54,10 +54,35 @@
         </varlistentry>
         <varlistentry>
             <term>
+                <option>--console</option>
+            </term>
+            <listitem>
+                <para>Specifies which type of console output to generate.</para>
+                <para>Set to <literal>plain</literal> to generate plain text only. This option disables all color and other rich output in the console output.</para>
+                <para>Set to <literal>auto</literal> (the default) to enable color and other rich output in the console output when
+                    the build process is attached to a console, or to generate plain text only when not attached to a console.</para>
+                <para>Set to <literal>rich</literal> to enable color and other rich output in the console output,
+                    regardless of whether the build process is not attached to a console. When not attached to a console, the build output will use ANSI control
+                    characters to generate the rich output.
+                </para>
+            </listitem>
+        </varlistentry>
+        <varlistentry>
+            <term>
                 <option>--continue</option>
             </term>
             <listitem>
                 <para>Continues task execution after a task failure.</para>
+            </listitem>
+        </varlistentry>
+        <varlistentry>
+            <term>
+                <option>--configure-on-demand (incubating)</option>
+            </term>
+            <listitem>
+                <para>Only relevant projects are configured in this build run. This means faster builds for large multi-projects.
+                    See <xref linkend="sec:configuration_on_demand"/>.
+                </para>
             </listitem>
         </varlistentry>
         <varlistentry>
@@ -92,7 +117,20 @@
                 <option>--gui</option>
             </term>
             <listitem>
-                <para>Launches the Gradle GUI. See <xref linkend="tutorial_gradle_gui"/>.
+                <para>
+                    Launches the Gradle GUI. See <xref linkend="tutorial_gradle_gui"/>.
+                </para>
+                <para>
+                    The Gradle GUI has been deprecated and will be removed in Gradle 4.0. Consider using an IDE with support for Gradle e.g. <ulink url="https://eclipse.org/">Eclipse</ulink>,
+                    <ulink url="https://www.jetbrains.com/idea/">IntelliJ</ulink> or <ulink url="https://netbeans.org/">NetBeans</ulink> instead.
+                </para>
+            </listitem>
+        </varlistentry>
+        <varlistentry>
+            <term><option>--include-build</option>
+            </term>
+            <listitem>
+                <para>Run the build as a composite, including the specified build. See <xref linkend="composite_builds"/>.
                 </para>
             </listitem>
         </varlistentry>
@@ -118,14 +156,6 @@
             <listitem>
                 <para>Runs the build with all task actions disabled. See <xref linkend="sec:dry_run"/>.
                 </para>
-            </listitem>
-        </varlistentry>
-        <varlistentry>
-            <term>
-                <option>--no-color</option>
-            </term>
-            <listitem>
-                <para>Do not use color in the console output.</para>
             </listitem>
         </varlistentry>
         <varlistentry>
@@ -156,6 +186,28 @@
         </varlistentry>
         <varlistentry>
             <term>
+                <option>--parallel (incubating)</option>
+            </term>
+            <listitem>
+                <para>
+                    Build projects in parallel. Gradle will attempt to determine the optimal number of executor threads to use.
+                    This option should only be used with decoupled projects (see <xref linkend="sec:decoupled_projects"/>). For limitations
+                    of this option please see <xref linkend="sec:parallel_execution"/>.
+                </para>
+            </listitem>
+        </varlistentry>
+        <varlistentry>
+            <term>
+                <option>--max-workers (incubating)</option>
+            </term>
+            <listitem>
+                <para>
+                    Sets the maximum number of workers that Gradle may use. For example<literal>--max-workers=3</literal>.  The default is the number of processors.
+                </para>
+            </listitem>
+        </varlistentry>
+        <varlistentry>
+            <term>
                 <option>--profile</option>
             </term>
             <listitem>
@@ -171,8 +223,7 @@
             </term>
             <listitem>
                 <para>Specifies the project-specific cache directory. Default value is
-                    <filename>.gradle</filename>
-                    in the root project directory. See <xref linkend="sec:caching"/>.
+                    <filename>.gradle</filename> in the root project directory.
                 </para>
             </listitem>
         </varlistentry>
@@ -189,9 +240,7 @@
                 <option>--recompile-scripts</option>
             </term>
             <listitem>
-                <para>Specifies that cached build scripts are skipped and forced to be recompiled.
-                    See <xref linkend="sec:caching"/>.
-                </para>
+                <para>Forces scripts to be recompiled, bypassing caching.</para>
             </listitem>
         </varlistentry>
         <varlistentry>
@@ -230,7 +279,31 @@
             </listitem>
         </varlistentry>
         <varlistentry>
-            <term><option>-u</option>, <option>--no-search-upwards</option>
+            <term><option>--scan (incubating)</option>
+            </term>
+            <listitem>
+                <para>Creates a build scan. Gradle will emit a warning if the build scan plugin has not been applied. For more information about build scans, please visit <ulink url="https://gradle.com/scans">https://gradle.com/scans</ulink>.
+                </para>
+            </listitem>
+        </varlistentry>
+        <varlistentry>
+            <term><option>--no-scan (incubating)</option>
+            </term>
+            <listitem>
+                <para>Disables the creation of a build scan. For more information about build scans, please visit <ulink url="https://gradle.com/scans">https://gradle.com/scans</ulink>.
+                </para>
+            </listitem>
+        </varlistentry>
+        <varlistentry>
+            <term>
+                <option>-t</option>, <option>--continuous (incubating)</option>
+            </term>
+            <listitem>
+                <para>Enables <link linkend="continuous_build">continuous building</link> - Gradle will automatically re-run when changes are detected.</para>
+            </listitem>
+        </varlistentry>
+        <varlistentry>
+            <term><option>-u</option>, <option>--no-search-upward</option>
             </term>
             <listitem>
                 <para>Don't search in parent directories for a
@@ -248,6 +321,14 @@
             </listitem>
         </varlistentry>
         <varlistentry>
+            <term>
+                <option>-w</option>, <option>--warn</option>
+            </term>
+            <listitem>
+                <para>Set log level to warn. See <xref linkend="logging"/></para>
+            </listitem>
+        </varlistentry>
+        <varlistentry>
             <term><option>-x</option>, <option>--exclude-task</option>
             </term>
             <listitem>
@@ -259,47 +340,8 @@
     <para>The above information is printed to the console when you execute <userinput>gradle -h</userinput>.
     </para>
 
-    <section>
-        <title>Deprecated command-line options</title>
-        <para>The following options are deprecated and will be removed in a future version of Gradle:</para>
-        <variablelist>
-            <varlistentry>
-                <term><option>-C</option>, <option>--cache</option>
-                </term>
-                <listitem>
-                    <para>(deprecated) Specifies how compiled build scripts should be cached. Possible values are:
-                        <literal>rebuild</literal>
-                        or <literal>on</literal>. Default value is
-                        <literal>on</literal>. You should use
-                        <option>--recompile-scripts</option>
-                        instead.
-                    </para>
-                </listitem>
-            </varlistentry>
-            <varlistentry>
-                <term><option>--no-opt</option>
-                </term>
-                <listitem>
-                    <para>(deprecated) Specifies to ignore all task optimization. You should use
-                        <option>--rerun-tasks</option>
-                        instead.
-                    </para>
-                </listitem>
-            </varlistentry>
-            <varlistentry>
-                <term><option>--refresh</option>
-                </term>
-                <listitem>
-                    <para>(deprecated) Refresh the state of resources of the type(s) specified. Currently only <literal>dependencies</literal> is supported.
-                        You should use <option>--refresh-dependencies</option> instead.
-                    </para>
-                </listitem>
-            </varlistentry>
-        </variablelist>
-    </section>
-
-    <section id='daemon_cli'>
-        <title>Daemon command-line options:</title>
+    <section id="daemon_cli">
+        <title>Daemon command-line options</title>
         <para>The
             <xref linkend="gradle_daemon"/>
             contains more information about the daemon.
@@ -344,6 +386,16 @@
             </varlistentry>
             <varlistentry>
                 <term>
+                    <option>--status</option>
+                </term>
+                <listitem>
+                    <para>List running and recently stopped Gradle daemons.
+                        Only displays daemons of the same Gradle version.
+                    </para>
+                </listitem>
+            </varlistentry>
+            <varlistentry>
+                <term>
                     <option>--stop</option>
                 </term>
                 <listitem>
@@ -356,7 +408,7 @@
         </variablelist>
     </section>
 
-    <section>
+    <section id="sec:cli_system_properties">
         <title>System properties</title>
         <para>The following system properties are available for the
             <command>gradle</command>
@@ -378,7 +430,7 @@
         </para>
     </section>
 
-    <section>
+    <section id="sec:cli_environment_variables">
         <title>Environment variables</title>
         <para>The following environment variables are available for the
             <command>gradle</command>
@@ -409,7 +461,15 @@
                     <literal>GRADLE_USER_HOME</literal>
                 </term>
                 <listitem>
-                    <para>Specifies the Gradle user home directory.</para>
+                    <para>Specifies the Gradle user home directory (which defaults to “<literal>USER_HOME/.gradle</literal>” if not set).</para>
+                </listitem>
+            </varlistentry>
+            <varlistentry>
+                <term>
+                    <literal>JAVA_HOME</literal>
+                </term>
+                <listitem>
+                    <para>Specifies the JDK installation directory to use.</para>
                 </listitem>
             </varlistentry>
         </variablelist>

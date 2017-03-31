@@ -16,19 +16,19 @@
 package org.gradle.plugins.ide.eclipse
 
 import org.gradle.integtests.fixtures.TestResources
+import org.gradle.integtests.fixtures.executer.ExecutionResult
 import org.junit.Rule
 import org.junit.Test
 import spock.lang.Issue
 
-/**
- * @author Szczepan Faber
- */
 class EclipseClasspathIntegrationTest extends AbstractEclipseIntegrationTest {
 
     @Rule
-    public final TestResources testResources = new TestResources()
+    public final TestResources testResources = new TestResources(testDirectoryProvider)
 
     String content
+
+    private final String jreContainerPath = "org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/JavaSE-${org.gradle.api.JavaVersion.current()}/"
 
     @Test
     void classpathContainsLibraryEntriesForExternalAndFileDependencies() {
@@ -72,9 +72,56 @@ dependencies {
     }
 
     @Test
+    @Issue("GRADLE-1945")
+    void unresolvedDependenciesAreLogged() {
+        //given
+        def module = mavenRepo.module('myGroup', 'existing-artifact', '1.0')
+        module.publish()
+
+        //when
+        ExecutionResult result = runEclipseTask """
+apply plugin: 'java'
+apply plugin: 'eclipse'
+
+repositories {
+    maven { url "${mavenRepo.uri}" }
+}
+
+configurations {
+    myPlusConfig
+    myMinusConfig
+}
+
+dependencies {
+    myPlusConfig group: 'myGroup', name: 'missing-extra-artifact', version: '1.0'
+    myPlusConfig group: 'myGroup', name: 'filtered-artifact', version: '1.0'
+    myMinusConfig group: 'myGroup', name: 'filtered-artifact', version: '1.0'
+    runtime  group: 'myGroup', name: 'missing-artifact', version: '1.0'
+    compile  group: 'myGroup', name: 'existing-artifact', version: '1.0'
+
+    eclipse {
+        classpath {
+            plusConfigurations += [ configurations.myPlusConfig ]
+            minusConfigurations += [ configurations.myMinusConfig]
+        }
+    }
+}
+"""
+        String expected = """:eclipseClasspath
+Could not resolve: myGroup:missing-artifact:1.0
+Could not resolve: myGroup:missing-extra-artifact:1.0
+:eclipseJdt
+:eclipseProject
+:eclipse
+"""
+        result.assertOutputContains(expected)
+    }
+
+
+    @Test
     @Issue("GRADLE-1622")
     void classpathContainsEntriesForDependenciesThatOnlyDifferByClassifier() {
-        given:
+        //given:
         def module = mavenRepo.module('coolGroup', 'niceArtifact', '1.0')
         module.artifact(classifier: 'extra')
         module.artifact(classifier: 'tests')
@@ -84,7 +131,7 @@ dependencies {
         def testsJar = module.artifactFile(classifier: 'tests')
         def anotherJar = mavenRepo.module('coolGroup', 'another', '1.0').publish().artifactFile
 
-        when:
+        //when:
         runEclipseTask """
 apply plugin: 'java'
 apply plugin: 'eclipse'
@@ -101,7 +148,7 @@ dependencies {
 }
 """
 
-        then:
+        //then:
         def libraries = classpath.libs
         assert libraries.size() == 4
         libraries[0].assertHasJar(baseJar)
@@ -109,6 +156,220 @@ dependencies {
         libraries[2].assertHasJar(testsJar)
         libraries[3].assertHasJar(anotherJar)
     }
+
+    @Test
+    void includesTransitiveRepoFileDependencies() {
+        //given
+        def someArtifactJar = mavenRepo.module('someGroup', 'someArtifact', '1.0').publish().artifactFile
+        def someOtherArtifactJar = mavenRepo.module('someGroup', 'someOtherArtifact', '1.0').publish().artifactFile
+
+        //when
+        runEclipseTask """include 'a', 'b', 'c'""", """
+subprojects {
+    apply plugin: 'java'
+    apply plugin: 'eclipse'
+
+    repositories {
+        maven { url "${mavenRepo.uri}" }
+    }
+}
+
+configure(project(":a")){
+    dependencies {
+        compile 'someGroup:someOtherArtifact:1.0'
+
+        compile project(':b')
+    }
+}
+
+configure(project(":b")){
+    dependencies {
+        compile project(':c')
+    }
+}
+
+configure(project(":c")){
+    dependencies {
+        compile 'someGroup:someArtifact:1.0'
+    }
+}
+"""
+
+        def libs = classpath("a").libs
+        assert classpath("a").projects == ["/b", "/c"]
+        assert libs.size() == 2
+        libs[0].assertHasJar(someOtherArtifactJar)
+        libs[1].assertHasJar(someArtifactJar)
+    }
+
+    @Test
+    void includesTransitiveImplementationDependencies() {
+        //given
+        def someArtifactJar = mavenRepo.module('someGroup', 'someArtifact', '1.0').publish().artifactFile
+        def someOtherArtifactJar = mavenRepo.module('someGroup', 'someOtherArtifact', '1.0').publish().artifactFile
+
+        //when
+        runEclipseTask """include 'a', 'b', 'c'""", """
+subprojects {
+    apply plugin: 'java'
+    apply plugin: 'eclipse'
+
+    repositories {
+        maven { url "${mavenRepo.uri}" }
+    }
+}
+
+configure(project(":a")){
+    dependencies {
+        compile 'someGroup:someOtherArtifact:1.0'
+
+        compile project(':b')
+    }
+}
+
+configure(project(":b")){
+    apply plugin: 'java-library'
+    dependencies {
+        api project(':c')
+    }
+}
+
+configure(project(":c")){
+    apply plugin: 'java-library'
+    dependencies {
+        implementation 'someGroup:someArtifact:1.0'
+    }
+}
+"""
+
+        def libs = classpath("a").libs
+        assert classpath("a").projects == ["/b", "/c"]
+        assert libs.size() == 2
+        libs[0].assertHasJar(someOtherArtifactJar)
+        libs[1].assertHasJar(someArtifactJar)
+    }
+
+    @Test
+    void transitiveProjectDependenciesMappedAsDirectDependencies() {
+        given:
+        runEclipseTask """include 'a', 'b', 'c'""", """
+subprojects {
+    apply plugin: 'java'
+    apply plugin: 'eclipse'
+
+    repositories {
+        maven { url "${mavenRepo.uri}" }
+    }
+}
+
+configure(project(":a")){
+    dependencies {
+        compile project(':b')
+    }
+}
+
+configure(project(":b")){
+    dependencies {
+        compile project(':c')
+    }
+}
+
+"""
+
+        then:
+        def eclipseClasspath = classpath("a")
+        assert eclipseClasspath.projects == ['/b', '/c']
+    }
+
+    @Test
+    void transitiveFileDependenciesMappedAsDirectDependencies() {
+        runEclipseTask """include 'a', 'b', 'c'""", """
+subprojects {
+    apply plugin: 'java'
+    apply plugin: 'eclipse'
+
+    repositories {
+        maven { url "${mavenRepo.uri}" }
+    }
+}
+
+configure(project(":a")){
+    dependencies {
+        compile files("bar.jar")
+        compile project(':b')
+    }
+}
+
+configure(project(":b")){
+    dependencies {
+        compile project(':c')
+        compile files("baz.jar")
+
+    }
+}
+
+configure(project(":c")){
+    dependencies {
+        compile files("foo.jar")
+    }
+}
+"""
+
+        def eclipseClasspath = classpath("a")
+        assert eclipseClasspath.projects == ['/b', '/c']
+        eclipseClasspath.libs[0].assertHasJar(file("a/bar.jar"))
+        eclipseClasspath.libs[1].assertHasJar(file("c/foo.jar"))
+        eclipseClasspath.libs[2].assertHasJar(file("b/baz.jar"))
+    }
+
+    @Test
+    void classpathContainsConflictResolvedDependencies() {
+        def someLib1Jar = mavenRepo.module('someGroup', 'someLib', '1.0').publish().artifactFile
+        def someLib2Jar = mavenRepo.module('someGroup', 'someLib', '2.0').publish().artifactFile
+
+        def settingsFile = file("settings.gradle")
+        settingsFile << """ include 'a', 'b'"""
+        def buildFile = file("build.gradle")
+        buildFile << """
+subprojects {
+    apply plugin: 'java'
+    apply plugin: 'eclipse'
+
+    repositories {
+        maven { url "${mavenRepo.uri}" }
+    }
+}
+
+configure(project(":a")){
+    dependencies {
+        compile ('someGroup:someLib:1.0'){
+            force = project.hasProperty("forceDeps")
+        }
+        compile project(':b')
+    }
+}
+
+configure(project(":b")){
+    dependencies {
+        compile 'someGroup:someLib:2.0'
+    }
+}
+"""
+        executer.usingBuildScript(buildFile).usingSettingsFile(settingsFile).withTasks("eclipse").run()
+
+        def libs = classpath("a").libs
+        assert classpath("a").projects == ["/b"]
+        assert libs.size() == 1
+        libs[0].assertHasJar(someLib2Jar)
+
+        executer.usingBuildScript(buildFile).usingSettingsFile(settingsFile).withArgument("-PforceDeps=true").withTasks("eclipse").run()
+
+        libs = classpath("a").libs
+        assert classpath("a").projects == ["/b"]
+        assert libs.size() == 1
+        libs[0].assertHasJar(someLib1Jar)
+    }
+
 
     @Test
     void substituesPathVariablesIntoLibraryPathsExceptForJavadoc() {
@@ -147,7 +408,7 @@ eclipse {
         libraries[1].assertHasJar('LIB_DIR/dep.jar')
 
         //javadoc is not substituted
-        libraries[0].assertHasJavadoc(file("repo/coolGroup/niceArtifact/1.0/niceArtifact-1.0-javadoc.jar"))
+        libraries[0].assertHasJavadoc(file("maven-repo/coolGroup/niceArtifact/1.0/niceArtifact-1.0-javadoc.jar"))
     }
 
     @Test
@@ -175,7 +436,7 @@ eclipse {
   classpath {
     sourceSets = []
 
-    plusConfigurations += configurations.someConfig
+    plusConfigurations << configurations.someConfig
 
     containers 'someFriendlyContainer', 'andYetAnotherContainer'
 
@@ -205,6 +466,49 @@ eclipse {
         assert classpath.classpath.message[0].text() == 'be cool'
     }
 
+    @Issue("GRADLE-3101")
+    @Test
+    void canCustomizeTheClasspathModelUsingPlusEqual() {
+        def module = mavenRepo.module('coolGroup', 'niceArtifact', '1.0')
+        module.publish()
+        def baseJar = module.artifactFile
+
+        //when
+        runEclipseTask """
+apply plugin: 'java'
+apply plugin: 'eclipse'
+
+repositories {
+    maven { url "${mavenRepo.uri}" }
+}
+
+sourceSets.main.java.srcDirs.each { it.mkdirs() }
+sourceSets.main.resources.srcDirs.each { it.mkdirs() }
+
+configurations {
+  someConfig
+}
+
+eclipse {
+
+  classpath {
+    sourceSets = []
+
+    plusConfigurations += [ configurations.someConfig ]
+  }
+}
+
+dependencies {
+    someConfig 'coolGroup:niceArtifact:1.0'
+}
+"""
+
+        //then
+        def libraries = classpath.libs
+        assert libraries.size() == 1
+        libraries[0].assertHasJar(baseJar)
+    }
+
     @Test
     @Issue("GRADLE-1487")
     void handlesPlusMinusConfigurationsForSelfResolvingDeps() {
@@ -224,8 +528,8 @@ dependencies {
 }
 
 eclipse.classpath {
-    plusConfigurations += configurations.someConfig
-    minusConfigurations += configurations.someOtherConfig
+    plusConfigurations << configurations.someConfig
+    minusConfigurations << configurations.someOtherConfig
 }
 """
 
@@ -240,7 +544,7 @@ eclipse.classpath {
     void handlesPlusMinusConfigurationsForProjectDeps() {
         //when
         runEclipseTask "include 'foo', 'bar', 'unwanted'",
-                """
+            """
 allprojects {
   apply plugin: 'java'
   apply plugin: 'eclipse'
@@ -259,8 +563,8 @@ dependencies {
 }
 
 eclipse.classpath {
-    plusConfigurations += configurations.someConfig
-    minusConfigurations += configurations.someOtherConfig
+    plusConfigurations << configurations.someConfig
+    minusConfigurations << configurations.someOtherConfig
 }
 """
 
@@ -294,8 +598,8 @@ dependencies {
 }
 
 eclipse.classpath {
-    plusConfigurations += configurations.someConfig
-    minusConfigurations += configurations.someOtherConfig
+    plusConfigurations << configurations.someConfig
+    minusConfigurations << configurations.someOtherConfig
 }
 """
 
@@ -382,15 +686,15 @@ eclipse.classpath {
     @Test
     void removeDependenciesFromExistingClasspathFileWhenMerging() {
         //given
-        getClasspathFile() << '''<?xml version="1.0" encoding="UTF-8"?>
+        getClasspathFile() << """<?xml version="1.0" encoding="UTF-8"?>
 <classpath>
 	<classpathentry kind="output" path="bin"/>
-	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER" exported="true"/>
-	<classpathentry kind="lib" path="/some/path/someDependency.jar" exported="true"/>
-	<classpathentry kind="var" path="SOME_VAR/someVarDependency.jar" exported="true"/>
-	<classpathentry kind="src" path="/someProject" exported="true"/>
+	<classpathentry kind="con" path="$jreContainerPath"/>
+	<classpathentry kind="lib" path="/some/path/someDependency.jar"/>
+	<classpathentry kind="var" path="SOME_VAR/someVarDependency.jar"/>
+	<classpathentry kind="src" path="/someProject"/>
 </classpath>
-'''
+"""
 
         //when
         runEclipseTask """
@@ -401,7 +705,6 @@ dependencies {
   compile files('newDependency.jar')
 }
 """
-
         //then
         assert classpath.entries.size() == 3
         def libraries = classpath.libs
@@ -434,18 +737,133 @@ apply plugin: 'eclipse'
         assert classpath.sources.size() == 2
     }
 
+    @Issue('GRADLE-3335')
+    @Test
+    void handlesExcludeOnSharedSourceFolders() {
+        given:
+        def buildFile = file("build.gradle") << """
+apply plugin: 'java'
+apply plugin: 'eclipse'
+
+sourceSets {
+    main {
+        java {
+            srcDirs = ['src']
+        }
+        resources{
+            srcDirs = ['src']
+            exclude '**/*.java'
+        }
+    }
+}
+"""
+        buildFile.parentFile.file("src").createDir()
+
+        when:
+        executer.usingBuildScript(buildFile).withTasks('eclipseClasspath').run()
+
+        then:
+        assert classpath.entries.size() == 3
+        assert classpath.sources.size() == 1
+        assert classpath.entries.find { it.@kind == 'src' }.attribute("excluding") == null
+
+        when:
+        buildFile.text = """
+apply plugin: 'java'
+apply plugin: 'eclipse'
+
+sourceSets {
+    main {
+        java {
+            srcDirs = ['src']
+            exclude '**/*.xml'
+        }
+        resources{
+            srcDirs = ['src']
+            exclude '**/*.xml'
+        }
+    }
+}
+"""
+        when:
+        executer.usingBuildScript(buildFile).withTasks('cleanEclipseClasspath', 'eclipseClasspath').run()
+        then:
+        assert classpath.entries.size() == 3
+        assert classpath.sources.size() == 1
+        assert classpath.entries.find { it.@kind == 'src' }.attribute("excluding") == "**/*.xml"
+    }
+
+    @Test
+    void handlesIncludesOnSharedSourceFolders() {
+        given:
+        def buildFile = file("build.gradle") << """
+apply plugin: 'java'
+apply plugin: 'eclipse'
+
+sourceSets {
+    main {
+        java {
+            srcDirs = ['src']
+            include '**/*.java'
+        }
+        resources{
+            srcDirs = ['src']
+            include '**/*.properties'
+        }
+    }
+}
+"""
+        buildFile.parentFile.file("src").createDir()
+
+        when:
+        executer.usingBuildScript(buildFile).withTasks('eclipseClasspath').run()
+
+        then:
+        assert classpath.entries.size() == 3
+        assert classpath.sources.size() == 1
+        assert classpath.entries.find { it.@kind == 'src' }.attribute("including") == "**/*.properties|**/*.java"
+
+
+        when:
+        buildFile.text = """
+apply plugin: 'java'
+apply plugin: 'eclipse'
+
+sourceSets {
+    main {
+        java {
+            srcDirs = ['src']
+            include '**/*.java'
+        }
+        resources{
+            srcDirs = ['src']
+        }
+    }
+}
+"""
+        buildFile.parentFile.file("src").createDir()
+
+        when:
+        executer.usingBuildScript(buildFile).withTasks('cleanEclipse', 'eclipseClasspath').run()
+
+        then:
+        assert classpath.entries.size() == 3
+        assert classpath.sources.size() == 1
+        assert classpath.entries.find { it.@kind == 'src' }.attribute("including") == null
+    }
+
     @Test
     void canAccessXmlModelBeforeAndAfterGeneration() {
         //given
         def classpath = getClasspathFile([:])
-        classpath << '''<?xml version="1.0" encoding="UTF-8"?>
+        classpath << """<?xml version="1.0" encoding="UTF-8"?>
 <classpath>
 	<classpathentry kind="output" path="bin"/>
-	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER" exported="true"/>
-	<classpathentry kind="lib" path="/some/path/someDependency.jar" exported="true"/>
-	<classpathentry kind="var" path="SOME_VAR/someVarDependency.jar" exported="true"/>
+	<classpathentry kind="con" path="$jreContainerPath"/>
+	<classpathentry kind="lib" path="/some/path/someDependency.jar"/>
+	<classpathentry kind="var" path="SOME_VAR/someVarDependency.jar"/>
 </classpath>
-'''
+"""
 
         //when
         runEclipseTask """
@@ -556,45 +974,11 @@ apply plugin: "eclipse"
 sourceSets.main.output.dir "$buildDir/generated/main", builtBy: 'generateForMain'
 sourceSets.test.output.dir "$buildDir/generated/test", builtBy: 'generateForTest'
 
-task generateForMain << {}
-task generateForTest << {}
+task generateForMain
+task generateForTest
 ''')
         //then
         result.assertTasksExecuted(':generateForMain', ':generateForTest', ':eclipseClasspath', ':eclipseJdt', ':eclipseProject', ':eclipse')
-    }
-
-    @Test
-    @Issue("GRADLE-1613")
-    void shouldAllowSettingNonExportedConfigurations() {
-        //when
-        runEclipseTask """
-apply plugin: 'java'
-apply plugin: 'eclipse'
-
-configurations {
-  provided
-}
-
-dependencies {
-  compile  files('compileDependency.jar')
-  provided files('providedDependency.jar')
-}
-
-eclipse {
-  classpath {
-    plusConfigurations += configurations.provided
-    noExportConfigurations += configurations.provided
-  }
-}
-"""
-
-        //then
-        def libraries = classpath.libs
-        assert libraries.size() == 2
-        libraries[0].assertHasJar(file('compileDependency.jar'))
-        libraries[0].assertExported()
-        libraries[1].assertHasJar(file('providedDependency.jar'))
-        libraries[1].assertNotExported()
     }
 
     @Test
@@ -630,5 +1014,302 @@ dependencies {
         libraries[0].assertHasJar(repoJar)
         libraries[1].assertHasJar(file('unresolved dependency - i.dont Exist 1.0'))
         libraries[2].assertHasJar(localJar)
+    }
+
+    @Test
+    void addsScalaIdeClasspathContainerAndRemovesLibrariesDuplicatedByContainer() {
+        //given
+        def otherLib = mavenRepo.module('other', 'lib', '3.0').publish().artifactFile
+
+        //when
+        runEclipseTask """
+apply plugin: 'scala'
+apply plugin: 'eclipse'
+
+repositories {
+    maven { url "${mavenRepo.uri}" }
+    mavenCentral()
+}
+
+dependencies {
+    compile "org.scala-lang:scala-library:2.9.2"
+    runtime "org.scala-lang:scala-swing:2.9.1"
+    testCompile "org.scala-lang:scala-dbc:2.9.0"
+    testRuntime "other:lib:3.0"
+}
+"""
+
+        //then
+        def libraries = classpath.libs
+        assert libraries.size() == 1
+        libraries[0].assertHasJar(otherLib)
+        assert classpath.containers == [jreContainerPath, 'org.scala-ide.sdt.launching.SCALA_CONTAINER']
+    }
+
+    @Test
+    void avoidsDuplicateJreContainersInClasspathWhenMerging() {
+        //given
+        getClasspathFile() << """<?xml version="1.0" encoding="UTF-8"?>
+<classpath>
+	<classpathentry kind="output" path="bin"/>
+	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/JavaSE-1.5"/>
+	<classpathentry kind="src" path="/someProject"/>
+</classpath>
+"""
+
+        //when
+        runEclipseTask """
+apply plugin: 'java'
+apply plugin: 'eclipse'
+"""
+        //then
+        assert classpath.entries.size() == 2
+        assert classpath.containers.size() == 1
+        assert classpath.containers == [jreContainerPath]
+    }
+
+    @Test
+    void compileOnlyDependenciesAddedToClasspath() {
+        // given
+        mavenRepo.module('org.gradle.test', 'compileOnly', '1.0').publish()
+        mavenRepo.module('org.gradle.test', 'testCompileOnly', '1.0').publish()
+
+        // when
+        runEclipseTask """
+apply plugin: 'java'
+apply plugin: 'eclipse'
+
+repositories {
+    maven { url "${mavenRepo.uri}" }
+}
+
+dependencies {
+    compileOnly 'org.gradle.test:compileOnly:1.0'
+    testCompileOnly 'org.gradle.test:testCompileOnly:1.0'
+}
+"""
+
+        // then
+        assert classpath.libs.size() == 2
+        classpath.assertHasLibs('compileOnly-1.0.jar', 'testCompileOnly-1.0.jar')
+    }
+
+    @Test
+    void compileOnlyDependenciesAreNotExported() {
+        // given
+        mavenRepo.module('org.gradle.test', 'compileOnly', '1.0').publish()
+        mavenRepo.module('org.gradle.test', 'compile', '1.0').publish()
+
+        // when
+        runEclipseTask "include 'a', 'b'", """
+allprojects {
+    apply plugin: 'java'
+    apply plugin: 'eclipse'
+
+    repositories {
+        maven { url "${mavenRepo.uri}" }
+    }
+}
+
+project(':a') {
+    dependencies {
+        compileOnly 'org.gradle.test:compileOnly:1.0'
+    }
+}
+
+project(':b') {
+    dependencies {
+        compile project(':a')
+        compile 'org.gradle.test:compile:1.0'
+    }
+}
+"""
+
+        // then
+        def classpathA = classpath('a')
+        def classpathB = classpath('b')
+        assert classpathA.libs.size() == 1
+        classpathA.assertHasLibs('compileOnly-1.0.jar')
+        assert classpathB.libs.size() == 1
+        assert classpathB.projects == ['/a']
+        classpathB.assertHasLibs('compile-1.0.jar')
+    }
+
+    @Test
+    void "test compile only dependencies mapped to classpath and not exported"() {
+        // given
+        mavenRepo.module('org.gradle.test', 'compileOnly', '1.0').publish()
+        mavenRepo.module('org.gradle.test', 'compile', '1.0').publish()
+
+        // when
+        runEclipseTask "include 'a', 'b'", """
+            allprojects {
+                apply plugin: 'java'
+                apply plugin: 'eclipse'
+
+                repositories {
+                    maven { url "${mavenRepo.uri}" }
+                }
+            }
+
+            project(':a') {
+                dependencies {
+                    testCompileOnly 'org.gradle.test:compileOnly:1.0'
+                }
+            }
+
+            project(':b') {
+                dependencies {
+                    compile project(':a')
+                    compile 'org.gradle.test:compile:1.0'
+                }
+            }
+        """.stripIndent()
+
+        // then
+        def classpathA = classpath('a')
+        def classpathB = classpath('b')
+        assert classpathA.libs.size() == 1
+        classpathA.assertHasLibs('compileOnly-1.0.jar')
+        assert classpathB.libs.size() == 1
+        assert classpathB.projects == ['/a']
+        classpathB.assertHasLibs('compile-1.0.jar')
+    }
+
+    /*
+     * This is a test describing the current, not necessarily desired behavior. We really shouldn't
+     * put duplicate dependencies on the classpath. The order will always be arbitrary and break one
+     * use case or another.
+     */
+    @Test
+    void "conflicting versions of the same library for compile and compile-only mapped to classpath"() {
+        // given
+        mavenRepo.module('org.gradle.test', 'conflictingDependency', '1.0').publish()
+        mavenRepo.module('org.gradle.test', 'conflictingDependency', '2.0').publish()
+
+        // when
+        runEclipseTask "include 'a', 'b'", """
+            allprojects {
+                apply plugin: 'java'
+                apply plugin: 'eclipse'
+
+                repositories {
+                    maven { url "${mavenRepo.uri}" }
+                }
+            }
+
+            project(':a') {
+                dependencies {
+                    compile 'org.gradle.test:conflictingDependency:1.0'
+                    compileOnly 'org.gradle.test:conflictingDependency:2.0'
+                }
+            }
+
+            project(':b') {
+                dependencies {
+                    compile project(':a')
+                }
+            }
+        """.stripIndent()
+
+        // then
+        def classpathA = classpath('a')
+        def classpathB = classpath('b')
+        assert classpathA.libs.size() == 2
+        classpathA.assertHasLibs('conflictingDependency-2.0.jar', 'conflictingDependency-1.0.jar')
+        assert classpathB.libs.size() == 1
+        assert classpathB.projects == ['/a']
+        classpathB.assertHasLibs('conflictingDependency-1.0.jar')
+    }
+
+    /*
+     * This is a test describing the current, not necessarily desired behavior. We really shouldn't
+     * put duplicate dependencies on the classpath. The order will always be arbitrary and break one
+     * use case or another.
+     */
+    @Test
+    void "conflicting versions of the same library for runtime and compile-only mapped to classpath"() {
+        // given
+        mavenRepo.module('org.gradle.test', 'conflictingDependency', '1.0').publish()
+        mavenRepo.module('org.gradle.test', 'conflictingDependency', '2.0').publish()
+
+        // when
+        runEclipseTask "include 'a', 'b'", """
+            allprojects {
+                apply plugin: 'java'
+                apply plugin: 'eclipse'
+
+                repositories {
+                    maven { url "${mavenRepo.uri}" }
+                }
+            }
+
+            project(':a') {
+                dependencies {
+                    runtime 'org.gradle.test:conflictingDependency:1.0'
+                    compileOnly 'org.gradle.test:conflictingDependency:2.0'
+                }
+            }
+
+            project(':b') {
+                dependencies {
+                    compile project(':a')
+                }
+            }
+        """.stripIndent()
+
+        // then
+        def classpathA = classpath('a')
+        def classpathB = classpath('b')
+        assert classpathA.libs.size() == 2
+        classpathA.assertHasLibs('conflictingDependency-2.0.jar', 'conflictingDependency-1.0.jar')
+        assert classpathB.libs.size() == 1
+        assert classpathB.projects == ['/a']
+        classpathB.assertHasLibs('conflictingDependency-1.0.jar')
+    }
+
+    /*
+     * This is a test describing the current, not necessarily desired behavior. We really shouldn't
+     * put duplicate dependencies on the classpath. The order will always be arbitrary and break one
+     * use case or another.
+     */
+    @Test
+    void "conflicting versions of the same library for test-compile and testcompile-only mapped to classpath"() {
+        // given
+        mavenRepo.module('org.gradle.test', 'conflictingDependency', '1.0').publish()
+        mavenRepo.module('org.gradle.test', 'conflictingDependency', '2.0').publish()
+
+        // when
+        runEclipseTask "include 'a', 'b'", """
+            allprojects {
+                apply plugin: 'java'
+                apply plugin: 'eclipse'
+
+                repositories {
+                    maven { url "${mavenRepo.uri}" }
+                }
+            }
+
+            project(':a') {
+                dependencies {
+                    testCompile 'org.gradle.test:conflictingDependency:1.0'
+                    testCompileOnly 'org.gradle.test:conflictingDependency:2.0'
+                }
+            }
+
+            project(':b') {
+                dependencies {
+                    compile project(':a')
+                }
+            }
+        """.stripIndent()
+
+        // then
+        def classpathA = classpath('a')
+        def classpathB = classpath('b')
+        assert classpathA.libs.size() == 2
+        classpathA.assertHasLibs('conflictingDependency-2.0.jar', 'conflictingDependency-1.0.jar')
+        assert classpathB.libs.size() == 0
+        assert classpathB.projects == ['/a']
     }
 }

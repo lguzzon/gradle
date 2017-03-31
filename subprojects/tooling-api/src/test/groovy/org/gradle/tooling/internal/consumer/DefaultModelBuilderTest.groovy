@@ -15,53 +15,94 @@
  */
 package org.gradle.tooling.internal.consumer
 
+import org.gradle.test.fixtures.concurrent.ConcurrentSpec
 import org.gradle.tooling.GradleConnectionException
 import org.gradle.tooling.ResultHandler
-import org.gradle.tooling.internal.consumer.async.AsyncConnection
-import org.gradle.tooling.internal.consumer.protocoladapter.ModelPropertyHandler
-import org.gradle.tooling.internal.consumer.protocoladapter.ProtocolToModelAdapter
+import org.gradle.tooling.internal.consumer.async.AsyncConsumerActionExecutor
+import org.gradle.tooling.internal.consumer.connection.ConsumerAction
+import org.gradle.tooling.internal.consumer.connection.ConsumerConnection
+import org.gradle.tooling.internal.consumer.parameters.ConsumerOperationParameters
 import org.gradle.tooling.internal.protocol.ProjectVersion3
 import org.gradle.tooling.internal.protocol.ResultHandlerVersion1
 import org.gradle.tooling.model.GradleProject
 import org.gradle.tooling.model.internal.Exceptions
-import org.gradle.util.ConcurrentSpecification
 
-class DefaultModelBuilderTest extends ConcurrentSpecification {
-    final AsyncConnection protocolConnection = Mock()
-    final ProtocolToModelAdapter adapter = Mock()
-    final ConnectionParameters parameters = Mock()
-    final DefaultModelBuilder<GradleProject, ProjectVersion3> builder = new DefaultModelBuilder<GradleProject, ProjectVersion3>(GradleProject, ProjectVersion3, protocolConnection, adapter, parameters)
-    final ModelPropertyHandler modelPropertyHandler = Mock()
+class DefaultModelBuilderTest extends ConcurrentSpec {
+    final AsyncConsumerActionExecutor asyncConnection = Mock()
+    final ConsumerConnection connection = Mock()
+    final ConnectionParameters parameters = Stub() {
+        getProjectDir() >> new File('foo')
+    }
+    final DefaultModelBuilder<GradleProject> builder = new DefaultModelBuilder<GradleProject>(GradleProject, asyncConnection, parameters)
 
-    def getModelDelegatesToProtocolConnectionToFetchModel() {
+    def "requests model from consumer connection"() {
+        ResultHandlerVersion1<GradleProject> adaptedHandler
         ResultHandler<GradleProject> handler = Mock()
-        ResultHandlerVersion1<ProjectVersion3> adaptedHandler
-        ProjectVersion3 result = Mock()
-        GradleProject adaptedResult = Mock()
+        GradleProject result = Mock()
 
         when:
         builder.get(handler)
 
         then:
-        1 * protocolConnection.getModel(ProjectVersion3, !null, !null) >> {args ->
-            def params = args[1]
+        1 * asyncConnection.run(!null, !null) >> {args ->
+            ConsumerAction<GradleProject> action = args[0]
+            action.run(connection)
+            adaptedHandler = args[1]
+        }
+        1 * connection.run(GradleProject, _) >> {args ->
+            ConsumerOperationParameters params = args[1]
             assert params.standardOutput == null
             assert params.standardError == null
+            assert params.standardInput == null
+            assert params.javaHome == null
+            assert params.jvmArguments == null
+            assert params.arguments == null
             assert params.progressListener != null
-            adaptedHandler = args[2]
+            assert params.cancellationToken != null
+            assert params.tasks == null
+            return result
         }
 
         when:
         adaptedHandler.onComplete(result)
 
         then:
-        1 * protocolConnection.versionDetails
-        1 * adapter.adapt(GradleProject.class, result, _ as ModelPropertyHandler) >> adaptedResult
-        1 * handler.onComplete(adaptedResult)
+        1 * handler.onComplete(result)
         0 * _._
     }
 
-    def getModelWrapsFailureToFetchModel() {
+    def "can configure the operation"() {
+        ResultHandler<GradleProject> handler = Mock()
+        ResultHandlerVersion1<ProjectVersion3> adaptedHandler
+        GradleProject result = Mock()
+
+        when:
+        builder.forTasks('a', 'b').get(handler)
+
+        then:
+        1 * asyncConnection.run(!null, !null) >> {args ->
+            ConsumerAction<GradleProject> action = args[0]
+            action.run(connection)
+            adaptedHandler = args[1]
+        }
+        1 * connection.run(GradleProject, _) >> {args ->
+            ConsumerOperationParameters params = args[1]
+            assert params.standardOutput == null
+            assert params.standardError == null
+            assert params.progressListener != null
+            assert params.tasks == ['a', 'b']
+            return result
+        }
+
+        when:
+        adaptedHandler.onComplete(result)
+
+        then:
+        1 * handler.onComplete(result)
+        0 * _._
+    }
+
+    def "wraps failure to fetch model"() {
         ResultHandler<GradleProject> handler = Mock()
         ResultHandlerVersion1<ProjectVersion3> adaptedHandler
         RuntimeException failure = new RuntimeException()
@@ -71,14 +112,16 @@ class DefaultModelBuilderTest extends ConcurrentSpecification {
         builder.get(handler)
 
         then:
-        1 * protocolConnection.getModel(!null, !null, !null) >> {args -> adaptedHandler = args[2]}
+        1 * asyncConnection.run(!null, !null) >> {args ->
+            adaptedHandler = args[1]
+        }
 
         when:
         adaptedHandler.onFailure(failure)
 
         then:
         1 * handler.onFailure(!null) >> {args -> wrappedFailure = args[0] }
-        _ * protocolConnection.displayName >> '[connection]'
+        _ * asyncConnection.displayName >> '[connection]'
         wrappedFailure.message == 'Could not fetch model of type \'GradleProject\' using [connection].'
         wrappedFailure.cause.is(failure)
         0 * _._
@@ -94,7 +137,9 @@ class DefaultModelBuilderTest extends ConcurrentSpecification {
         builder.get(handler)
 
         then:
-        1 * protocolConnection.getModel(!null, !null, !null) >> {args -> adaptedHandler = args[2]}
+        1 * asyncConnection.run(!null, !null) >> {args ->
+            adaptedHandler = args[1]
+        }
 
         when:
         adaptedHandler.onFailure(failure)
@@ -105,47 +150,85 @@ class DefaultModelBuilderTest extends ConcurrentSpecification {
         wrappedFailure.cause.is(failure)
     }
 
-    def getModelBlocksUntilResultReceivedFromProtocolConnection() {
-        def supplyResult = waitsForAsyncCallback()
-        ProjectVersion3 result = Mock()
-        GradleProject adaptedResult = Mock()
-        _ * adapter.adapt(GradleProject.class, result, _) >> adaptedResult
+    def "fetching model does not block"() {
+        GradleProject result = Mock()
+        ResultHandler<GradleProject> handler = Mock()
+
+        given:
+        asyncConnection.run(!null, !null) >> { args ->
+            def wrappedHandler = args[1]
+            start {
+                thread.blockUntil.dispatched
+                instant.resultAvailable
+                wrappedHandler.onComplete(result)
+            }
+        }
+        handler.onComplete(result) >> {
+            instant.resultReceived
+        }
+
+        when:
+        async {
+            builder.get(handler)
+            instant.dispatched
+            thread.blockUntil.resultReceived
+        }
+
+        then:
+        instant.dispatched < instant.resultAvailable
+        instant.resultAvailable < instant.resultReceived
+    }
+
+    def "get() blocks until model is available"() {
+        GradleProject result = Mock()
+
+        given:
+        asyncConnection.run(!null, !null) >> { args ->
+            def handler = args[1]
+            start {
+                thread.block()
+                instant.resultAvailable
+                handler.onComplete(result)
+            }
+        }
 
         when:
         def model
-        supplyResult.start {
+        operation.fetchResult {
             model = builder.get()
         }
 
         then:
-        model == adaptedResult
-        1 * protocolConnection.getModel(!null, !null, !null) >> { args ->
-            def handler = args[2]
-            supplyResult.callbackLater {
-                handler.onComplete(result)
-            }
-        }
+        model == result
+
+        and:
+        operation.fetchResult.end > instant.resultAvailable
     }
 
-    def getModelBlocksUntilFailureReceivedFromProtocolConnectionAndRethrowsFailure() {
-        def supplyResult = waitsForAsyncCallback()
+    def "get() blocks until request fails"() {
         RuntimeException failure = new RuntimeException()
 
+        given:
+        asyncConnection.run(!null, !null) >> { args ->
+            def handler = args[1]
+            start {
+                thread.block()
+                instant.failureAvailable
+                handler.onFailure(failure)
+            }
+        }
+
         when:
-        def model
-        supplyResult.start {
-            model = builder.get()
+        operation.fetchResult {
+            builder.get()
         }
 
         then:
         GradleConnectionException e = thrown()
         e.cause.is(failure)
-        1 * protocolConnection.getModel(!null, !null, !null) >> { args ->
-            def handler = args[2]
-            supplyResult.callbackLater {
-                handler.onFailure(failure)
-            }
-        }
+
+        and:
+        operation.fetchResult.end > instant.failureAvailable
     }
 }
 

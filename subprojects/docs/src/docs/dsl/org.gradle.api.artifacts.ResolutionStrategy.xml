@@ -10,6 +10,12 @@
             <tr>
                 <td>forcedModules</td>
             </tr>
+            <tr>
+                <td>componentSelection</td>
+            </tr>
+            <tr>
+                <td>dependencySubstitution</td>
+            </tr>
         </table>
     </section>
     <section>
@@ -24,6 +30,9 @@
                 <td>failOnVersionConflict</td>
             </tr>
             <tr>
+                <td>preferProjectModules</td>
+            </tr>
+            <tr>
                 <td>force</td>
             </tr>
             <tr>
@@ -31,6 +40,15 @@
             </tr>
             <tr>
                 <td>cacheChangingModulesFor</td>
+            </tr>
+            <tr>
+                <td>eachDependency</td>
+            </tr>
+            <tr>
+                <td>dependencySubstitution</td>
+            </tr>
+            <tr>
+                <td>componentSelection</td>
             </tr>
         </table>
     </section>

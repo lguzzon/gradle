@@ -23,8 +23,6 @@ import java.util.regex.Pattern;
 
 /**
  * This class holds on FileLinkDefinitions used for searching output.
- *
- * @author mhunsicker
  */
 public class FileLinkDefinitionLord {
     private List<String> extensions = new ArrayList<String>();
@@ -71,8 +69,7 @@ public class FileLinkDefinitionLord {
         }
 
         extension = extension.toLowerCase();
-        if (extensions.contains(extension)) //don't add extensions already added
-        {
+        if (extensions.contains(extension)) { //don't add extensions already added
             return;
         }
 

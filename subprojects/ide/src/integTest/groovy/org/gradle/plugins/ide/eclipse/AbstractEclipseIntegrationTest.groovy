@@ -14,8 +14,7 @@
  * limitations under the License.
  */
 package org.gradle.plugins.ide.eclipse
-
-import org.gradle.integtests.fixtures.ExecutionResult
+import org.gradle.integtests.fixtures.executer.ExecutionResult
 import org.gradle.plugins.ide.AbstractIdeIntegrationTest
 
 class AbstractEclipseIntegrationTest extends AbstractIdeIntegrationTest {
@@ -37,6 +36,10 @@ class AbstractEclipseIntegrationTest extends AbstractIdeIntegrationTest {
 
     protected File getFacetFile(Map options) {
         getFile(options, ".settings/org.eclipse.wst.common.project.facet.core.xml")
+    }
+
+    protected File getJdtPropertiesFile(Map options) {
+        getFile(options, ".settings/org.eclipse.jdt.core.prefs")
     }
 
     protected parseProjectFile(Map options) {
@@ -69,7 +72,23 @@ class AbstractEclipseIntegrationTest extends AbstractIdeIntegrationTest {
         assert libs*.@path*.text().collect { new File(it).name } as Set == filenames as Set
     }
 
+    protected EclipseWtpComponentFixture getWtpComponent() {
+        EclipseWtpComponentFixture.create(testDirectory)
+    }
+
+    protected EclipseWtpComponentFixture wtpComponent(String project) {
+        EclipseWtpComponentFixture.create(testDirectory.file(project))
+    }
+
     protected EclipseClasspathFixture getClasspath() {
-        return new EclipseClasspathFixture(distribution.testDir, distribution.userHomeDir)
+        EclipseClasspathFixture.create(testDirectory, executer.gradleUserHomeDir)
+    }
+
+    protected EclipseClasspathFixture classpath(String path) {
+        EclipseClasspathFixture.create(testDirectory.file(path), executer.gradleUserHomeDir)
+    }
+
+    protected EclipseWtpFacetsFixture getWtpFacets() {
+        EclipseWtpFacetsFixture.create(testDirectory)
     }
 }

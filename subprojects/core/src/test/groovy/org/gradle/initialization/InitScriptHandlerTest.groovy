@@ -15,31 +15,55 @@
  */
 package org.gradle.initialization
 
-import spock.lang.Specification
-import org.gradle.configuration.InitScriptProcessor
+import org.gradle.StartParameter
 import org.gradle.api.internal.GradleInternal
-import org.gradle.groovy.scripts.ScriptSource
+import org.gradle.configuration.InitScriptProcessor
+import org.gradle.groovy.scripts.UriScriptSource
+import org.gradle.internal.progress.TestBuildOperationExecutor
+import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
+import org.junit.Rule
+import spock.lang.Specification
 
 class InitScriptHandlerTest extends Specification {
-    final InitScriptFinder finder = Mock()
-    final InitScriptProcessor processor = Mock()
-    final GradleInternal gradle = Mock()
-    final InitScriptHandler handler = new InitScriptHandler(finder, processor)
-    
-    def "finds and processes init scripts"() {
-        ScriptSource script1 = Mock()
-        ScriptSource script2 = Mock()
+
+    @Rule TestNameTestDirectoryProvider testDirectoryProvider
+
+    def processor = Mock(InitScriptProcessor)
+    def executor = new TestBuildOperationExecutor()
+    def gradle = Mock(GradleInternal)
+    def startParameter = Stub(StartParameter)
+    def handler = new InitScriptHandler(processor, executor)
+
+    def setup() {
+        _ * gradle.startParameter >> startParameter
+    }
+
+    def "does nothing when there are no init scripts"() {
+        given:
+        startParameter.allInitScripts >> []
 
         when:
         handler.executeScripts(gradle)
-        
+
         then:
-        1 * finder.findScripts(gradle, !null) >> {gradle, scripts -> 
-            scripts << script1
-            scripts << script2
-        }
-        1 * processor.process(script1, gradle)
-        1 * processor.process(script2, gradle)
-        0 * _._
+        0 * executor._
+        0 * processor._
+    }
+
+    def "finds and processes init scripts"() {
+        File script1 = testDirectoryProvider.createFile("script1.gradle")
+        File script2 = testDirectoryProvider.createFile("script2.gradle")
+
+        given:
+        startParameter.allInitScripts >> [script1, script2]
+
+        when:
+        handler.executeScripts(gradle)
+
+        then:
+        1 * processor.process({ UriScriptSource source -> source.resource.file == script1 }, gradle)
+        1 * processor.process({ UriScriptSource source -> source.resource.file == script2 }, gradle)
+        0 * executor._
+        0 * processor._
     }
 }

@@ -16,9 +16,17 @@
 package org.gradle.launcher.daemon.bootstrap;
 
 import com.google.common.io.Files;
+import org.gradle.api.UncheckedIOException;
 import org.gradle.api.logging.LogLevel;
 import org.gradle.api.logging.Logger;
 import org.gradle.api.logging.Logging;
+import org.gradle.internal.classpath.DefaultClassPath;
+import org.gradle.internal.logging.LoggingManagerInternal;
+import org.gradle.internal.logging.services.LoggingServiceRegistry;
+import org.gradle.internal.nativeintegration.ProcessEnvironment;
+import org.gradle.internal.nativeintegration.services.NativeServices;
+import org.gradle.internal.remote.Address;
+import org.gradle.internal.serialize.kryo.KryoBackedDecoder;
 import org.gradle.launcher.bootstrap.EntryPoint;
 import org.gradle.launcher.bootstrap.ExecutionListener;
 import org.gradle.launcher.daemon.configuration.DaemonServerConfiguration;
@@ -27,57 +35,99 @@ import org.gradle.launcher.daemon.context.DaemonContext;
 import org.gradle.launcher.daemon.logging.DaemonMessages;
 import org.gradle.launcher.daemon.server.Daemon;
 import org.gradle.launcher.daemon.server.DaemonServices;
-import org.gradle.launcher.daemon.server.DaemonStoppedException;
-import org.gradle.logging.LoggingManagerInternal;
-import org.gradle.logging.LoggingServiceRegistry;
-import org.gradle.logging.internal.OutputEventRenderer;
+import org.gradle.launcher.daemon.server.MasterExpirationStrategy;
+import org.gradle.launcher.daemon.server.expiry.DaemonExpirationStrategy;
+import org.gradle.process.internal.shutdown.ShutdownHookActionRegister;
+import org.gradle.process.internal.streams.EncodedStream;
 
-import java.io.*;
-import java.util.LinkedList;
+import java.io.ByteArrayInputStream;
+import java.io.EOFException;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.PrintStream;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
  * The entry point for a daemon process.
  *
- * If the daemon hits the specified idle timeout the process will exit with 0. If the daemon encounters
- * an internal error or is explicitly stopped (which can be via receiving a stop command, or unexpected client disconnection)
- * the process will exit with 1.
+ * If the daemon hits the specified idle timeout the process will exit with 0. If the daemon encounters an internal error or is explicitly stopped (which can be via receiving a stop command, or
+ * unexpected client disconnection) the process will exit with 1.
  */
 public class DaemonMain extends EntryPoint {
 
     private static final Logger LOGGER = Logging.getLogger(DaemonMain.class);
 
-    private final DaemonServerConfiguration configuration;
     private PrintStream originalOut;
     private PrintStream originalErr;
 
-    public static void main(String[] args) {
+    @Override
+    protected void doAction(String[] args, ExecutionListener listener) {
         //The first argument is not really used but it is very useful in diagnosing, i.e. running 'jps -m'
-        if (args.length < 4) {
-            invalidArgs("Following arguments are required: <gradle-version> <daemon-dir> <timeout-millis> <daemonUid> <optional startup jvm opts>");
+        if (args.length != 1) {
+            invalidArgs("Following arguments are required: <gradle-version>");
         }
-        File daemonBaseDir = new File(args[1]);
 
-        int idleTimeoutMs = 0;
+        // Read configuration from stdin
+
+        List<String> startupOpts;
+        File gradleHomeDir;
+        File daemonBaseDir;
+        int idleTimeoutMs;
+        int periodicCheckIntervalMs;
+        String daemonUid;
+        List<File> additionalClassPath;
+
+        KryoBackedDecoder decoder = new KryoBackedDecoder(new EncodedStream.EncodedInput(System.in));
         try {
-            idleTimeoutMs = Integer.parseInt(args[2]);
-        } catch (NumberFormatException e) {
-            invalidArgs("Second argument must be a whole number (i.e. daemon idle timeout in ms)");
+            gradleHomeDir = new File(decoder.readString());
+            daemonBaseDir = new File(decoder.readString());
+            idleTimeoutMs = decoder.readSmallInt();
+            periodicCheckIntervalMs = decoder.readSmallInt();
+            daemonUid = decoder.readString();
+            int argCount = decoder.readSmallInt();
+            startupOpts = new ArrayList<String>(argCount);
+            for (int i = 0; i < argCount; i++) {
+                startupOpts.add(decoder.readString());
+            }
+            int additionalClassPathLength = decoder.readSmallInt();
+            additionalClassPath = new ArrayList<File>(additionalClassPathLength);
+            for (int i = 0; i < additionalClassPathLength; i++) {
+                additionalClassPath.add(new File(decoder.readString()));
+            }
+        } catch (EOFException e) {
+            throw new UncheckedIOException(e);
         }
 
-        String daemonUid = args[3];
+        NativeServices.initialize(gradleHomeDir);
+        DaemonServerConfiguration parameters = new DefaultDaemonServerConfiguration(daemonUid, daemonBaseDir, idleTimeoutMs, periodicCheckIntervalMs, startupOpts);
+        LoggingServiceRegistry loggingRegistry = LoggingServiceRegistry.newCommandLineProcessLogging();
+        LoggingManagerInternal loggingManager = loggingRegistry.newInstance(LoggingManagerInternal.class);
 
-        List<String> startupOpts = new LinkedList<String>();
-        for (int i = 4; i < args.length; i++) {
-            startupOpts.add(args[i]);
-        }
+        DaemonServices daemonServices = new DaemonServices(parameters, loggingRegistry, loggingManager, new DefaultClassPath(additionalClassPath));
+        File daemonLog = daemonServices.getDaemonLogFile();
+
+        // Any logging prior to this point will not end up in the daemon log file.
+        initialiseLogging(loggingManager, daemonLog);
+
+        // Detach the process from the parent terminal/console
+        ProcessEnvironment processEnvironment = daemonServices.get(ProcessEnvironment.class);
+        processEnvironment.maybeDetachProcess();
+
         LOGGER.debug("Assuming the daemon was started with following jvm opts: {}", startupOpts);
 
-        DaemonServerConfiguration parameters = new DefaultDaemonServerConfiguration(
-                daemonUid, daemonBaseDir, idleTimeoutMs, startupOpts);
-        DaemonMain daemonMain = new DaemonMain(parameters);
+        Daemon daemon = daemonServices.get(Daemon.class);
+        daemon.start();
 
-        daemonMain.run();
+        try {
+            DaemonContext daemonContext = daemonServices.get(DaemonContext.class);
+            Long pid = daemonContext.getPid();
+            daemonStarted(pid, daemon.getUid(), daemon.getAddress(), daemonLog);
+            DaemonExpirationStrategy expirationStrategy = daemonServices.get(MasterExpirationStrategy.class);
+            daemon.stopOnExpiration(expirationStrategy, parameters.getPeriodicCheckIntervalMs());
+        } finally {
+            daemon.stop();
+        }
     }
 
     private static void invalidArgs(String message) {
@@ -86,52 +136,22 @@ public class DaemonMain extends EntryPoint {
         System.exit(1);
     }
 
-    public DaemonMain(DaemonServerConfiguration configuration) {
-        this.configuration = configuration;
-    }
-
-    protected void doAction(ExecutionListener listener) {
-        LoggingServiceRegistry loggingRegistry = LoggingServiceRegistry.newChildProcessLogging();
-        LoggingManagerInternal loggingManager = loggingRegistry.getFactory(LoggingManagerInternal.class).create();
-        DaemonServices daemonServices = new DaemonServices(configuration, loggingRegistry, loggingManager);
-        File daemonLog = daemonServices.getDaemonLogFile();
-        final DaemonContext daemonContext = daemonServices.get(DaemonContext.class);
-
-        initialiseLogging(loggingRegistry.get(OutputEventRenderer.class), loggingManager, daemonLog);
-
-        Runtime.getRuntime().addShutdownHook(new Thread() {
-            public void run() {
-                LOGGER.info("Daemon[pid = {}] process has finished.", daemonContext.getPid());
-            }
-        });
-
-        Daemon daemon = startDaemon(daemonServices);
-
-        Long pid = daemonContext.getPid();
-        LOGGER.lifecycle(DaemonMessages.PROCESS_STARTED + ((pid == null)? "":" Pid: " + pid + "."));
-        daemonStarted(pid, daemonLog);
-
+    protected void daemonStarted(Long pid, String uid, Address address, File daemonLog) {
+        //directly printing to the stream to avoid log level filtering.
+        new DaemonStartupCommunication().printDaemonStarted(originalOut, pid, uid, address, daemonLog);
         try {
-            daemon.awaitIdleTimeout(configuration.getIdleTimeout());
-            LOGGER.info("Daemon hit idle timeout (" + configuration.getIdleTimeout() + "ms), stopping...");
-            daemon.stop();
-        } catch (DaemonStoppedException e) {
-            LOGGER.debug("Daemon stopping due to the stop request");
-            listener.onFailure(e);
+            originalOut.close();
+            originalErr.close();
+
+            //TODO - make this work on windows
+            //originalIn.close();
+        } finally {
+            originalOut = null;
+            originalErr = null;
         }
     }
 
-    protected void daemonStarted(Long pid, File daemonLog) {
-        //directly printing to the stream to avoid log level filtering.
-        new DaemonStartupCommunication().printDaemonStarted(originalOut, pid, daemonLog);
-        originalOut.close();
-        originalErr.close();
-
-        //TODO - make this work on windows
-        //originalIn.close();
-    }
-
-    protected void initialiseLogging(OutputEventRenderer renderer, LoggingManagerInternal loggingManager, File daemonLog) {
+    protected void initialiseLogging(LoggingManagerInternal loggingManager, File daemonLog) {
         //create log file
         PrintStream result;
         try {
@@ -142,7 +162,7 @@ public class DaemonMain extends EntryPoint {
         }
         final PrintStream log = result;
 
-        Runtime.getRuntime().addShutdownHook(new Thread() {
+        ShutdownHookActionRegister.addAction(new Runnable() {
             public void run() {
                 //just in case we have a bug related to logging,
                 //printing some exit info directly to file:
@@ -155,27 +175,19 @@ public class DaemonMain extends EntryPoint {
 
         //after redirecting we need to add the new std out/err to the renderer singleton
         //so that logging gets its way to the daemon log:
-        renderer.addStandardOutputAndError();
+        loggingManager.attachSystemOutAndErr();
 
         //Making the daemon infrastructure log with DEBUG. This is only for the infrastructure!
         //Each build request carries it's own log level and it is used during the execution of the build (see LogToClient)
-        loggingManager.setLevel(LogLevel.DEBUG);
+        loggingManager.setLevelInternal(LogLevel.DEBUG);
 
         loggingManager.start();
     }
 
-    protected Daemon startDaemon(DaemonServices daemonServices) {
-        Daemon daemon = daemonServices.get(Daemon.class);
-        daemon.start();
-        return daemon;
-    }
-
-    private void redirectOutputsAndInput(OutputStream log) {
+    private void redirectOutputsAndInput(PrintStream printStream) {
         this.originalOut = System.out;
         this.originalErr = System.err;
         //InputStream originalIn = System.in;
-
-        PrintStream printStream = new PrintStream(log, true);
 
         System.setOut(printStream);
         System.setErr(printStream);

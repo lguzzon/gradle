@@ -15,56 +15,38 @@
 */
 package org.gradle.integtests
 
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.locks.Condition
-import java.util.concurrent.locks.Lock
-import java.util.concurrent.locks.ReentrantLock
 import org.gradle.foundation.TestUtility
-import org.gradle.foundation.ipc.gradle.ExecuteGradleCommandServerProtocol
+import org.gradle.foundation.output.FileLink
+import org.gradle.foundation.output.FileLinkDefinitionLord
+import org.gradle.foundation.output.LiveOutputParser
 import org.gradle.gradleplugin.foundation.GradlePluginLord
-import org.gradle.gradleplugin.foundation.runner.GradleRunner
-import org.gradle.integtests.fixtures.GradleDistribution
-import org.gradle.integtests.fixtures.GradleDistributionExecuter
+import org.gradle.integtests.fixtures.AbstractIntegrationTest
 import org.gradle.integtests.fixtures.Sample
+import org.gradle.testfixtures.internal.NativeServicesTestFixture
 import org.junit.Assert
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
-import org.gradle.foundation.output.LiveOutputParser
-import org.gradle.foundation.output.FileLinkDefinitionLord
-import org.gradle.foundation.output.FileLink
-import org.gradle.logging.ShowStacktrace
 
 /**
 This tests the that live output is gathered while executing a task.
-@author mhunsicker
 */
-class LiveOutputIntegrationTest {
-
-    static final String JAVA_PROJECT_NAME = 'javaproject'
-    static final String SHARED_NAME = 'shared'
-    static final String API_NAME = 'api'
-    static final String WEBAPP_NAME = 'webservice'
-    static final String SERVICES_NAME = 'services'
-    static final String WEBAPP_PATH = "$SERVICES_NAME/$WEBAPP_NAME" as String
+class LiveOutputIntegrationTest extends AbstractIntegrationTest {
 
     private File javaprojectDir
 
-    @Rule public final GradleDistribution dist = new GradleDistribution()
-    @Rule public final GradleDistributionExecuter executer = new GradleDistributionExecuter()
-    @Rule public final Sample sample = new Sample('java/quickstart')
+    @Rule public final Sample sample = new Sample(testDirectoryProvider, 'java/quickstart')
 
     @Before
     void setUp() {
+        NativeServicesTestFixture.initialize()
         javaprojectDir = sample.dir
     }
 
     /**
-This executes 'build' on the java multiproject sample. We want to make sure that
+This executes 'build' on the java quickstart sample. We want to make sure that
 we do get live output from gradle. We're not concerned with what it is, because
 that's likely to change over time. This version executes the command via GradlePlugin.
-
-@author mhunsicker
 */
 
     @Test
@@ -74,10 +56,8 @@ that's likely to change over time. This version executes the command via GradleP
 
         GradlePluginLord gradlePluginLord = new GradlePluginLord();
         gradlePluginLord.setCurrentDirectory(multiProjectDirectory);
-        gradlePluginLord.setGradleHomeDirectory(dist.gradleHomeDir);
-        gradlePluginLord.addCommandLineArgumentAlteringListener(new ExtraTestCommandLineOptionsListener(dist.userHomeDir))
-
-        gradlePluginLord.startExecutionQueue(); //for tests, we'll need to explicitly start the execution queue (unless we do a refresh via the TestUtility).
+        gradlePluginLord.setGradleHomeDirectory(distribution.gradleHomeDir);
+        gradlePluginLord.addCommandLineArgumentAlteringListener(new ExtraTestCommandLineOptionsListener(executer.gradleUserHomeDir))
 
         TestExecutionInteraction executionInteraction = new TestExecutionInteraction();
 
@@ -86,35 +66,6 @@ that's likely to change over time. This version executes the command via GradleP
 
         verifyLiveOutputObtained( executionInteraction );
     }
-
-    /**
-This executes 'build' on the java multiproject sample. We want to make sure that
-we do get live output from gradle. We're not concerned with what it is, because
-that's likely to change over time. This version executes the command via GradleRunner.
-
-@author mhunsicker
-*/
-    @Test
-    public void liveOutputObtainedViaGradleRunner() {
-        File multiProjectDirectory = sample.getDir();
-        Assert.assertTrue(multiProjectDirectory.exists()); //make sure things are setup the way we expect
-
-        GradleRunner gradleRunner = new GradleRunner( multiProjectDirectory, dist.gradleHomeDir, null );
-
-        TestExecutionInteraction executionInteraction = new TestExecutionInteraction();
-
-        //execute a command. We don't really care what the command is, just something that generates output
-        def cl = new ExtraTestCommandLineOptionsListener(dist.userHomeDir).getAdditionalCommandLineArguments('') + ' tasks'
-        gradleRunner.executeCommand(cl, org.gradle.api.logging.LogLevel.LIFECYCLE,
-                                            ShowStacktrace.INTERNAL_EXCEPTIONS,
-                                            executionInteraction);
-
-        executionInteraction.waitForCompletion(100, TimeUnit.SECONDS)
-
-        verifyLiveOutputObtained( executionInteraction );
-    }
-
-
 
    /**
   This verifies that it has live output. It also checks that we received some final output as well
@@ -232,73 +183,5 @@ that's likely to change over time. This version executes the command via GradleR
        FileLink link4 = parser.getPreviousFileLink( link1.getStartingIndex() );
        Assert.assertEquals( link3, link4 );
      }
-
-}
-
-//this class just holds onto our liveOutput and also tracks whether or not we've finished.
-public class TestExecutionInteraction implements ExecuteGradleCommandServerProtocol.ExecutionInteraction {
-    private StringBuilder liveOutput = new StringBuilder();
-    public boolean executionFinishedReported = false;
-    public boolean wasSuccessful = false;
-    public String finalMessage;
-    private Throwable failure
-    private final Lock lock = new ReentrantLock()
-    private final Condition condition = lock.newCondition()
-
-    public void reportLiveOutput(String message) {
-        liveOutput.append(message);
-    }
-
-    //when we finish executing, we'll make sure we got some type of live output from gradle.
-
-    public void reportExecutionFinished(boolean wasSuccessful, String message, Throwable throwable) {
-        lock.lock()
-        try {
-            executionFinishedReported = true
-            this.wasSuccessful = wasSuccessful
-            this.finalMessage = message
-            failure = throwable
-            condition.signalAll()
-        } finally {
-            lock.unlock()
-        }
-    }
-
-    def assertCompleted() {
-        lock.lock()
-        try {
-            if (!executionFinishedReported) {
-                throw new AssertionError("Request has not completed.")
-            }
-        } finally {
-            lock.unlock()
-        }
-    }
-
-    public waitForCompletion(int maxWaitValue, TimeUnit maxWaitUnits) {
-        Date expiry = new Date(System.currentTimeMillis() + maxWaitUnits.toMillis(maxWaitValue))
-        lock.lock()
-        try {
-            while (!executionFinishedReported) {
-                if (!condition.awaitUntil(expiry)) {
-                    throw new AssertionError("Timeout waiting for execution to complete.")
-                }
-            }
-            if (failure != null) {
-                throw failure
-            }
-        } finally {
-            lock.unlock()
-        }
-    }
-
-    public void reportExecutionStarted() { }
-
-    public void reportNumberOfTasksToExecute(int size) { }
-
-    public void reportTaskStarted(String message, float percentComplete) { }
-
-    public void reportTaskComplete(String message, float percentComplete) { }
-
 
 }

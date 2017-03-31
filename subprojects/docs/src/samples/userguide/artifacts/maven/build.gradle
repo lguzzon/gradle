@@ -55,12 +55,11 @@ repositories {
 }
 
 dependencies {
-    deployerJars "org.apache.maven.wagon:wagon-ssh:1.0-beta-2"
+    deployerJars "org.apache.maven.wagon:wagon-ssh:2.2"
 }
 
 uploadArchives {
     repositories.mavenDeployer {
-        name = 'sshDeployer' // optional
         configuration = configurations.deployerJars
         repository(url: "scp://repos.mycompany.com/releases") {
             authentication(userName: "me", password: "myPassword")
@@ -79,7 +78,9 @@ install {
 //END SNIPPET customize-installer
 
 //START SNIPPET mappings
-task mappings << {
-    println conf2ScopeMappings.mappings
+task mappings {
+    doLast {
+        println conf2ScopeMappings.mappings
+    }
 }
 //END SNIPPET mappings

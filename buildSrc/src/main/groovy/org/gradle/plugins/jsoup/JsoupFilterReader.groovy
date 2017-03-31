@@ -18,10 +18,13 @@ package org.gradle.plugins.jsoup
 
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
+import org.gradle.api.Action
+import org.gradle.api.file.FileCopyDetails
 
 class JsoupFilterReader extends FilterReader {
 
-    Closure withDocument
+    FileCopyDetails fileCopyDetails
+    Action<JsoupTransformTarget> action
 
     JsoupFilterReader(Reader reader) {
         super(new DeferringReader(reader));
@@ -40,13 +43,8 @@ class JsoupFilterReader extends FilterReader {
         int read(char[] cbuf, int off, int len) {
             if (delegate == null) {
                 Document document = Jsoup.parse(source.text)
-                Closure config = parent.withDocument?.clone() as Closure
-                if (config) {
-                    config.resolveStrategy = Closure.DELEGATE_FIRST
-                    config.delegate = document
-                    config(document)
-                }
-
+                JsoupTransformTarget target = new JsoupTransformTarget(document, parent.fileCopyDetails)
+                parent.action.execute(target)
                 delegate = new StringReader(document.toString())
             }
 

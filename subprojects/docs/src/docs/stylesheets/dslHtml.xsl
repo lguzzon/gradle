@@ -34,14 +34,14 @@
 
     <xsl:template name="formal.object.heading"></xsl:template>
 
-    <!-- customise the stylesheets to add to the <head> element -->
+    <!-- customize the stylesheets to add to the <head> element -->
     <xsl:template name="output.html.stylesheets">
         <link href="base.css" rel="stylesheet" type="text/css"/>
-        <link href="style.css" rel="stylesheet" type="text/css"/>
+        <link href="docs.css" rel="stylesheet" type="text/css"/>
         <link href="dsl.css" rel="stylesheet" type="text/css"/>
     </xsl:template>
 
-    <!-- Customise the page titles -->
+    <!-- customize the page titles -->
     <xsl:template match="book" mode="object.title.markup.textonly">
         <xsl:value-of select="bookinfo/titleabbrev"/>
         <xsl:text> Version </xsl:text>
@@ -54,7 +54,7 @@
         <xsl:apply-templates select="/book" mode="object.title.markup.textonly"/>
     </xsl:template>
 
-    <!-- customise the layout of the html page -->
+    <!-- customize the layout of the html page -->
     <xsl:template name="chunk-element-content">
         <xsl:param name="prev"/>
         <xsl:param name="next"/>
@@ -74,7 +74,8 @@
                 <div class="sidebar">
                     <ul>
                         <xsl:apply-templates select="." mode="sidebar"/>
-                        <xsl:apply-templates select="/book/section/table[@role = 'dslTypes']" mode="sidebar"/>
+                        <!-- only apply navbar to sections that are not marked with 'noNavBar' -->
+                        <xsl:apply-templates select="/book/section[not(@condition) or @condition != 'noNavBar']/table[@role = 'dslTypes']" mode="sidebar"/>
                     </ul>
                 </div>
                 <div class="content">
@@ -149,7 +150,7 @@
     </xsl:template>
 
     <!--
-      - Customised header for property and method detail sections
+      - Customized header for property and method detail sections
       -->
 
     <xsl:template match="section[@role='detail']/title" mode="titlepage.mode">
@@ -170,7 +171,7 @@
     </xsl:template>
 
     <!--
-      - Customised <segmentedlist> formats
+      - Customized <segmentedlist> formats
       -->
     <xsl:template match="segmentedlist">
         <div>

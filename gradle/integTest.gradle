@@ -1,28 +1,76 @@
-/*
- * Adds an 'integTest' source set, which contains the integration tests for the project.
- */
-import org.gradle.build.integtest.IntegTestPlugin
+import org.gradle.testing.IntegrationTest
 
 apply plugin: 'java'
-rootProject.apply plugin: IntegTestPlugin
+apply from: "${rootDir}/gradle/distributionTesting.gradle"
+
+sourceSets {
+    integTest {
+        compileClasspath += main.output + test.output
+        runtimeClasspath += main.output + test.output
+    }
+}
 
 configurations {
-    integTestCompile {
-        extendsFrom testCompile
-    }
-    integTestRuntime {
-        extendsFrom integTestCompile, testRuntime
-    }
+    integTestCompile.extendsFrom testCompile
+    integTestImplementation.extendsFrom testImplementation
+    integTestRuntime.extendsFrom testRuntime
 }
 
 dependencies {
     integTestCompile project(":internalIntegTesting")
+
+    //so that implicit help tasks are available:
+    integTestRuntime project(':diagnostics')
+
+    //So that the wrapper and init task are added when integTests are run via commandline
+    integTestRuntime project(':buildInit')
+    //above can be removed when we implement the auto-apply plugins
 }
 
-sourceSets {
-    integTest {
-        compileClasspath = sourceSets.main.output + sourceSets.test.output + configurations.integTestCompile
-        runtimeClasspath = output + compileClasspath + configurations.integTestRuntime
+ext.integTestTasks = tasks.withType(IntegrationTest)
+
+integTestTasks.all { IntegrationTest task ->
+    group = "verification"
+    testClassesDir = sourceSets.integTest.output.classesDir
+    classpath = sourceSets.integTest.runtimeClasspath
+}
+
+task integTest(type: IntegrationTest) {
+    def defaultExecuter = project.hasProperty("defaultIntegTestExecuter") ? project.defaultIntegTestExecuter : "embedded"
+    description "Runs integTests with '${defaultExecuter}' executer"
+    systemProperties['org.gradle.integtest.executer'] = defaultExecuter
+    if (project.hasProperty('org.gradle.integtest.debug')) {
+        systemProperties['org.gradle.integtest.debug'] = 'true'
+        testLogging.showStandardStreams = true
+    }
+    if (project.hasProperty('org.gradle.integtest.verbose')) {
+        testLogging.showStandardStreams = true
+    }
+    if(project.hasProperty('org.gradle.integtest.launcher.debug')) {
+        systemProperties['org.gradle.integtest.launcher.debug'] = 'true'
+    }
+}
+check.dependsOn(integTest)
+
+['embedded', 'forking', 'daemon', 'embeddedDaemon', 'parallel'].each { mode ->
+    def taskName = "${mode}IntegTest"
+    tasks.create(taskName, IntegrationTest).configure {
+        description "Runs integTests with '${mode}' executer"
+        systemProperties['org.gradle.integtest.executer'] = mode
+    }
+}
+
+task crossVersionIntegTest {
+    description "Runs the cross version tests against all Gradle versions"
+}
+
+releasedVersions.testedVersions.each { targetVersion ->
+    tasks.create("gradle${targetVersion}IntegTest", IntegrationTest).configure {
+        crossVersionIntegTest.dependsOn path
+        description "Runs the cross version tests against Gradle ${targetVersion}"
+        systemProperties['org.gradle.integtest.versions'] = targetVersion
+        systemProperties['org.gradle.integtest.executer'] = 'forking'
+        include '**/*CrossVersion*'
     }
 }
 
@@ -45,62 +93,3 @@ plugins.withType(org.gradle.plugins.ide.eclipse.EclipsePlugin) { // lazy as plug
         }
     }
 }
-
-ext.integTestTasks = tasks.withType(Test).matching { it.name.toLowerCase().endsWith('integtest') }
-
-integTestTasks.all {
-    dependsOn ':intTestImage', project(":docs").tasks.matching { it.name == "samples" } // lazy as doc not eval'd yet
-    testClassesDir = sourceSets.integTest.output.classesDir
-    classpath = sourceSets.integTest.runtimeClasspath
-    testSrcDirs = []
-    jvmArgs '-Xmx512m', '-XX:MaxPermSize=256m', '-XX:+HeapDumpOnOutOfMemoryError'
-    maxParallelForks = guessMaxForks(project)
-
-    testResultsDir = file("${project.testResultsDir}/$name")
-
-    systemProperties['org.gradle.integtest.versions'] = project.hasProperty("testAllVersions") ? 'all' : 'latest'
-    if (project.hasProperty('crossVersionTestsOnly')) {
-        include '**/*CrossVersion*'
-    }
-
-    doFirst {
-        testReportDir = file("${project.reporting.baseDir}/$name")
-        systemProperties['integTest.gradleHomeDir'] = integTestImageDir.absolutePath
-        systemProperties['integTest.gradleUserHomeDir'] = integTestUserDir.absolutePath
-        systemProperties['integTest.samplesdir'] = project(":docs").samplesDir.absolutePath
-        if (isCIBuild()) {
-            maxParallelForks = 4
-        }
-    }
-}
-
-['embedded', 'forking', 'daemon', 'embeddedDaemon'].each {
-    def mode = it
-    def taskName = "${it}IntegTest"
-    tasks.addRule(taskName) { name ->
-        if (name != taskName) { return }
-        tasks.add(taskName, Test).configure {
-            systemProperties['org.gradle.integtest.executer'] = mode
-        }
-    }
-}
-
-daemonIntegTest {
-    systemProperties['org.gradle.integtest.daemon.registry'] = file("$rootProject.buildDir/daemon").absolutePath
-}
-
-task waitForDaemonsToDie << {
-    def mins = 5
-    println "I'm waiting for $mins mins so that existing deamons can die with honor. It's a workaround until we fix it properly."
-    Thread.sleep(mins * 60 * 1000);
-}
-
-task integTest(type: Test) {
-    doFirst {
-        systemProperties['org.gradle.integtest.executer'] = integTestMode
-    }
-}
-
-tasks.findByName("check")?.dependsOn(integTest)
-
-

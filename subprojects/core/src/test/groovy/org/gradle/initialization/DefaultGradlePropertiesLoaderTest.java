@@ -17,10 +17,10 @@ package org.gradle.initialization;
 
 import org.gradle.StartParameter;
 import org.gradle.api.Project;
+import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider;
 import org.gradle.util.GUtil;
-import org.gradle.util.TemporaryFolder;
+import org.gradle.util.SetSystemProperties;
 import org.gradle.util.WrapUtil;
-import static org.junit.Assert.*;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -31,9 +31,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
 
-/**
- * @author Hans Dockter
- */
+import static org.junit.Assert.*;
+
 public class DefaultGradlePropertiesLoaderTest {
     private DefaultGradlePropertiesLoader gradlePropertiesLoader;
     private File gradleUserHomeDir;
@@ -42,7 +41,9 @@ public class DefaultGradlePropertiesLoaderTest {
     private Map<String, String> envProperties = new HashMap<String, String>();
     private StartParameter startParameter = new StartParameter();
     @Rule
-    public TemporaryFolder tmpDir = new TemporaryFolder();
+    public TestNameTestDirectoryProvider tmpDir = new TestNameTestDirectoryProvider();
+    @Rule
+    public SetSystemProperties sysProp = new SetSystemProperties();
 
     @Before
     public void setUp() {
@@ -205,7 +206,7 @@ public class DefaultGradlePropertiesLoaderTest {
 
     @Test
     public void loadPropertiesWithNoExceptionForNonExistingUserHomeAndSettingsDir() {
-        tmpDir.getDir().deleteDir();
+        tmpDir.getTestDirectory().deleteDir();
         gradlePropertiesLoader.loadProperties(settingsDir, startParameter, systemProperties, envProperties);
     }
 
@@ -232,5 +233,17 @@ public class DefaultGradlePropertiesLoaderTest {
         System.setProperty("gradle-loader-test", "value");
         assertTrue(gradlePropertiesLoader.getAllSystemProperties().containsKey("gradle-loader-test"));
         assertEquals("value", gradlePropertiesLoader.getAllSystemProperties().get("gradle-loader-test"));
+    }
+
+    @Test
+    public void startParameterSystemPropertiesHavePrecedenceOverPropertiesFiles() {
+        writePropertyFile(gradleUserHomeDir, GUtil.map("systemProp.prop", "user value"));
+        writePropertyFile(settingsDir, GUtil.map("systemProp.prop", "settings value"));
+        systemProperties = GUtil.map("prop", "system value");
+        startParameter.setSystemPropertiesArgs(WrapUtil.toMap("prop", "commandline value"));
+
+        gradlePropertiesLoader.loadProperties(settingsDir, startParameter, systemProperties, envProperties);
+
+        assertEquals("commandline value", System.getProperty("prop"));
     }
 }

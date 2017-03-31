@@ -16,30 +16,25 @@
 
 package org.gradle.api.tasks.bundling
 
-import org.junit.Before
-import org.junit.Test
-import static org.junit.Assert.*
-
-/**
- * @author Hans Dockter
- */
 class ZipTest extends AbstractArchiveTaskTest {
     Zip zip
 
-    @Before public void setUp()  {
-        super.setUp()
+    def setup()  {
         zip = createTask(Zip)
         configure(zip)
-        zip.from tmpDir.createFile('file.txt')
     }
 
+    @Override
     AbstractArchiveTask getArchiveTask() {
         zip
     }
 
-    @Test public void testZip() {
+    def "test Zip"() {
+        given:
         zip = createTask(Zip)
-        assertEquals(Zip.ZIP_EXTENSION, zip.extension)
+
+        expect:
+        zip.extension == Zip.ZIP_EXTENSION
         checkConstructor()
     }
 }

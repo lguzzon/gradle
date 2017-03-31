@@ -19,9 +19,6 @@ package org.gradle.plugins.ide.eclipse.model
 import org.gradle.api.InvalidUserDataException
 import spock.lang.Specification
 
-/**
- * @author Szczepan Faber, created at: 4/17/11
- */
 class EclipseProjectTest extends Specification {
 
     def eclipseProject = new EclipseProject()
@@ -46,12 +43,12 @@ class EclipseProjectTest extends Specification {
         eclipseProject.linkedResource(name: 'foo', type: 'folder', location: '/stuff/foo', locationUri: 'file:///boooo')
 
         then:
-        thrown(AssertionError.class)
+        thrown(IllegalArgumentException.class)
 
         when:
         eclipseProject.linkedResource(name: 'foo', type: 'folder')
 
         then:
-        thrown(AssertionError.class)
+        thrown(IllegalArgumentException.class)
     }
 }

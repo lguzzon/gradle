@@ -17,11 +17,15 @@ package org.gradle.launcher.daemon.server.exec;
 
 import org.gradle.api.logging.Logger;
 import org.gradle.api.logging.Logging;
-import org.gradle.internal.nativeplatform.ProcessEnvironment;
+import org.gradle.internal.FileUtils;
+import org.gradle.internal.SystemProperties;
+import org.gradle.internal.nativeintegration.ProcessEnvironment;
 import org.gradle.launcher.daemon.protocol.Build;
-import org.gradle.util.GFileUtils;
+import org.gradle.launcher.daemon.server.api.DaemonCommandExecution;
 
 import java.io.File;
+import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 
@@ -29,8 +33,9 @@ import java.util.Properties;
  * Aims to make the local environment the same as the client's environment.
  */
 public class EstablishBuildEnvironment extends BuildCommandOnly {
-    private final ProcessEnvironment processEnvironment;
     private final static Logger LOGGER = Logging.getLogger(EstablishBuildEnvironment.class);
+
+    private final ProcessEnvironment processEnvironment;
 
     public EstablishBuildEnvironment(ProcessEnvironment processEnvironment) {
         this.processEnvironment = processEnvironment;
@@ -39,31 +44,37 @@ public class EstablishBuildEnvironment extends BuildCommandOnly {
     protected void doBuild(DaemonCommandExecution execution, Build build) {
         Properties originalSystemProperties = new Properties();
         originalSystemProperties.putAll(System.getProperties());
-        File currentDir = GFileUtils.canonicalise(new File("."));
+        Map<String, String> originalEnv = new HashMap<String, String>(System.getenv());
+        File originalProcessDir = FileUtils.canonicalize(new File("."));
 
-        Properties clientSystemProperties = new Properties();
-        clientSystemProperties.putAll(build.getParameters().getSystemProperties());
+        for (Map.Entry<String, String> entry : build.getParameters().getSystemProperties().entrySet()) {
+            if (SystemProperties.getInstance().getStandardProperties().contains(entry.getKey())) {
+                continue;
+            }
+            if (SystemProperties.getInstance().getNonStandardImportantProperties().contains(entry.getKey())) {
+                continue;
+            }
+            if (entry.getKey().startsWith("sun.") || entry.getKey().startsWith("awt.")
+                    || entry.getKey().contains(".awt.")) {
+                continue;
+            }
+            System.setProperty(entry.getKey(), entry.getValue());
+        }
 
-        //Let's ignore client's java.home
-        //We want to honour the java.home configured when the daemon process was started
-        //It does not make sense to update this property per job anyway as we have a daemon per java home
-        clientSystemProperties.put("java.home", originalSystemProperties.get("java.home"));
-
-        System.setProperties(clientSystemProperties);
-
-        Map<String, String> originalEnv = System.getenv();
         LOGGER.debug("Configuring env variables: {}", build.getParameters().getEnvVariables());
         processEnvironment.maybeSetEnvironment(build.getParameters().getEnvVariables());
-
         processEnvironment.maybeSetProcessDir(build.getParameters().getCurrentDir());
+
+        // Capture and restore this in case the build code calls Locale.setDefault()
+        Locale locale = Locale.getDefault();
 
         try {
             execution.proceed();
         } finally {
             System.setProperties(originalSystemProperties);
             processEnvironment.maybeSetEnvironment(originalEnv);
-            processEnvironment.maybeSetProcessDir(currentDir);
+            processEnvironment.maybeSetProcessDir(originalProcessDir);
+            Locale.setDefault(locale);
         }
     }
-
 }

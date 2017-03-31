@@ -13,13 +13,25 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-dependencies {
-    groovy libraries.groovy
 
-    compile project(':core')
-    compile project(':plugins')
+// Compiler daemon
+sourceCompatibility = 1.6
+
+dependencies {
+    compile libraries.groovy
+
+    compile project(":core")
+    compile project(":languageJvm")
+    compile project(":languageScala")
+    compile project(":plugins")
 
     testCompile libraries.slf4j_api
+
+    integTestRuntime project(":ide")
 }
 
 useTestFixtures(project: ":plugins") // includes core test fixtures
+
+integTest {
+    jvmArgs "-XX:MaxPermSize=1500m" // AntInProcessScalaCompilerIntegrationTest needs lots of permgen
+}

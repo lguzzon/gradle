@@ -16,52 +16,73 @@
 
 package org.gradle.tooling.internal.consumer.parameters
 
+import com.google.common.collect.Sets
+import org.gradle.internal.classpath.DefaultClassPath
+import org.gradle.tooling.internal.adapter.ProtocolToModelAdapter
+import org.gradle.tooling.internal.gradle.DefaultBuildIdentifier
+import org.gradle.tooling.internal.gradle.DefaultProjectIdentifier
+import org.gradle.tooling.internal.consumer.converters.FixedBuildIdentifierProvider
+import org.gradle.tooling.internal.gradle.TaskListingLaunchable
+import org.gradle.tooling.internal.protocol.InternalLaunchable
+import org.gradle.tooling.model.TaskSelector
 import spock.lang.Specification
 
-/**
- * by Szczepan Faber, created at: 3/12/12
- */
 class ConsumerOperationParametersTest extends Specification {
-    
-    def params = new ConsumerOperationParameters(null)
-    
-    def "null or empty arguments have the same meaning"() {
-        when:
-        params.arguments = null
 
-        then:
-        params.arguments == null
+    def builder = ConsumerOperationParameters.builder().setEntryPoint("entry-point")
+
+    def "can build consumer operation parameters for provided properties"() {
+        given:
+        def tasks = ['a', 'b']
+        def classpath = new DefaultClassPath(new File('/Users/foo/bar/test.jar'), new File('/Users/foo/bar/resources'))
 
         when:
-        params.arguments = []
+        builder.tasks = tasks
+        builder.injectedPluginClasspath = classpath
+        def params = builder.build()
 
         then:
-        params.arguments == null
-
-        when:
-        params.arguments = ['-Dfoo']
-
-        then:
-        params.arguments == ['-Dfoo']
+        params.tasks == tasks
+        params.injectedPluginClasspath == classpath.asFiles
+        params.launchables == null
     }
 
-    def "null or empty jvm arguments have the same meaning"() {
+    def "launchables from provider"() {
         when:
-        params.jvmArguments = null
+        def launchable1 = Mock(InternalLaunchable)
+        def launchable2 = Mock(InternalLaunchable)
+        builder.launchables = [adapt(launchable1), adapt(launchable2)]
+        def params = builder.build()
 
         then:
-        params.jvmArguments == null
+        params.tasks == []
+        params.launchables == [launchable1, launchable2]
+    }
 
+    def "launchables from adapters"() {
         when:
-        params.jvmArguments = []
+        def launchable1 = Mock(TaskListingLaunchable)
+        def paths1 = Sets.newTreeSet()
+        paths1.add(':a')
+        _ * launchable1.taskNames >> paths1
+        def launchable2 = Mock(TaskListingLaunchable)
+        def paths2 = Sets.newTreeSet()
+        paths2.add(':b')
+        paths2.add(':lib:b')
+        _ * launchable2.taskNames >> paths2
+        builder.launchables = [adapt(launchable1), adapt(launchable2)]
+        def params = builder.build()
 
         then:
-        params.jvmArguments == null
+        params.tasks == [':a', ':b', ':lib:b']
+        params.launchables == null
+    }
 
-        when:
-        params.jvmArguments = ['-Xmx']
+    def adapt(def object) {
+        return new FixedBuildIdentifierProvider(id()).applyTo(new ProtocolToModelAdapter().builder(TaskSelector)).build(object)
+    }
 
-        then:
-        params.jvmArguments == ['-Xmx']
+    def id() {
+        return new DefaultProjectIdentifier(new DefaultBuildIdentifier(new File("foo")), ":")
     }
 }

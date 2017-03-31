@@ -16,8 +16,8 @@
 package org.gradle.launcher
 
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
+import org.gradle.integtests.fixtures.executer.GradleContextualExecuter
 import spock.lang.IgnoreIf
-import static org.gradle.integtests.fixtures.GradleDistributionExecuter.getSystemPropertyExecuter
 
 /**
  * Verifies that Gradle doesn't pollute the system class loader.
@@ -39,34 +39,36 @@ class SystemClassLoaderTest extends AbstractIntegrationSpec {
         for a class it doesn't have, it simply returns null. I've not been able to find any official documentation
         explaining why this is.
     */
-    @IgnoreIf({ !getSystemPropertyExecuter().forks })
+    @IgnoreIf({ GradleContextualExecuter.embedded })
     def "daemon bootstrap classpath is bare bones"() {
         given:
         buildFile << """
-            task loadClasses << {
-                def systemLoader = ClassLoader.systemClassLoader
+            task loadClasses {
+                doLast {
+                    def systemLoader = ClassLoader.systemClassLoader
 
-                systemLoader.loadClass(org.gradle.launcher.GradleMain.name) // this should be on the classpath, it's from the launcher package
+                    systemLoader.loadClass(org.gradle.launcher.GradleMain.name) // this should be on the classpath, it's from the launcher package
 
-                def nonLauncherOrCoreClass = "org.apache.commons.lang.WordUtils"
+                    def nonLauncherOrCoreClass = "org.apache.commons.lang.WordUtils"
 
-                // Check that this is a dependency (somewhat redundant, but for good measure)
-                assert Project.classLoader.loadClass(nonLauncherOrCoreClass) != null
+                    // Check that this is a dependency (somewhat redundant, but for good measure)
+                    assert Project.classLoader.loadClass(nonLauncherOrCoreClass) != null
 
-                try {
-                    def clazz = systemLoader.loadClass(nonLauncherOrCoreClass)
-                    assert clazz == null : "ClassNotFoundException should have been thrown trying to load a “\${nonLauncherOrCoreClass}” class from the system classloader as its not a launcher or core class (loaded class: \$clazz)"
-                } catch (ClassNotFoundException e) {
-                    //
-                }
+                    try {
+                        def clazz = systemLoader.loadClass(nonLauncherOrCoreClass)
+                        assert clazz == null : "ClassNotFoundException should have been thrown trying to load a “\${nonLauncherOrCoreClass}” class from the system classloader as its not a launcher or core class (loaded class: \$clazz)"
+                    } catch (ClassNotFoundException e) {
+                        //
+                    }
 
-                if (systemLoader instanceof java.net.URLClassLoader) {
-                    def systemLoaderUrls = systemLoader.URLs
-                    println "$heading"
-                    println systemLoaderUrls.size()
-                    println systemLoaderUrls[0]
-                } else {
-                    println "$noInfoHeading"
+                    if (systemLoader instanceof java.net.URLClassLoader) {
+                        def systemLoaderUrls = systemLoader.URLs
+                        println "$heading"
+                        println systemLoaderUrls.size()
+                        println systemLoaderUrls[0]
+                    } else {
+                        println "$noInfoHeading"
+                    }
                 }
             }
         """

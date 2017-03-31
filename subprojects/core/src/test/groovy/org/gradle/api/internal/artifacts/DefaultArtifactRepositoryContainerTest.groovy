@@ -16,231 +16,97 @@
 
 package org.gradle.api.internal.artifacts
 
-import org.apache.ivy.plugins.resolver.DependencyResolver
-import org.apache.ivy.plugins.resolver.FileSystemResolver
 import org.gradle.api.Action
-import org.gradle.api.InvalidUserDataException
 import org.gradle.api.artifacts.ArtifactRepositoryContainer
 import org.gradle.api.artifacts.UnknownRepositoryException
 import org.gradle.api.artifacts.repositories.ArtifactRepository
+import org.gradle.internal.reflect.DirectInstantiator
 import org.gradle.internal.reflect.Instantiator
-import org.gradle.api.internal.artifacts.repositories.ArtifactRepositoryInternal
-import org.gradle.util.JUnit4GroovyMockery
-import org.jmock.integration.junit4.JMock
-import org.junit.Before
-import org.junit.Test
-import org.junit.runner.RunWith
-import static org.hamcrest.Matchers.*
-import static org.junit.Assert.*
+import spock.lang.Specification
 
-/**
- * @author Hans Dockter
- */
-@RunWith(JMock)
-class DefaultArtifactRepositoryContainerTest {
-    static final String TEST_REPO_NAME = 'reponame'
+class DefaultArtifactRepositoryContainerTest extends Specification {
+    DefaultArtifactRepositoryContainer container
 
-    DefaultArtifactRepositoryContainer resolverContainer
-
-    def expectedUserDescription
-    def expectedUserDescription2
-    def expectedUserDescription3
-    String expectedName
-    String expectedName2
-    String expectedName3
-
-    FileSystemResolver expectedResolver
-    FileSystemResolver expectedResolver2
-    FileSystemResolver expectedResolver3
-
-    ResolverFactory resolverFactoryMock;
-
-    JUnit4GroovyMockery context = new JUnit4GroovyMockery()
-
-    ArtifactRepositoryContainer createResolverContainer() {
-        return new DefaultArtifactRepositoryContainer(resolverFactoryMock, context.mock(Instantiator.class))
+    def setup() {
+        container = createResolverContainer()
     }
 
-    @Before public void setUp() {
-        expectedUserDescription = 'somedescription'
-        expectedUserDescription2 = 'somedescription2'
-        expectedUserDescription3 = 'somedescription3'
-        expectedName = 'somename'
-        expectedName2 = 'somename2'
-        expectedName3 = 'somename3'
-        expectedResolver = new FileSystemResolver()
-        expectedResolver2 = new FileSystemResolver()
-        expectedResolver3 = new FileSystemResolver()
-        expectedResolver.name = expectedName
-        expectedResolver2.name = expectedName2
-        expectedResolver3.name = expectedName3
-        resolverFactoryMock = context.mock(ResolverFactory)
-        ArtifactRepository repo1 = context.mock(TestArtifactRepository)
-        ArtifactRepository repo2 = context.mock(TestArtifactRepository)
-        ArtifactRepository repo3 = context.mock(TestArtifactRepository)
-        context.checking {
-            allowing(resolverFactoryMock).createRepository(expectedUserDescription); will(returnValue(repo1))
-            allowing(resolverFactoryMock).createRepository(expectedUserDescription2); will(returnValue(repo2))
-            allowing(resolverFactoryMock).createRepository(expectedUserDescription3); will(returnValue(repo3))
-            allowing(repo1).createResolver(); will(returnValue(expectedResolver))
-            allowing(repo2).createResolver(); will(returnValue(expectedResolver2))
-            allowing(repo3).createResolver(); will(returnValue(expectedResolver3))
-        }
-        resolverContainer = createResolverContainer()
+    ArtifactRepositoryContainer createResolverContainer(Instantiator instantiator = DirectInstantiator.INSTANCE) {
+        new DefaultArtifactRepositoryContainer(instantiator)
     }
 
-    @Test public void testAddResolver() {
-        assert resolverContainer.addLast(expectedUserDescription).is(expectedResolver)
-        assert resolverContainer.findByName(expectedName) != null
-        resolverContainer.addLast(expectedUserDescription2)
-        assertEquals([expectedResolver, expectedResolver2], resolverContainer.resolvers)
+    def testAddFirst() {
+        given:
+        def repo1 = Mock(ArtifactRepository) { getName() >> "a" }
+        def repo2 = Mock(ArtifactRepository) { getName() >> "b" }
+
+        when:
+        container.addFirst(repo1)
+        container.addFirst(repo2)
+
+        then:
+        container == [repo2, repo1]
+        container.collect { it } == [repo2, repo1]
+        container.matching { true } == [repo2, repo1]
+        container.matching { true }.collect { it } == [repo2, repo1]
     }
 
-    @Test public void testCannotAddResolverWithDuplicateName() {
-        [expectedResolver, expectedResolver2]*.name = 'resolver'
-        resolverContainer.addLast(expectedUserDescription)
+    def testAddLast() {
+        given:
+        def repo1 = Mock(ArtifactRepository) { getName() >> "a" }
+        def repo2 = Mock(ArtifactRepository) { getName() >> "b" }
 
-        try {
-            resolverContainer.addLast(expectedUserDescription2)
-            fail()
-        } catch (InvalidUserDataException e) {
-            assertThat(e.message, equalTo("Cannot add a repository with name 'resolver' as a repository with that name already exists."))
-        }
+        when:
+        container.addLast(repo1)
+        container.addLast(repo2)
+
+        then:
+        container == [repo1, repo2]
     }
 
-    @Test public void testAddResolverWithClosure() {
-        def expectedConfigureValue = 'testvalue'
-        Closure configureClosure = {transactional = expectedConfigureValue}
-        assertThat(resolverContainer.addLast(expectedUserDescription, configureClosure), sameInstance(expectedResolver))
-        assertThat(resolverContainer.findByName(expectedName), notNullValue())
-        assert expectedResolver.transactional == expectedConfigureValue
+    def testGetThrowsExceptionForUnknownResolver() {
+        when:
+        container.getByName("unknown")
+
+        then:
+        def e = thrown(UnknownRepositoryException)
+        e.message == "Repository with name 'unknown' not found."
     }
 
-    @Test public void testAddBefore() {
-        resolverContainer.addLast(expectedUserDescription)
-        assert resolverContainer.addBefore(expectedUserDescription2, expectedName).is(expectedResolver2)
-        assertEquals([expectedResolver2, expectedResolver], resolverContainer.resolvers)
+    def notificationsAreFiredWhenRepositoryIsAdded() {
+        Action<ArtifactRepository> action = Mock(Action)
+        ArtifactRepository repository = Mock(ArtifactRepository) { getName() >> "name" }
+
+        when:
+        container.all(action)
+        container.add(repository)
+
+        then:
+        1 * action.execute(repository)
     }
 
-    @Test public void testAddAfter() {
-        resolverContainer.addLast(expectedUserDescription)
-        assert resolverContainer.addAfter(expectedUserDescription2, expectedName).is(expectedResolver2)
-        resolverContainer.addAfter(expectedUserDescription3, expectedName)
-        assertEquals([expectedResolver, expectedResolver3, expectedResolver2], resolverContainer.resolvers)
+    def notificationsAreFiredWhenRepositoryIsAddedToTheHead() {
+        Action<ArtifactRepository> action = Mock(Action)
+        ArtifactRepository repository = Mock(ArtifactRepository) { getName() >> "name" }
+
+        when:
+        container.all(action)
+        container.addFirst(repository)
+
+        then:
+        1 * action.execute(repository)
     }
 
-    @Test(expected = UnknownRepositoryException) public void testAddBeforeWithUnknownResolver() {
-        resolverContainer.addBefore(expectedUserDescription2, 'unknownName')
+    def notificationsAreFiredWhenRepositoryIsAddedToTheTail() {
+        Action<ArtifactRepository> action = Mock(Action)
+        ArtifactRepository repository = Mock(ArtifactRepository) { getName() >> "name" }
+
+        when:
+        container.all(action)
+        container.addLast(repository)
+
+        then:
+        1 * action.execute(repository)
     }
 
-    @Test(expected = UnknownRepositoryException) public void testAddAfterWithUnknownResolver() {
-        resolverContainer.addBefore(expectedUserDescription2, 'unknownName')
-    }
-
-    @Test public void testAddFirst() {
-        ArtifactRepository repository1 = context.mock(ArtifactRepository)
-        ArtifactRepository repository2 = context.mock(ArtifactRepository)
-
-        context.checking {
-            allowing(repository1).getName(); will(returnValue("1"))
-            allowing(repository2).getName(); will(returnValue("2"))
-        }
-
-        resolverContainer.addFirst(repository1)
-        resolverContainer.addFirst(repository2)
-
-        assert resolverContainer == [repository2, repository1]
-        assert resolverContainer.collect { it } == [repository2, repository1]
-        assert resolverContainer.matching { true } == [repository2, repository1]
-        assert resolverContainer.matching { true }.collect { it } == [repository2, repository1]
-    }
-
-    @Test public void testAddLast() {
-        ArtifactRepository repository1 = context.mock(ArtifactRepository)
-        ArtifactRepository repository2 = context.mock(ArtifactRepository)
-
-        context.checking {
-            allowing(repository1).getName(); will(returnValue('repo1'))
-            allowing(repository2).getName(); will(returnValue('repo2'))
-        }
-        
-        resolverContainer.addLast(repository1)
-        resolverContainer.addLast(repository2)
-
-        assert resolverContainer == [repository1, repository2]
-    }
-    
-    @Test public void testAddFirstUsingUserDescription() {
-        assert resolverContainer.addFirst(expectedUserDescription).is(expectedResolver)
-        resolverContainer.addFirst(expectedUserDescription2)
-        assertEquals([expectedResolver2, expectedResolver], resolverContainer.resolvers)
-    }
-
-    @Test public void testAddLastUsingUserDescription() {
-        assert resolverContainer.addLast(expectedUserDescription).is(expectedResolver)
-        resolverContainer.addLast(expectedUserDescription2)
-        assertEquals([expectedResolver, expectedResolver2], resolverContainer.resolvers)
-    }
-
-    @Test
-    public void testAddWithUnnamedResolver() {
-        expectedResolver.name = null
-        assert resolverContainer.addLast(expectedUserDescription).is(expectedResolver)
-        assert expectedResolver.name == 'repository'
-    }
-
-    @Test
-    public void testGetThrowsExceptionForUnknownResolver() {
-        try {
-            resolverContainer.getByName('unknown')
-            fail()
-        } catch (UnknownRepositoryException e) {
-            assertThat(e.message, equalTo("Repository with name 'unknown' not found."))
-        }
-    }
-
-    @Test
-    public void notificationsAreFiredWhenRepositoryIsAdded() {
-        Action<DependencyResolver> action = context.mock(Action.class)
-        ArtifactRepository repository = context.mock(ArtifactRepository)
-
-        context.checking {
-            ignoring(repository)
-            one(action).execute(repository)
-        }
-
-        resolverContainer.all(action)
-        resolverContainer.add(repository)
-    }
-
-    @Test
-    public void notificationsAreFiredWhenRepositoryIsAddedToTheHead() {
-        Action<DependencyResolver> action = context.mock(Action.class)
-        ArtifactRepository repository = context.mock(ArtifactRepository)
-
-        context.checking {
-            ignoring(repository)
-            one(action).execute(repository)
-        }
-
-        resolverContainer.all(action)
-        resolverContainer.addFirst(repository)
-    }
-
-    @Test
-    public void notificationsAreFiredWhenRepositoryIsAddedToTheTail() {
-        Action<DependencyResolver> action = context.mock(Action.class)
-        ArtifactRepository repository = context.mock(ArtifactRepository)
-
-        context.checking {
-            ignoring(repository)
-            one(action).execute(repository)
-        }
-
-        resolverContainer.all(action)
-        resolverContainer.addLast(repository)
-    }
-}
-
-interface TestArtifactRepository extends ArtifactRepository, ArtifactRepositoryInternal {
 }

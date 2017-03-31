@@ -17,12 +17,12 @@
 package org.gradle.integtests
 
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
+import org.gradle.test.fixtures.file.TestFile
 import spock.lang.Issue
-import org.gradle.util.TestFile
 
 class BuildSourceBuilderIntegrationTest extends AbstractIntegrationSpec {
 
-    @Issue("http://issues.gradle.org/browse/GRADLE-2032")
+    @Issue("https://issues.gradle.org/browse/GRADLE-2032")
     def "can simultaneously run gradle on projects with buildSrc"() {
         given:
         def buildSrcDir = file("buildSrc").createDir()
@@ -30,18 +30,22 @@ class BuildSourceBuilderIntegrationTest extends AbstractIntegrationSpec {
         buildFile.text = """
         import org.gradle.integtest.test.BuildSrcTask
 
-        task blocking(type:BuildSrcTask)<< {
-            file("run1washere.lock").createNewFile()
-            while(!file("run2washere.lock").exists()){
-                sleep 10
+        task blocking(type:BuildSrcTask) {
+            doLast {
+                file("run1washere.lock").createNewFile()
+                while(!file("run2washere.lock").exists()){
+                    sleep 10
+                }
             }
         }
 
-        task releasing(type:BuildSrcTask) << {
-            while(!file("run1washere.lock").exists()){
-                sleep 10
+        task releasing(type:BuildSrcTask) {
+            doLast {
+                while(!file("run1washere.lock").exists()){
+                    sleep 10
+                }
+                file("run2washere.lock").createNewFile()
             }
-            file("run2washere.lock").createNewFile()
         }
         """
         when:

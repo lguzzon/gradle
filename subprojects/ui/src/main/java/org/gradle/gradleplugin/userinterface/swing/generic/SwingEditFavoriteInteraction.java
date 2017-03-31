@@ -18,23 +18,19 @@ package org.gradle.gradleplugin.userinterface.swing.generic;
 import org.gradle.gradleplugin.foundation.favorites.FavoritesEditor;
 
 import javax.swing.*;
-import javax.swing.text.BadLocationException;
-import javax.swing.event.DocumentListener;
 import javax.swing.event.DocumentEvent;
-import java.awt.BorderLayout;
-import java.awt.Component;
-import java.awt.Window;
+import javax.swing.event.DocumentListener;
+import javax.swing.text.BadLocationException;
+import java.awt.*;
 import java.awt.event.*;
 
 /**
  * This edits the properties of a single favorite task.
- *
- * @author mhunsicker
  */
 public class SwingEditFavoriteInteraction implements FavoritesEditor.EditFavoriteInteraction {
 
     public enum SynchronizeType {
-        OnlyIfAlreadySynchronized,   //the the display name in synch with the command only if they are already synchronized (and it can be overridden by the user if they change the display name manually)
+        OnlyIfAlreadySynchronized,   //the display name in synch with the command only if they are already synchronized (and it can be overridden by the user if they change the display name manually)
         Never                        //Do not attempt to keep them in synch
     };
 

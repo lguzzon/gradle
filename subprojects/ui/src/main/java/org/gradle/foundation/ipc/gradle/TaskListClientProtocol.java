@@ -17,6 +17,8 @@ package org.gradle.foundation.ipc.gradle;
 
 import org.gradle.BuildAdapter;
 import org.gradle.BuildResult;
+import org.gradle.api.internal.GradleInternal;
+import org.gradle.api.internal.project.ProjectTaskLister;
 import org.gradle.api.invocation.Gradle;
 import org.gradle.api.logging.Logger;
 import org.gradle.api.logging.Logging;
@@ -36,8 +38,6 @@ import java.util.List;
 /**
  * This manages the communication between the UI and an externally-launched copy of Gradle when using socket-based inter-process communication. This is the client (gradle) side used to build a task
  * list (tree actually). We add gradle listeners and send their notifications as messages back to the server.
- *
- * @author mhunsicker
  */
 public class TaskListClientProtocol implements ClientProcess.Protocol {
     private final Logger logger = Logging.getLogger(TaskListClientProtocol.class);
@@ -84,8 +84,7 @@ public class TaskListClientProtocol implements ClientProcess.Protocol {
             boolean wasSuccessful = buildResult.getFailure() == null;
             String output = allOutputText.toString();
 
-            if (!wasSuccessful) //if we fail, send the results, otherwise, we'll send the projects.
-            {
+            if (!wasSuccessful) { //if we fail, send the results, otherwise, we'll send the projects.
                 //we can't send the exception itself because it might not be serializable (it can include anything from anywhere inside gradle
                 //or one of its dependencies). So format it as text.
                 String details = GradlePluginLord.getGradleExceptionMessage(buildResult.getFailure(), gradle.getStartParameter().getShowStacktrace());
@@ -93,7 +92,7 @@ public class TaskListClientProtocol implements ClientProcess.Protocol {
 
                 client.sendMessage(ProtocolConstants.TASK_LIST_COMPLETED_WITH_ERRORS_TYPE, output, wasSuccessful);
             } else {
-                ProjectConverter buildExecuter = new ProjectConverter();
+                ProjectConverter buildExecuter = new ProjectConverter(((GradleInternal) buildResult.getGradle()).getServices().get(ProjectTaskLister.class));
                 List<ProjectView> projects = new ArrayList<ProjectView>();
                 projects.addAll(buildExecuter.convertProjects(buildResult.getGradle().getRootProject()));
 

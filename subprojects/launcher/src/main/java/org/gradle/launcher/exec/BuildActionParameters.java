@@ -16,15 +16,12 @@
 package org.gradle.launcher.exec;
 
 import org.gradle.api.logging.LogLevel;
-import org.gradle.initialization.BuildRequestMetaData;
+import org.gradle.internal.classpath.ClassPath;
 
 import java.io.File;
-import java.io.Serializable;
 import java.util.Map;
 
-public interface BuildActionParameters extends Serializable {
-    BuildRequestMetaData getBuildRequestMetaData();
-
+public interface BuildActionParameters {
     Map<String, String> getSystemProperties();
 
     Map<String, String> getEnvVariables();
@@ -32,4 +29,12 @@ public interface BuildActionParameters extends Serializable {
     File getCurrentDir();
 
     LogLevel getLogLevel();
+
+    boolean isUseDaemon();
+
+    boolean isContinuous();
+
+    boolean isInteractive();
+
+    ClassPath getInjectedPluginClasspath();
 }

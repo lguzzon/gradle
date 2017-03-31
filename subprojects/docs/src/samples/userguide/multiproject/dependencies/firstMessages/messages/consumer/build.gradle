@@ -1,4 +1,5 @@
-task action << {
-    println("Consuming message: " +
-            (rootProject.hasProperty('producerMessage') ? rootProject.producerMessage : 'null'))
+task action {
+    doLast {
+        println("Consuming message: ${rootProject.producerMessage}")
+    }
 }

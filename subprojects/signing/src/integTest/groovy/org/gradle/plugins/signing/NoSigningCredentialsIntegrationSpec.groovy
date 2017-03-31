@@ -15,9 +15,13 @@
  */
 package org.gradle.plugins.signing
 
+import org.gradle.integtests.fixtures.executer.GradleContextualExecuter
+import spock.lang.IgnoreIf
+
 class NoSigningCredentialsIntegrationSpec extends SigningIntegrationSpec {
 
     def setup() {
+        using m2
         executer.withArguments("-info")
     }
 
@@ -28,14 +32,15 @@ class NoSigningCredentialsIntegrationSpec extends SigningIntegrationSpec {
                 sign jar
             }
         """ << uploadArchives()
-        
+
         then:
         fails ":uploadArchives"
-        
+
         and:
         failureHasCause "Cannot perform signing task ':signJar' because it has no configured signatory"
     }
 
+    @IgnoreIf({GradleContextualExecuter.parallel})
     def "trying to perform a signing operation without a signatory when not required does not error, and other artifacts still uploaded"() {
         when:
         buildFile << """
@@ -72,5 +77,5 @@ class NoSigningCredentialsIntegrationSpec extends SigningIntegrationSpec {
         pom().exists()
         pomSignature().exists()
     }
-    
+
 }

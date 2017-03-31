@@ -15,12 +15,9 @@
  */
 package org.gradle.tooling;
 
-import org.gradle.tooling.exceptions.UnsupportedBuildArgumentException;
+import org.gradle.api.Incubating;
+import org.gradle.tooling.model.Launchable;
 import org.gradle.tooling.model.Task;
-
-import java.io.File;
-import java.io.InputStream;
-import java.io.OutputStream;
 
 /**
  * A {@code BuildLauncher} allows you to configure and execute a Gradle build.
@@ -69,88 +66,85 @@ import java.io.OutputStream;
  * }
  * </pre>
  *
+ * @since 1.0-milestone-3
  */
-public interface BuildLauncher extends LongRunningOperation {
+public interface BuildLauncher extends ConfigurableLauncher<BuildLauncher> {
+
     /**
-     * Sets the tasks to be executed.
+     * Sets the tasks to be executed. If no tasks are specified, the project's default tasks are executed.
      *
      * @param tasks The paths of the tasks to be executed. Relative paths are evaluated relative to the project for which this launcher was created.
      * @return this
+     * @since 1.0-milestone-3
      */
     BuildLauncher forTasks(String... tasks);
 
     /**
-     * Sets the tasks to be executed. Note that the supplied tasks do not necessarily belong to the project which this launcher was created for.
+     * Sets the tasks to be executed. If no tasks are specified, the project's default tasks are executed.
+     *
+     * <p>Note that the supplied tasks do not necessarily need to belong to the project which this launcher was created for.
      *
      * @param tasks The tasks to be executed.
      * @return this
+     * @since 1.0-milestone-3
      */
     BuildLauncher forTasks(Task... tasks);
 
     /**
-     * Sets the tasks to be executed. Note that the supplied tasks do not necessarily belong to the project which this launcher was created for.
+     * Sets the tasks to be executed. If no tasks are specified, the project's default tasks are executed.
+     *
+     * <p>Note that the supplied tasks do not necessarily need to belong to the project which this launcher was created for.
      *
      * @param tasks The tasks to be executed.
      * @return this
+     * @since 1.0-milestone-3
      */
     BuildLauncher forTasks(Iterable<? extends Task> tasks);
 
     /**
-     * {@inheritDoc}
+     * Sets the launchables to execute. If no entries are specified, the project's default tasks are executed.
+     *
+     * @param launchables The launchables for this build.
+     * @return this
+     * @since 1.12
      */
-    BuildLauncher withArguments(String ... arguments);
+    @Incubating
+    BuildLauncher forLaunchables(Launchable... launchables);
 
     /**
-     * {@inheritDoc}
+     * Sets the launchables to execute. If no entries are specified, the project's default tasks are executed.
+     *
+     * @param launchables The launchables for this build.
+     * @return this
+     * @since 1.12
      */
-    BuildLauncher setStandardOutput(OutputStream outputStream);
-
-    /**
-     * {@inheritDoc}
-     */
-    BuildLauncher setStandardError(OutputStream outputStream);
-
-    /**
-     * {@inheritDoc}
-     */
-    BuildLauncher setStandardInput(InputStream inputStream);
-
-    /**
-     * {@inheritDoc}
-     */
-    BuildLauncher setJavaHome(File javaHome);
-
-    /**
-     * {@inheritDoc}
-     */
-    BuildLauncher setJvmArguments(String... jvmArguments);
-
-    /**
-     * {@inheritDoc}
-     */
-    BuildLauncher addProgressListener(ProgressListener listener);
+    @Incubating
+    BuildLauncher forLaunchables(Iterable<? extends Launchable> launchables);
 
     /**
      * Executes the build, blocking until it is complete.
      *
-     * @throws UnsupportedVersionException When the target Gradle version does not support the features required for this build.
+     * @throws UnsupportedVersionException When the target Gradle version does not support build execution.
      * @throws org.gradle.tooling.exceptions.UnsupportedOperationConfigurationException
-     *          when you have configured the long running operation with a settings
-     *          like: {@link #setStandardInput(java.io.InputStream)}, {@link #setJavaHome(java.io.File)},
-     *          {@link #setJvmArguments(String...)} but those settings are not supported on the target Gradle.
+     *          When the target Gradle version does not support some requested configuration option such as {@link #withArguments(String...)}.
+     * @throws org.gradle.tooling.exceptions.UnsupportedBuildArgumentException When there is a problem with build arguments provided by {@link #withArguments(String...)}.
      * @throws BuildException On some failure executing the Gradle build.
+     * @throws BuildCancelledException When the operation was cancelled before it completed successfully.
      * @throws GradleConnectionException On some other failure using the connection.
-     * @throws UnsupportedBuildArgumentException When there is a problem with build arguments provided by {@link #withArguments(String...)}
      * @throws IllegalStateException When the connection has been closed or is closing.
+     * @since 1.0-milestone-3
      */
-    void run() throws GradleConnectionException, UnsupportedBuildArgumentException, IllegalStateException,
-            BuildException, UnsupportedVersionException;
+    void run() throws GradleConnectionException, IllegalStateException;
 
     /**
      * Launches the build. This method returns immediately, and the result is later passed to the given handler.
      *
+     * <p>If the operation fails, the handler's {@link ResultHandler#onFailure(GradleConnectionException)}
+     * method is called with the appropriate exception. See {@link #run()} for a description of the various exceptions that the operation may fail with.
+     *
      * @param handler The handler to supply the result to.
      * @throws IllegalStateException When the connection has been closed or is closing.
+     * @since 1.0-milestone-3
      */
     void run(ResultHandler<? super Void> handler) throws IllegalStateException;
 }

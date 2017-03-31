@@ -1,5 +1,5 @@
 /*
- * Copyright 2010 the original author or authors.
+ * Copyright 2015 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,99 +16,35 @@
 
 package org.gradle.initialization;
 
-import org.gradle.CacheUsage;
-import org.gradle.RefreshOptions;
-import org.gradle.StartParameter;
 import org.gradle.api.logging.LogLevel;
+import org.gradle.api.logging.configuration.ConsoleOutput;
+import org.gradle.api.logging.configuration.ShowStacktrace;
 import org.gradle.cli.CommandLineArgumentException;
-import org.gradle.logging.ShowStacktrace;
-import org.gradle.util.TemporaryFolder;
-import org.gradle.util.TestFile;
+import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider;
+import org.hamcrest.Matchers;
+import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.*;
 
-import static java.util.Arrays.asList;
-import static org.gradle.util.WrapUtil.*;
-import static org.hamcrest.Matchers.equalTo;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThat;
+import static org.gradle.util.WrapUtil.toList;
+import static org.gradle.util.WrapUtil.toMap;
 
-/**
- * @author Hans Dockter
- */
-public class DefaultCommandLineConverterTest {
+public class DefaultCommandLineConverterTest extends CommandLineConverterTestSupport {
     @Rule
-    public TemporaryFolder testDir = new TemporaryFolder();
+    public TestNameTestDirectoryProvider testDir = new TestNameTestDirectoryProvider();
 
-    private TestFile currentDir = testDir.file("current-dir");
-    private File expectedBuildFile;
-    private File expectedGradleUserHome = StartParameter.DEFAULT_GRADLE_USER_HOME;
-    private File expectedProjectDir = currentDir;
-    private List<String> expectedTaskNames = toList();
-    private Set<String> expectedExcludedTasks = toSet();
-    private boolean buildProjectDependencies = true;
-    private Map<String, String> expectedSystemProperties = new HashMap<String, String>();
-    private Map<String, String> expectedProjectProperties = new HashMap<String, String>();
-    private List<File> expectedInitScripts = new ArrayList<File>();
-    private CacheUsage expectedCacheUsage = CacheUsage.ON;
-    private boolean expectedSearchUpwards = true;
-    private boolean expectedDryRun;
-    private ShowStacktrace expectedShowStackTrace = ShowStacktrace.INTERNAL_EXCEPTIONS;
-    private String expectedEmbeddedScript = "somescript";
-    private LogLevel expectedLogLevel = LogLevel.LIFECYCLE;
-    private boolean expectedColorOutput = true;
-    private StartParameter actualStartParameter;
-    private boolean expectedProfile;
-    private File expectedProjectCacheDir;
-    private boolean expectedRefreshDependencies;
-    private boolean expectedRerunTasks;
-    private final DefaultCommandLineConverter commandLineConverter = new DefaultCommandLineConverter();
-    private boolean expectedContinue;
-    private boolean expectedOffline;
-    private RefreshOptions expectedRefreshOptions = RefreshOptions.NONE;
-    private boolean expectedRecompileScripts;
+    public DefaultCommandLineConverterTest() {
+        super();
+        currentDir = testDir.file("current-dir");
+        expectedCurrentDir = currentDir;
+    }
 
     @Test
     public void withoutAnyOptions() {
         checkConversion();
-    }
-
-    private void checkConversion(String... args) {
-        actualStartParameter = new StartParameter();
-        actualStartParameter.setCurrentDir(currentDir);
-        commandLineConverter.convert(asList(args), actualStartParameter);
-        // We check the params passed to the build factory
-        checkStartParameter(actualStartParameter);
-    }
-
-    private void checkStartParameter(StartParameter startParameter) {
-        assertEquals(expectedBuildFile, startParameter.getBuildFile());
-        assertEquals(expectedTaskNames, startParameter.getTaskNames());
-        assertEquals(buildProjectDependencies, startParameter.isBuildProjectDependencies());
-        assertEquals(expectedProjectDir.getAbsoluteFile(), startParameter.getCurrentDir().getAbsoluteFile());
-        assertEquals(expectedCacheUsage, startParameter.getCacheUsage());
-        assertEquals(expectedSearchUpwards, startParameter.isSearchUpwards());
-        assertEquals(expectedProjectProperties, startParameter.getProjectProperties());
-        assertEquals(expectedSystemProperties, startParameter.getSystemPropertiesArgs());
-        assertEquals(expectedGradleUserHome.getAbsoluteFile(), startParameter.getGradleUserHomeDir().getAbsoluteFile());
-        assertEquals(expectedLogLevel, startParameter.getLogLevel());
-        assertEquals(expectedColorOutput, startParameter.isColorOutput());
-        assertEquals(expectedDryRun, startParameter.isDryRun());
-        assertEquals(expectedShowStackTrace, startParameter.getShowStacktrace());
-        assertEquals(expectedExcludedTasks, startParameter.getExcludedTaskNames());
-        assertEquals(expectedInitScripts, startParameter.getInitScripts());
-        assertEquals(expectedProfile, startParameter.isProfile());
-        assertEquals(expectedContinue, startParameter.isContinueOnFailure());
-        assertEquals(expectedOffline, startParameter.isOffline());
-        assertEquals(expectedRecompileScripts, startParameter.isRecompileScripts());
-        assertEquals(expectedRerunTasks, startParameter.isRerunTasks());
-        assertEquals(expectedRefreshOptions, startParameter.getRefreshOptions());
-        assertEquals(expectedRefreshDependencies, startParameter.isRefreshDependencies());
-        assertEquals(expectedProjectCacheDir, startParameter.getProjectCacheDir());
     }
 
     @Test
@@ -128,32 +64,36 @@ public class DefaultCommandLineConverterTest {
 
     @Test
     public void withSpecifiedProjectDirectory() {
-        expectedProjectDir = testDir.file("project-dir");
-        checkConversion("-p", expectedProjectDir.getAbsolutePath());
+        expectedCurrentDir = testDir.file("project-dir");
+        expectedProjectDir = expectedCurrentDir;
+        checkConversion("-p", expectedCurrentDir.getAbsolutePath());
 
-        expectedProjectDir = currentDir.file("project-dir");
+        expectedCurrentDir = currentDir.file("project-dir");
+        expectedProjectDir = expectedCurrentDir;
         checkConversion("-p", "project-dir");
     }
 
     @Test
     public void withSpecifiedBuildFileName() throws IOException {
         expectedBuildFile = testDir.file("somename");
-        expectedProjectDir = expectedBuildFile.getParentFile();
+        expectedCurrentDir = expectedBuildFile.getParentFile();
+        expectedProjectDir = expectedCurrentDir;
         checkConversion("-b", expectedBuildFile.getAbsolutePath());
 
         expectedBuildFile = currentDir.file("somename");
-        expectedProjectDir = expectedBuildFile.getParentFile();
+        expectedCurrentDir = expectedBuildFile.getParentFile();
+        expectedProjectDir = expectedCurrentDir;
         checkConversion("-b", "somename");
     }
 
     @Test
     public void withSpecifiedSettingsFileName() throws IOException {
         File expectedSettingsFile = currentDir.file("somesettings");
-        expectedProjectDir = expectedSettingsFile.getParentFile();
+        expectedCurrentDir = expectedSettingsFile.getParentFile();
 
         checkConversion("-c", "somesettings");
 
-        assertThat(actualStartParameter.getSettingsFile(), equalTo(expectedSettingsFile));
+        Assert.assertThat(actualStartParameter.getSettingsFile(), Matchers.equalTo((File) expectedSettingsFile));
     }
 
     @Test
@@ -166,7 +106,7 @@ public class DefaultCommandLineConverterTest {
         expectedInitScripts.add(script2);
         checkConversion("-Iinit1.gradle", "-Iinit2.gradle");
     }
-    
+
     @Test
     public void withSystemProperties() {
         final String prop1 = "gradle.prop1";
@@ -177,14 +117,14 @@ public class DefaultCommandLineConverterTest {
         expectedSystemProperties.put(prop2, valueProp2);
         checkConversion("-D", prop1 + "=" + valueProp1, "-D", prop2 + "=" + valueProp2);
     }
-    
+
     @Test
     public void withSpecifiedGradleUserHomeDirectoryBySystemProperty() {
         expectedGradleUserHome = testDir.file("home");
         String propName = "gradle.user.home";
         String propValue = expectedGradleUserHome.getAbsolutePath();
         expectedSystemProperties = toMap(propName, propValue);
-        checkConversion("-D", propName+"="+propValue);
+        checkConversion("-D", propName + "=" + propValue);
     }
 
     @Test
@@ -193,7 +133,7 @@ public class DefaultCommandLineConverterTest {
         String propName = "gradle.user.home";
         String propValue = "home2";
         expectedSystemProperties = toMap(propName, propValue);
-        checkConversion("-D", propName+"="+propValue, "-g", expectedGradleUserHome.getAbsolutePath());
+        checkConversion("-D", propName + "=" + propValue, "-g", expectedGradleUserHome.getAbsolutePath());
     }
 
     @Test
@@ -211,17 +151,6 @@ public class DefaultCommandLineConverterTest {
     public void withTaskNames() {
         expectedTaskNames = toList("a", "b");
         checkConversion("a", "b");
-    }
-
-    @Test
-    public void withRebuildCacheFlagSet() {
-        expectedCacheUsage = CacheUsage.REBUILD;
-        checkConversion("-C", "rebuild");
-    }
-
-    @Test
-    public void withCacheOnFlagSet() {
-        checkConversion("-C", "on");
     }
 
     @Test(expected = CommandLineArgumentException.class)
@@ -312,9 +241,21 @@ public class DefaultCommandLineConverterTest {
     }
 
     @Test
+    public void withWarnLoggingOptions() {
+        expectedLogLevel = LogLevel.WARN;
+        checkConversion("-w");
+    }
+
+    @Test
     public void withNoColor() {
-        expectedColorOutput = false;
-        checkConversion("--no-color");
+        expectedConsoleOutput = ConsoleOutput.Plain;
+        checkConversion("--console", "plain");
+    }
+
+    @Test
+    public void withColor() {
+        expectedConsoleOutput = ConsoleOutput.Rich;
+        checkConversion("--console", "rich");
     }
 
     @Test(expected = CommandLineArgumentException.class)
@@ -348,31 +289,20 @@ public class DefaultCommandLineConverterTest {
     public void withOffline() {
         expectedOffline = true;
         checkConversion("--offline");
+        checkConversion("-offline");
     }
 
     @Test
     public void withRefreshDependencies() {
         expectedRefreshDependencies = true;
-        expectedRefreshOptions = new RefreshOptions(asList(RefreshOptions.Option.DEPENDENCIES));
         checkConversion("--refresh-dependencies");
+        checkConversion("-refresh-dependencies");
     }
 
     @Test
     public void withRecompileScripts() {
         expectedRecompileScripts = true;
         checkConversion("--recompile-scripts");
-    }
-
-    @Test
-    public void withRefreshDependenciesSet() {
-        expectedRefreshDependencies = true;
-        expectedRefreshOptions = new RefreshOptions(Arrays.asList(RefreshOptions.Option.DEPENDENCIES));
-        checkConversion("--refresh", "dependencies");
-    }
-
-    @Test(expected = CommandLineArgumentException.class)
-    public void withUnknownRefreshOption() {
-        checkConversion("--refresh", "unknown");
     }
 
     @Test(expected = CommandLineArgumentException.class)
@@ -384,5 +314,47 @@ public class DefaultCommandLineConverterTest {
     public void withTaskAndTaskOption() {
         expectedTaskNames = toList("someTask", "--some-task-option");
         checkConversion("someTask", "--some-task-option");
+    }
+
+    @Test
+    public void withParallelExecutor() {
+        expectedParallelProjectExecution = true;
+        checkConversion("--parallel");
+    }
+
+    @Test
+    public void withMaxWorkers() {
+        expectedMaxWorkersCount = 5;
+        checkConversion("--max-workers", "5");
+    }
+
+    @Test(expected = CommandLineArgumentException.class)
+    public void withInvalidMaxWorkers() {
+        checkConversion("--max-workers", "foo");
+    }
+
+    @Test
+    public void withConfigureOnDemand() {
+        expectedConfigureOnDemand = true;
+        checkConversion("--configure-on-demand");
+    }
+
+    @Test
+    public void withContinuous() {
+        expectedContinuous = true;
+        checkConversion("--continuous");
+    }
+
+    @Test
+    public void withContinuousShortFlag() {
+        expectedContinuous = true;
+        checkConversion("-t");
+    }
+
+    @Test
+    public void withCompositeBuild() {
+        File build1 = currentDir.getParentFile().file("build1");
+        expectedParticipants.add(build1);
+        checkConversion("--include-build", "../build1");
     }
 }

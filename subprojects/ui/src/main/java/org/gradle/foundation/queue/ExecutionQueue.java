@@ -18,15 +18,11 @@ package org.gradle.foundation.queue;
 import org.gradle.api.logging.Logger;
 import org.gradle.api.logging.Logging;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
 
 /**
  * This class abstracts running multiple tasks consecutively. This exists because I'm not certain that Gradle is thread-safe and on Windows, running tasks that require lots of disk I/O get
  * considerably slower when run concurrently. This will allow requests to be made and they will run as soon as any previous requests have finished.
- *
- * @author mhunsicker
  */
 public class ExecutionQueue<R extends ExecutionQueue.Request> {
     private final Logger logger = Logging.getLogger(ExecutionQueue.class);
@@ -63,6 +59,10 @@ public class ExecutionQueue<R extends ExecutionQueue.Request> {
         public Type getType();
     }
 
+    public interface RequestCancellation {
+        void onCancel(Request request);
+    }
+
     public ExecutionQueue(ExecutionInteraction<R> executeInteraction) {
         executionThread = new Thread(new ExecutionThread(executeInteraction));
 
@@ -81,16 +81,8 @@ public class ExecutionQueue<R extends ExecutionQueue.Request> {
         requests.offer(request);
     }
 
-    public boolean removeRequestFromQueue(R request) {
+    public boolean removeRequestFromQueue(Request request) {
         return requests.remove(request);
-    }
-
-    public boolean hasRequests() {
-        return !requests.isEmpty();
-    }
-
-    public List<R> getRequests() {
-        return new ArrayList<R>(requests);
     }
 
     /**
@@ -120,9 +112,10 @@ public class ExecutionQueue<R extends ExecutionQueue.Request> {
         public void run() {
             while (true) {
                 R request = getNextAvailableRequest();
-                if (request != null) {
-                    executeInteraction.execute(request);
+                if (request == null) {
+                    return;
                 }
+                executeInteraction.execute(request);
             }
         }
     }

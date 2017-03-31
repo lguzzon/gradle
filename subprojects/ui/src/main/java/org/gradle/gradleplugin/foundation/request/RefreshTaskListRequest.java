@@ -22,15 +22,13 @@ import org.gradle.foundation.ipc.gradle.ExecuteGradleCommandServerProtocol;
 import org.gradle.foundation.ipc.gradle.TaskListServerProtocol;
 import org.gradle.foundation.queue.ExecutionQueue;
 import org.gradle.gradleplugin.foundation.GradlePluginLord;
-import org.gradle.logging.ShowStacktrace;
+import org.gradle.api.logging.configuration.ShowStacktrace;
 
 import java.io.File;
 import java.util.List;
 
 /**
  * This represents a request to gradle that is executed in a separate process using the ProcessLauncherServer. This is a special request where the results are to build up a project/task tree.
- *
- * @author mhunsicker
  */
 public class RefreshTaskListRequest extends AbstractRequest {
 
@@ -39,8 +37,8 @@ public class RefreshTaskListRequest extends AbstractRequest {
 
     private GradlePluginLord gradlePluginLord;
 
-    public RefreshTaskListRequest(long requestID, String fullCommandLine, ExecutionQueue executionQueue, GradlePluginLord gradlePluginLord) {
-        super(requestID, fullCommandLine, "Refresh", false, executionQueue);
+    public RefreshTaskListRequest(long requestID, String fullCommandLine, ExecutionQueue.RequestCancellation cancellation, GradlePluginLord gradlePluginLord) {
+        super(requestID, fullCommandLine, "Refresh", false, cancellation);
         this.gradlePluginLord = gradlePluginLord;
     }
 

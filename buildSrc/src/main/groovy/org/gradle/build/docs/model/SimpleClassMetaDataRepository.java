@@ -16,16 +16,18 @@
 package org.gradle.build.docs.model;
 
 import groovy.lang.Closure;
+import org.gradle.api.Action;
 import org.gradle.api.GradleException;
 import org.gradle.api.UnknownDomainObjectException;
+import static org.apache.commons.lang.StringUtils.getLevenshteinDistance;
 
 import java.io.*;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 
 public class SimpleClassMetaDataRepository<T extends Attachable<T>> implements ClassMetaDataRepository<T> {
     private final Map<String, T> classes = new HashMap<String, T>();
 
+    @SuppressWarnings("unchecked")
     public void load(File repoFile) {
         try {
             FileInputStream inputStream = new FileInputStream(repoFile);
@@ -59,7 +61,7 @@ public class SimpleClassMetaDataRepository<T extends Attachable<T>> implements C
     public T get(String fullyQualifiedClassName) {
         T t = find(fullyQualifiedClassName);
         if (t == null) {
-            throw new UnknownDomainObjectException(String.format("No meta-data is available for class '%s'.", fullyQualifiedClassName));
+            throw new UnknownDomainObjectException(String.format("No meta-data is available for class '%s'. Did you mean? %s", fullyQualifiedClassName, findPossibleMatches(fullyQualifiedClassName)));
         }
         return t;
     }
@@ -72,6 +74,16 @@ public class SimpleClassMetaDataRepository<T extends Attachable<T>> implements C
         return t;
     }
 
+    private List<String> findPossibleMatches(String fullyQualifiedClassName) {
+        List<String> candidates = new ArrayList<String>();
+        for (String className : classes.keySet()) {
+            if (getLevenshteinDistance(fullyQualifiedClassName, className) < 8) {
+                candidates.add(className);
+            }
+        }
+        return candidates;
+    }
+
     public void put(String fullyQualifiedClassName, T metaData) {
         classes.put(fullyQualifiedClassName, metaData);
     }
@@ -79,6 +91,12 @@ public class SimpleClassMetaDataRepository<T extends Attachable<T>> implements C
     public void each(Closure cl) {
         for (Map.Entry<String, T> entry : classes.entrySet()) {
             cl.call(new Object[]{entry.getKey(), entry.getValue()});
+        }
+    }
+
+    public void each(Action<? super T> action) {
+        for (T t : classes.values()) {
+            action.execute(t);
         }
     }
 }

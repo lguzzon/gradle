@@ -15,69 +15,74 @@
  */
 package org.gradle.launcher.daemon.configuration;
 
-import org.gradle.StartParameter;
-import org.gradle.api.GradleException;
-import org.gradle.api.Project;
-import org.gradle.api.UncheckedIOException;
+import com.google.common.collect.ImmutableList;
+import org.gradle.api.JavaVersion;
+import org.gradle.api.Nullable;
 import org.gradle.api.internal.file.IdentityFileResolver;
-import org.gradle.initialization.layout.BuildLayout;
-import org.gradle.initialization.layout.BuildLayoutFactory;
-import org.gradle.internal.jvm.JavaHomeException;
+import org.gradle.initialization.BuildLayoutParameters;
+import org.gradle.internal.jvm.JavaInfo;
 import org.gradle.internal.jvm.Jvm;
-import org.gradle.process.internal.JvmOptions;
-import org.gradle.util.GFileUtils;
 import org.gradle.util.GUtil;
 
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.util.*;
-
-import static java.util.Arrays.asList;
-import static org.gradle.util.GFileUtils.canonicalise;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public class DaemonParameters {
-    public static final String IDLE_TIMEOUT_SYS_PROPERTY = "org.gradle.daemon.idletimeout";
-    public static final String BASE_DIR_SYS_PROPERTY = "org.gradle.daemon.registry.base";
-    public static final String JVM_ARGS_SYS_PROPERTY = "org.gradle.jvmargs";
-    public static final String JAVA_HOME_SYS_PROPERTY = "org.gradle.java.home";
-    public static final String DAEMON_SYS_PROPERTY = "org.gradle.daemon";
     static final int DEFAULT_IDLE_TIMEOUT = 3 * 60 * 60 * 1000;
-    private final String uid;
-    private File baseDir = new File(StartParameter.DEFAULT_GRADLE_USER_HOME, "daemon");
+    public static final int DEFAULT_PERIODIC_CHECK_INTERVAL_MILLIS = 10 * 1000;
+
+    public static final List<String> DEFAULT_JVM_ARGS = ImmutableList.of("-Xmx1024m", "-XX:MaxPermSize=256m", "-XX:+HeapDumpOnOutOfMemoryError");
+    public static final List<String> DEFAULT_JVM_9_ARGS = ImmutableList.of("-Xmx1024m", "-XX:+HeapDumpOnOutOfMemoryError");
+    public static final String INTERACTIVE_TOGGLE = "org.gradle.interactive";
+
+    private final File gradleUserHomeDir;
+
+    private File baseDir;
     private int idleTimeout = DEFAULT_IDLE_TIMEOUT;
-    private final JvmOptions jvmOptions = new JvmOptions(new IdentityFileResolver());
-    private boolean usingDefaultJvmArgs = true;
-    private boolean enabled;
-    private File javaHome;
 
-    public DaemonParameters(String uid) {
-        this.uid = uid;
-        jvmOptions.setAllJvmArgs(getDefaultJvmArgs());
+    private int periodicCheckInterval = DEFAULT_PERIODIC_CHECK_INTERVAL_MILLIS;
+    private final DaemonJvmOptions jvmOptions = new DaemonJvmOptions(new IdentityFileResolver());
+    private Map<String, String> envVariables;
+    private boolean enabled = true;
+    private boolean hasJvmArgs;
+    private boolean foreground;
+    private boolean stop;
+    private boolean status;
+    private boolean interactive = System.console() != null || Boolean.getBoolean(INTERACTIVE_TOGGLE);
+    private JavaInfo jvm = Jvm.current();
+
+    public DaemonParameters(BuildLayoutParameters layout) {
+        this(layout, Collections.<String, String>emptyMap());
     }
 
-    public DaemonParameters() {
-        this(UUID.randomUUID().toString());
+    public DaemonParameters(BuildLayoutParameters layout, Map<String, String> extraSystemProperties) {
+        jvmOptions.systemProperties(extraSystemProperties);
+        baseDir = new File(layout.getGradleUserHomeDir(), "daemon");
+        gradleUserHomeDir = layout.getGradleUserHomeDir();
+        envVariables = new HashMap<String, String>(System.getenv());
     }
 
-    List<String> getDefaultJvmArgs() {
-        return new LinkedList<String>(asList("-Xmx1024m", "-XX:MaxPermSize=256m", "-XX:+HeapDumpOnOutOfMemoryError"));
+    public boolean isInteractive() {
+        return interactive;
     }
 
     public boolean isEnabled() {
         return enabled;
     }
 
-    public String getUid() {
-        return uid;
+    public void setEnabled(boolean enabled) {
+        this.enabled = enabled;
     }
 
     public File getBaseDir() {
         return baseDir;
     }
 
-    public void setBaseDir(File baseDir) {
-        this.baseDir = GFileUtils.canonicalise(baseDir);
+    public File getGradleUserHomeDir() {
+        return gradleUserHomeDir;
     }
 
     public int getIdleTimeout() {
@@ -88,122 +93,104 @@ public class DaemonParameters {
         this.idleTimeout = idleTimeout;
     }
 
+    public int getPeriodicCheckInterval() {
+        return periodicCheckInterval;
+    }
+
+    public void setPeriodicCheckInterval(int periodicCheckInterval) {
+        this.periodicCheckInterval = periodicCheckInterval;
+    }
+
     public List<String> getEffectiveJvmArgs() {
         return jvmOptions.getAllImmutableJvmArgs();
     }
 
-    public List<String> getAllJvmArgs() {
-        return jvmOptions.getAllJvmArgs();
+    public List<String> getEffectiveSingleUseJvmArgs() {
+        return jvmOptions.getAllSingleUseImmutableJvmArgs();
     }
 
-    public boolean isUsingDefaultJvmArgs() {
-        return usingDefaultJvmArgs;
+    public JavaInfo getEffectiveJvm() {
+        return jvm;
     }
 
-    public File getEffectiveJavaHome() {
-        if (javaHome == null) {
-            return canonicalise(Jvm.current().getJavaHome());
+    @Nullable
+    public DaemonParameters setJvm(JavaInfo jvm) {
+        this.jvm = jvm == null ? Jvm.current() : jvm;
+        return this;
+    }
+
+    public void applyDefaultsFor(JavaVersion javaVersion) {
+        if (hasJvmArgs) {
+            return;
         }
-        return javaHome;
-    }
-    
-    public String getEffectiveJavaExecutable() {
-        if (javaHome == null) {
-            return Jvm.current().getJavaExecutable().getAbsolutePath();
+        if (javaVersion.compareTo(JavaVersion.VERSION_1_9) >= 0) {
+            jvmOptions.jvmArgs(DEFAULT_JVM_9_ARGS);
+        } else {
+            jvmOptions.jvmArgs(DEFAULT_JVM_ARGS);
         }
-        return Jvm.forHome(javaHome).getJavaExecutable().getAbsolutePath();
-    }
-
-    public void setJavaHome(File javaHome) {
-        this.javaHome = javaHome;
     }
 
     public Map<String, String> getSystemProperties() {
         Map<String, String> systemProperties = new HashMap<String, String>();
-        GUtil.addToMap(systemProperties, jvmOptions.getSystemProperties());
+        GUtil.addToMap(systemProperties, jvmOptions.getMutableSystemProperties());
         return systemProperties;
     }
 
     public Map<String, String> getEffectiveSystemProperties() {
         Map<String, String> systemProperties = new HashMap<String, String>();
-        GUtil.addToMap(systemProperties, jvmOptions.getSystemProperties());
+        GUtil.addToMap(systemProperties, jvmOptions.getMutableSystemProperties());
+        GUtil.addToMap(systemProperties, jvmOptions.getImmutableDaemonProperties());
         GUtil.addToMap(systemProperties, System.getProperties());
         return systemProperties;
     }
 
     public void setJvmArgs(Iterable<String> jvmArgs) {
-        usingDefaultJvmArgs = false;
+        hasJvmArgs = true;
         jvmOptions.setAllJvmArgs(jvmArgs);
     }
 
-    public void configureFromGradleUserHome(File gradleUserHomeDir) {
-        setBaseDir(new File(gradleUserHomeDir, "daemon"));
-        maybeConfigureFrom(new File(gradleUserHomeDir, Project.GRADLE_PROPERTIES));
+    public void setEnvironmentVariables(Map<String, String> envVariables) {
+        this.envVariables = envVariables == null ? new HashMap<String, String>(System.getenv()) : envVariables;
     }
 
-    public void configureFromSystemProperties(Map<?, ?> properties) {
-        Object propertyValue = properties.get(BASE_DIR_SYS_PROPERTY);
-        if (propertyValue != null) {
-            setBaseDir(new File(propertyValue.toString()));
-        }
-        configureFrom(properties);
+    public void setDebug(boolean debug) {
+        jvmOptions.setDebug(debug);
     }
 
-    public void configureFromBuildDir(File currentDir, boolean searchUpwards) {
-        BuildLayoutFactory factory = new BuildLayoutFactory();
-        BuildLayout layout = factory.getLayoutFor(currentDir, searchUpwards);
-        maybeConfigureFrom(new File(layout.getRootDirectory(), Project.GRADLE_PROPERTIES));
+    public DaemonParameters setBaseDir(File baseDir) {
+        this.baseDir = baseDir;
+        return this;
     }
 
-    private void maybeConfigureFrom(File propertiesFile) {
-        if (!propertiesFile.isFile()) {
-            return;
-        }
-
-        Properties properties = new Properties();
-        try {
-            FileInputStream inputStream = new FileInputStream(propertiesFile);
-            try {
-                properties.load(inputStream);
-            } finally {
-                inputStream.close();
-            }
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
-
-        configureFrom(properties);
+    public boolean getDebug() {
+        return jvmOptions.getDebug();
     }
 
-    void configureFrom(Map<?, ?> properties) {
-        Object propertyValue = properties.get(IDLE_TIMEOUT_SYS_PROPERTY);
-        if (propertyValue != null) {
-            try {
-                idleTimeout = Integer.parseInt(propertyValue.toString());
-            } catch (NumberFormatException e) {
-                throw new GradleException(String.format("Unable to parse %s property. The value should be an int but is: %s", IDLE_TIMEOUT_SYS_PROPERTY, propertyValue));
-            }
-        }
-        propertyValue = properties.get(JVM_ARGS_SYS_PROPERTY);
-        if (propertyValue != null) {
-            setJvmArgs(JvmOptions.fromString(propertyValue.toString()));
-        }
-        propertyValue = properties.get(DAEMON_SYS_PROPERTY);
-        if (propertyValue != null) {
-            enabled = propertyValue.toString().equalsIgnoreCase("true");
-        }
+    public boolean isForeground() {
+        return foreground;
+    }
 
-        propertyValue = properties.get(JAVA_HOME_SYS_PROPERTY);
-        if (propertyValue != null) {
-            javaHome = new File(propertyValue.toString());
-            if (!javaHome.isDirectory()) {
-                throw new GradleException(String.format("Java home supplied via '%s' is invalid. Dir does not exist: %s", JAVA_HOME_SYS_PROPERTY, propertyValue));
-            }
-            try {
-                Jvm.forHome(javaHome);
-            } catch (JavaHomeException e) {
-                throw new GradleException(String.format("Java home supplied via '%s' seems to be invalid: %s", JAVA_HOME_SYS_PROPERTY, propertyValue));
-            }
-        }
+    public void setForeground(boolean foreground) {
+        this.foreground = foreground;
+    }
+
+    public boolean isStop() {
+        return stop;
+    }
+
+    public void setStop(boolean stop) {
+        this.stop = stop;
+    }
+
+    public boolean isStatus() {
+        return status;
+    }
+
+    public void setStatus(boolean status) {
+        this.status = status;
+    }
+
+    public Map<String, String> getEnvironmentVariables() {
+        return envVariables;
     }
 }

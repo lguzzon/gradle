@@ -19,15 +19,12 @@ package org.gradle.integtests.samples
 import org.gradle.integtests.fixtures.AbstractAutoTestedSamplesTest
 import org.junit.Test
 
-/**
- * @author Szczepan Faber, created at: 3/28/11
- */
 class AutoTestedSamplesCoreIntegrationTest extends AbstractAutoTestedSamplesTest {
 
     @Test
     void runSamples() {
         //Uncomment below to run test only for single class (much faster)
 //        includeOnly '**/Copy.java'
-        runSamplesFrom("subprojects/core/src/main/groovy/org/gradle/api")
+        runSamplesFrom("subprojects/core/src/main/java/org/gradle/api")
     }
 }

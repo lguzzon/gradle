@@ -16,27 +16,18 @@
 
 package org.gradle.api.tasks.bundling
 
-import org.gradle.api.internal.ConventionTask
-import org.gradle.api.internal.file.FileResolver
-import org.gradle.api.tasks.AbstractConventionTaskTest
-import org.junit.Test
-import static org.junit.Assert.*
+import org.gradle.api.tasks.AbstractCopyTaskContractTest
 
-/**
- * @author Hans Dockter
- */
-abstract class AbstractArchiveTaskTest extends AbstractConventionTaskTest {
-
-    FileResolver resolver = [resolve: {it as File}] as FileResolver
-
+abstract class AbstractArchiveTaskTest extends AbstractCopyTaskContractTest {
     abstract AbstractArchiveTask getArchiveTask()
 
-    ConventionTask getTask() {
+    @Override
+    AbstractArchiveTask getTask() {
         archiveTask
     }
 
-    void checkConstructor() {
-        assertEquals('', archiveTask.classifier)
+    protected void checkConstructor() {
+        assert archiveTask.classifier == ''
     }
 
     protected void configure(AbstractArchiveTask archiveTask) {
@@ -44,68 +35,101 @@ abstract class AbstractArchiveTaskTest extends AbstractConventionTaskTest {
         archiveTask.appendix = 'testappendix'
         archiveTask.version = '1.0'
         archiveTask.classifier = 'src'
-        archiveTask.destinationDir = new File(tmpDir.dir, 'destinationDir')
+        archiveTask.destinationDir = new File(temporaryFolder.testDirectory, 'destinationDir')
     }
 
-    @Test public void testExecute() {
+    def "test execute()"() {
+        given:
+        archiveTask.from temporaryFolder.createFile('file.txt')
+
+        when:
         archiveTask.execute()
-        assertTrue(archiveTask.destinationDir.isDirectory())
-        assertTrue(archiveTask.archivePath.isFile())
+
+        then:
+        archiveTask.destinationDir.isDirectory()
+        archiveTask.archivePath.isFile()
     }
 
-    @Test public void testArchiveNameWithEmptyExtension() {
+    def "archiveName with empty extension"() {
+        when:
         archiveTask.extension = null
-        assertEquals("testbasename-testappendix-1.0-src".toString(), archiveTask.archiveName)
+
+        then:
+        archiveTask.archiveName == 'testbasename-testappendix-1.0-src'
     }
 
-    @Test public void testArchiveNameWithEmptyBasename() {
+    def "archiveName with empty basename"() {
+        when:
         archiveTask.baseName = null
-        assertEquals("testappendix-1.0-src.${archiveTask.extension}".toString(), archiveTask.archiveName)
+
+        then:
+        archiveTask.archiveName == "testappendix-1.0-src.${archiveTask.extension}".toString()
     }
 
-    @Test public void testArchiveNameWithEmptyBasenameAndAppendix() {
+    def "archiveName with empty basename and appendix"() {
+        when:
         archiveTask.baseName = null
         archiveTask.appendix = null
-        assertEquals("1.0-src.${archiveTask.extension}".toString(), archiveTask.archiveName)
+
+        then:
+        archiveTask.archiveName == "1.0-src.${archiveTask.extension}".toString()
     }
 
-    @Test public void testArchiveNameWithEmptyBasenameAndAppendixAndVersion() {
+    def "archiveName with empty basename, appendix, and version" () {
+        when:
         archiveTask.baseName = null
         archiveTask.appendix = null
         archiveTask.version = null
-        assertEquals("src.${archiveTask.extension}".toString(), archiveTask.archiveName)
+
+        then:
+        archiveTask.archiveName == "src.${archiveTask.extension}".toString()
     }
 
-    @Test public void testArchiveNameWithEmptyBasenameAndAppendixAndVersionAndClassifier() {
+    def "archiveName with empty basename, appendix, version, and classifier"() {
+        when:
         archiveTask.baseName = null
         archiveTask.appendix = null
         archiveTask.version = null
         archiveTask.classifier = null
-        assertEquals(".${archiveTask.extension}".toString(), archiveTask.archiveName)
+
+        then:
+        archiveTask.archiveName == ".${archiveTask.extension}".toString()
     }
 
-
-    @Test public void testArchiveNameWithEmptyClassifier() {
+    def "archiveName with empty classifier"() {
+        when:
         archiveTask.classifier = null
-        assertEquals("testbasename-testappendix-1.0.${archiveTask.extension}".toString(), archiveTask.archiveName)
+
+        then:
+        archiveTask.archiveName == "testbasename-testappendix-1.0.${archiveTask.extension}".toString()
     }
 
-    @Test public void testArchiveNameWithEmptyAppendix() {
+    def "archiveName with empty appendix"() {
+        when:
         archiveTask.appendix = null
-        assertEquals("testbasename-1.0-src.${archiveTask.extension}".toString(), archiveTask.archiveName)
+
+        then:
+        archiveTask.archiveName == "testbasename-1.0-src.${archiveTask.extension}".toString()
     }
 
-    @Test public void testArchiveNameWithEmptyVersion() {
+    def "archiveName with empty version"() {
+        when:
         archiveTask.version = null
-        assertEquals("testbasename-testappendix-src.${archiveTask.extension}".toString(), archiveTask.archiveName)
+
+        then:
+        archiveTask.archiveName == "testbasename-testappendix-src.${archiveTask.extension}".toString()
     }
 
-    @Test public void testUsesCustomArchiveNameWhenSet() {
+    def "uses custom archive name when set"() {
+        when:
         archiveTask.archiveName = 'somefile.out'
-        assertEquals('somefile.out', archiveTask.archiveName)
+
+        then:
+        archiveTask.archiveName == 'somefile.out'
     }
 
-    @Test public void testArchivePath() {
-        assertEquals(new File(archiveTask.destinationDir, archiveTask.archiveName), archiveTask.archivePath)
+    def "correct archive path"() {
+        expect:
+        archiveTask.archivePath == new File(archiveTask.destinationDir, archiveTask.archiveName)
     }
 }

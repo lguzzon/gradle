@@ -21,7 +21,7 @@ import static org.junit.Assert.assertTrue
 public class ExtensibleDynamicObjectTestHelper {
     public static void assertCanGetAllProperties (ExtensibleDynamicObjectTest.Bean bean) {
         bean.readWriteProperty = 'readWrite'
-        bean.setProperty('additional', 'additional')
+        bean.defineProperty('additional', 'additional')
         assertEquals(bean.getProperties().readWriteProperty, 'readWrite')
         assertEquals(bean.getProperties().additional, 'additional')
     }
@@ -33,11 +33,8 @@ public class ExtensibleDynamicObjectTestHelper {
         bean.doSetReadOnlyProperty('value')
         assertEquals(bean.readOnlyProperty, 'value')
 
-        bean.extensibleDynamicObject.dynamicProperties.set('additional', 'value')
+        bean.defineProperty('additional', 'value')
         assertEquals(bean.additional, 'value')
-
-        bean.setProperty 'another', 'value'
-        assertEquals(bean.another, 'value')
     }
     
     public static void assertCanGetAndSetProperties (ExtensibleDynamicObjectTest.Bean bean) {
@@ -47,11 +44,8 @@ public class ExtensibleDynamicObjectTestHelper {
         bean.doSetReadOnlyProperty('value')
         assertEquals(bean.readOnlyProperty, 'value')
 
-        bean.additional = 'value'
+        bean.ext.additional = 'value'
         assertEquals(bean.additional, 'value')
-
-        bean.setProperty 'another', 'value'
-        assertEquals(bean.another, 'value')
     }
 
     public static void assertCanCallMethods (ExtensibleDynamicObjectTest.Bean bean) {
@@ -59,34 +53,31 @@ public class ExtensibleDynamicObjectTestHelper {
         assertTrue(bean.hasMethod('conventionMethod', 'a', 'b'))
         assertEquals(bean.conventionMethod('a', 'b'), 'convention:a.b')
     }
+
+    public static void decorateGroovyBean(bean) {
+        Map values = [:]
+        bean.metaClass.getDynamicGroovyProperty << {-> values.dynamicGroovyProperty }
+        bean.metaClass.setDynamicGroovyProperty << {value -> values.dynamicGroovyProperty = value}
+        bean.metaClass.dynamicGroovyMethod << {a, b -> "dynamicGroovy:$a.$b".toString() }
+    }
 }
 
 public class DynamicBean extends ExtensibleDynamicObjectTest.Bean {
-    def propertyMissing(String name) {
-        super.getProperty(name)
-    }
+//    def propertyMissing(String name) {
+//        super.getProperty(name)
+//    }
 
 //    def methodMissing(String name, params) {
 //        super.methodMissing(name, params)
 //    }
 
-    void setProperty(String name, Object value) {
-        super.setProperty(name, value)
-    }
+//    void setProperty(String name, Object value) {
+//        super.setProperty(name, value)
+//    }
 }
 
 public class GroovyBean extends DynamicBean {
     String groovyProperty
-
-    def GroovyBean() {
-        Map values = [:]
-        ExpandoMetaClass metaClass = new ExpandoMetaClass(GroovyBean.class, false)
-        metaClass.getDynamicGroovyProperty << {-> values.dynamicGroovyProperty }
-        metaClass.setDynamicGroovyProperty << {value -> values.dynamicGroovyProperty = value}
-        metaClass.dynamicGroovyMethod << {a, b -> "dynamicGroovy:$a.$b".toString() }
-        metaClass.initialize()
-        setMetaClass(metaClass)
-    }
 
     def groovyMethod(a, b) {
         "groovy:$a.$b".toString()

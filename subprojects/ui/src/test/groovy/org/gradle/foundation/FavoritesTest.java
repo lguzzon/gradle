@@ -31,8 +31,6 @@ import java.util.List;
 
 /**
  * Tests aspects of favorite tasks and the favorites editor.
- *
- * @author mhunsicker
  */
 public class FavoritesTest extends TestCase {
     private BuildInformation buildInformation;
@@ -63,23 +61,22 @@ public class FavoritesTest extends TestCase {
         Task subsubLibTask = TestUtility.createTask(context, "lib", "lib description");
         Task subsubDocTask = TestUtility.createTask(context, "doc", "doc description");
         Project subsubProject = TestUtility.createMockProject(context, "mysubsubproject", "filepath3", 2, null,
-                new Task[]{subsubCompileTask, subsubLibTask, subsubDocTask}, null, (Project[]) null);
+                new Task[]{subsubCompileTask, subsubLibTask, subsubDocTask}, null);
 
         Task subCompileTask1 = TestUtility.createTask(context, "compile", "compile description");
         Task subLibTask1 = TestUtility.createTask(context, "lib", "lib description");
         Task subDocTask1 = TestUtility.createTask(context, "doc", "doc description");
         Project subProject1 = TestUtility.createMockProject(context, "mysubproject1", "filepath2a", 1,
-                new Project[]{subsubProject}, new Task[]{subCompileTask1, subLibTask1, subDocTask1}, null,
-                (Project[]) null);
+                new Project[]{subsubProject}, new Task[]{subCompileTask1, subLibTask1, subDocTask1}, null);
 
         Task subCompileTask2 = TestUtility.createTask(context, "compile", "compile description");
         Task subLibTask2 = TestUtility.createTask(context, "lib", "lib description");
         Task subDocTask2 = TestUtility.createTask(context, "doc", "doc description");
         Project subProject2 = TestUtility.createMockProject(context, "mysubproject2", "filepath2b", 1, null,
-                new Task[]{subCompileTask2, subLibTask2, subDocTask2}, null, (Project[]) null);
+                new Task[]{subCompileTask2, subLibTask2, subDocTask2}, null);
 
         Project rootProject = TestUtility.createMockProject(context, "myrootproject", "filepath1", 0,
-                new Project[]{subProject1, subProject2}, null, null, (Project[]) null);
+                new Project[]{subProject1, subProject2}, null, null);
 
         buildInformation = new BuildInformation(rootProject);
 
@@ -473,7 +470,7 @@ public class FavoritesTest extends TestCase {
 
 
     /**
-     * This edits the favorite and expects an error. It makes sure the error was recieved and that the original task was
+     * This edits the favorite and expects an error. It makes sure the error was received and that the original task was
      * not altered.
      */
     private void editExpectingError(FavoritesEditor editor, FavoriteTask favoriteTaskToEdit, String newName,

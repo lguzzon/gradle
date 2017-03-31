@@ -15,21 +15,20 @@
  */
 package org.gradle.api.plugins.quality
 
-import org.gradle.api.Project
 import org.gradle.api.plugins.JavaBasePlugin
+import org.gradle.api.plugins.JavaPlugin
 import org.gradle.api.plugins.ReportingBasePlugin
 import org.gradle.api.tasks.SourceSet
-import org.gradle.util.HelperUtil
-import spock.lang.Specification
-import static org.gradle.util.Matchers.dependsOn
+import org.gradle.test.fixtures.AbstractProjectBuilderSpec
+
+import static org.gradle.api.tasks.TaskDependencyMatchers.dependsOn
 import static org.hamcrest.Matchers.*
 import static spock.util.matcher.HamcrestSupport.that
 
-class FindBugsPluginTest extends Specification {
-    Project project = HelperUtil.createRootProject()
+class FindBugsPluginTest extends AbstractProjectBuilderSpec {
 
     def setup() {
-        project.plugins.apply(FindBugsPlugin)
+        project.pluginManager.apply(FindBugsPlugin)
     }
 
     def "applies reporting-base plugin"() {
@@ -37,7 +36,7 @@ class FindBugsPluginTest extends Specification {
         project.plugins.hasPlugin(ReportingBasePlugin)
     }
 
-    def "configures findbugs configuration"() {
+    def "configures FindBugs configuration"() {
         def config = project.configurations.findByName("findbugs")
 
         expect:
@@ -47,15 +46,25 @@ class FindBugsPluginTest extends Specification {
         config.description == 'The FindBugs libraries to be used for this project.'
     }
 
-    def "configures findbugs extension"() {
+    def "configures FindBugs extension"() {
         expect:
         FindBugsExtension extension = project.extensions.findbugs
         extension.reportsDir == project.file("build/reports/findbugs")
         !extension.ignoreFailures
+        extension.effort == null
+        extension.reportLevel == null
+        extension.visitors == null
+        extension.omitVisitors == null
+        extension.includeFilterConfig == null
+        extension.excludeFilterConfig == null
+        extension.excludeBugsFilterConfig == null
+        extension.includeFilter == null
+        extension.excludeFilter == null
+        extension.excludeBugsFilter == null
     }
 
-    def "configures findbugs task for each source set"() {
-        project.plugins.apply(JavaBasePlugin)
+    def "configures FindBugs task for each source set"() {
+        project.pluginManager.apply(JavaBasePlugin)
         project.sourceSets {
             main
             test
@@ -71,32 +80,56 @@ class FindBugsPluginTest extends Specification {
     private void configuresFindBugsTask(String taskName, SourceSet sourceSet) {
         def task = project.tasks.findByName(taskName)
         assert task instanceof FindBugs
-        task.with {
-            assert description == "Run FindBugs analysis for ${sourceSet.name} classes"
-            assert source as List == sourceSet.allJava as List
-            assert findbugsClasspath == project.configurations.findbugs
-            assert classes.empty // no classes to analyze
-            assert reports.xml.destination == project.file("build/reports/findbugs/${sourceSet.name}.xml")
-            assert ignoreFailures == false
+        with(task) {
+            description == "Run FindBugs analysis for ${sourceSet.name} classes"
+            source as List == sourceSet.allJava as List
+            findbugsClasspath == project.configurations.findbugs
+            classes.empty // no classes to analyze
+            reports.xml.destination == project.file("build/reports/findbugs/${sourceSet.name}.xml")
+            !ignoreFailures
+            effort == null
+            reportLevel == null
+            visitors == null
+            omitVisitors == null
+            excludeFilterConfig == null
+            includeFilterConfig == null
+            excludeBugsFilterConfig == null
+            excludeFilter == null
+            includeFilter == null
+            excludeBugsFilter == null
+            extraArgs == null
         }
     }
 
     def "configures any additional FindBugs tasks"() {
-        def task = project.tasks.add("findbugsCustom", FindBugs)
+        def task = project.tasks.create("findbugsCustom", FindBugs)
 
         expect:
-        task.description == null
-        task.source.empty
-        task.classes == null
-        task.classpath == null
-        task.findbugsClasspath == project.configurations.findbugs
-        task.pluginClasspath == project.configurations.findbugsPlugins
-        task.reports.xml.destination == project.file("build/reports/findbugs/custom.xml")
-        task.ignoreFailures == false
+        with(task) {
+            description == null
+            source.empty
+            classes == null
+            classpath == null
+            findbugsClasspath == project.configurations.findbugs
+            pluginClasspath == project.configurations.findbugsPlugins
+            reports.xml.destination == project.file("build/reports/findbugs/custom.xml")
+            !ignoreFailures
+            effort == null
+            reportLevel == null
+            visitors == null
+            omitVisitors == null
+            excludeFilterConfig == null
+            includeFilterConfig == null
+            excludeBugsFilterConfig == null
+            excludeFilter == null
+            includeFilter == null
+            excludeBugsFilter == null
+            extraArgs == null
+        }
     }
 
-    def "adds findbugs tasks to check lifecycle task"() {
-        project.plugins.apply(JavaBasePlugin)
+    def "adds FindBugs tasks to check lifecycle task"() {
+        project.pluginManager.apply(JavaBasePlugin)
         project.sourceSets {
             main
             test
@@ -108,7 +141,7 @@ class FindBugsPluginTest extends Specification {
     }
 
     def "can customize settings via extension"() {
-        project.plugins.apply(JavaBasePlugin)
+        project.pluginManager.apply(JavaBasePlugin)
         project.sourceSets {
             main
             test
@@ -119,6 +152,14 @@ class FindBugsPluginTest extends Specification {
             sourceSets = [project.sourceSets.main]
             reportsDir = project.file("findbugs-reports")
             ignoreFailures = true
+            effort = 'min'
+            reportLevel = 'high'
+            visitors = ['org.gradle.Class']
+            omitVisitors = ['org.gradle.Interface']
+            includeFilter = new File("include.txt")
+            excludeFilter = new File("exclude.txt")
+            excludeBugsFilter = new File("baselineBugs.txt")
+            extraArgs = [ '-adjustPriority', 'DM_CONVERT_CASE=raise,DM_CONVERT_CASE=raise']
         }
 
         expect:
@@ -132,36 +173,68 @@ class FindBugsPluginTest extends Specification {
     private void hasCustomizedSettings(String taskName, SourceSet sourceSet) {
         def task = project.tasks.findByName(taskName)
         assert task instanceof FindBugs
-        task.with {
-            assert description == "Run FindBugs analysis for ${sourceSet.name} classes"
-            assert source as List == sourceSet.allJava as List
-            assert findbugsClasspath == project.configurations.findbugs
-            assert reports.xml.destination == project.file("findbugs-reports/${sourceSet.name}.xml")
-            assert ignoreFailures == true
+        with(task) {
+            description == "Run FindBugs analysis for ${sourceSet.name} classes"
+            source as List == sourceSet.allJava as List
+            findbugsClasspath == project.configurations.findbugs
+            reports.xml.destination == project.file("findbugs-reports/${sourceSet.name}.xml")
+            ignoreFailures
+            effort == 'min'
+            reportLevel == 'high'
+            visitors == ['org.gradle.Class']
+            omitVisitors == ['org.gradle.Interface']
+            includeFilterConfig.inputFiles.singleFile == project.file("include.txt")
+            excludeFilterConfig.inputFiles.singleFile == project.file("exclude.txt")
+            excludeBugsFilterConfig.inputFiles.singleFile == project.file("baselineBugs.txt")
+            includeFilter == project.file("include.txt")
+            excludeFilter == project.file("exclude.txt")
+            excludeBugsFilter == project.file("baselineBugs.txt")
+            extraArgs == [ '-adjustPriority', 'DM_CONVERT_CASE=raise,DM_CONVERT_CASE=raise' ]
         }
     }
-    
+
     def "can customize any additional FindBugs tasks via extension"() {
-        def task = project.tasks.add("findbugsCustom", FindBugs)
+        def task = project.tasks.create("findbugsCustom", FindBugs)
         project.findbugs {
             reportsDir = project.file("findbugs-reports")
             ignoreFailures = true
+            effort = 'min'
+            reportLevel = 'high'
+            visitors = ['org.gradle.Class']
+            omitVisitors = ['org.gradle.Interface']
+            includeFilterConfig = project.resources.text.fromFile("include.txt")
+            excludeFilterConfig = project.resources.text.fromFile("exclude.txt")
+            excludeBugsFilterConfig = project.resources.text.fromFile("baselineBugs.txt")
+            extraArgs = [ '-adjustPriority', 'DM_CONVERT_CASE=raise,DM_CONVERT_CASE=raise' ]
         }
 
         expect:
-        task.description == null
-        task.source.empty
-        task.classes == null
-        task.classpath == null
-        task.findbugsClasspath == project.configurations.findbugs
-        task.pluginClasspath == project.configurations.findbugsPlugins
-        task.reports.xml.destination == project.file("findbugs-reports/custom.xml")
-        task.ignoreFailures == true
+        with(task) {
+            description == null
+            source.empty
+            classes == null
+            classpath == null
+            findbugsClasspath == project.configurations.findbugs
+            pluginClasspath == project.configurations.findbugsPlugins
+            reports.xml.destination == project.file("findbugs-reports/custom.xml")
+            ignoreFailures
+            effort == 'min'
+            reportLevel == 'high'
+            visitors == ['org.gradle.Class']
+            omitVisitors == ['org.gradle.Interface']
+            includeFilterConfig.inputFiles.singleFile == project.file("include.txt")
+            excludeFilterConfig.inputFiles.singleFile == project.file("exclude.txt")
+            excludeBugsFilterConfig.inputFiles.singleFile == project.file("baselineBugs.txt")
+            includeFilter == project.file("include.txt")
+            excludeFilter == project.file("exclude.txt")
+            excludeBugsFilter == project.file("baselineBugs.txt")
+            extraArgs == [ '-adjustPriority', 'DM_CONVERT_CASE=raise,DM_CONVERT_CASE=raise' ]
+        }
     }
 
     def "can configure reporting"() {
         given:
-        project.plugins.apply(JavaBasePlugin)
+        project.pluginManager.apply(JavaBasePlugin)
         project.sourceSets {
             main
         }
@@ -175,6 +248,37 @@ class FindBugsPluginTest extends Specification {
         }
 
         then:
-        notThrown()
+        noExceptionThrown()
+    }
+
+    def "can use legacy includeFilter extension property"() {
+        project.pluginManager.apply(JavaPlugin)
+
+        project.findbugs.includeFilter = project.file("filter.txt")
+
+
+        expect:
+        project.findbugs.includeFilter == project.file("filter.txt")
+        project.findbugs.includeFilterConfig.inputFiles.singleFile == project.file("filter.txt")
+    }
+
+    def "can use legacy excludeFilter extension property"() {
+        project.pluginManager.apply(JavaPlugin)
+
+        project.findbugs.excludeFilter = project.file("filter.txt")
+
+        expect:
+        project.findbugs.excludeFilter == project.file("filter.txt")
+        project.findbugs.excludeFilterConfig.inputFiles.singleFile == project.file("filter.txt")
+    }
+
+    def "can use legacy excludeBugsFilter extension property"() {
+        project.pluginManager.apply(JavaPlugin)
+
+        project.findbugs.excludeBugsFilter = project.file("filter.txt")
+
+        expect:
+        project.findbugs.excludeBugsFilter == project.file("filter.txt")
+        project.findbugs.excludeBugsFilterConfig.inputFiles.singleFile == project.file("filter.txt")
     }
 }

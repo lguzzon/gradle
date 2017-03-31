@@ -15,30 +15,20 @@
  */
 package org.gradle.launcher.cli;
 
-import org.gradle.BuildResult;
-import org.gradle.GradleLauncher;
 import org.gradle.StartParameter;
-import org.gradle.initialization.GradleLauncherAction;
-import org.gradle.launcher.exec.InitializationAware;
+import org.gradle.internal.invocation.BuildAction;
 
 import java.io.Serializable;
 
-public class ExecuteBuildAction implements GradleLauncherAction<Void>, InitializationAware, Serializable {
+public class ExecuteBuildAction implements BuildAction, Serializable {
     private final StartParameter startParameter;
 
     public ExecuteBuildAction(StartParameter startParameter) {
         this.startParameter = startParameter;
     }
 
-    public StartParameter configureStartParameter() {
+    @Override
+    public StartParameter getStartParameter() {
         return startParameter;
-    }
-
-    public BuildResult run(GradleLauncher launcher) {
-        return launcher.run();
-    }
-
-    public Void getResult() {
-        return null;
     }
 }

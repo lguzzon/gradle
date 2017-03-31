@@ -20,9 +20,6 @@ import java.math.BigInteger;
 import java.net.URI;
 import java.security.MessageDigest;
 
-/**
- * @author Hans Dockter
- */
 public class PathAssembler {
     public static final String GRADLE_USER_HOME_STRING = "GRADLE_USER_HOME";
     public static final String PROJECT_STRING = "PROJECT";
@@ -37,7 +34,7 @@ public class PathAssembler {
     }
 
     /**
-     * Determines the local locations for the distribution to use given the supplied configuration. 
+     * Determines the local locations for the distribution to use given the supplied configuration.
      */
     public LocalDistribution getDistribution(WrapperConfiguration configuration) {
         String baseName = getDistName(configuration.getDistribution());
@@ -49,16 +46,26 @@ public class PathAssembler {
     }
 
     private String rootDirName(String distName, WrapperConfiguration configuration) {
-        String urlHash = getMd5Hash(configuration.getDistribution().toString());
-        return String.format("%s/%s", distName, urlHash);
+        String urlHash = getHash(configuration.getDistribution().toString());
+        return distName + "/" + urlHash;
     }
 
-    private String getMd5Hash(String string) {
+    /**
+     * This method computes a hash of the provided {@code string}.
+     * <p>
+     * The algorithm in use by this method is as follows:
+     * <ol>
+     *    <li>Compute the MD5 value of {@code string}.</li>
+     *    <li>Truncate leading zeros (i.e., treat the MD5 value as a number).</li>
+     *    <li>Convert to base 36 (the characters {@code 0-9a-z}).</li>
+     * </ol>
+     */
+    private String getHash(String string) {
         try {
             MessageDigest messageDigest = MessageDigest.getInstance("MD5");
             byte[] bytes = string.getBytes();
             messageDigest.update(bytes);
-            return new BigInteger(1, messageDigest.digest()).toString(32);
+            return new BigInteger(1, messageDigest.digest()).toString(36);
         } catch (Exception e) {
             throw new RuntimeException("Could not hash input string.", e);
         }
@@ -90,7 +97,7 @@ public class PathAssembler {
             throw new RuntimeException("Base: " + base + " is unknown");
         }
     }
-    
+
     public class LocalDistribution {
         private final File distZip;
         private final File distDir;

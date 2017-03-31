@@ -17,13 +17,15 @@
 package org.gradle.api.tasks
 
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
+import org.gradle.integtests.fixtures.executer.GradleContextualExecuter
+import spock.lang.IgnoreIf
 import spock.lang.Issue
 
 class JavaExecIntegrationTest extends AbstractIntegrationSpec {
 
     def setup() {
         file("src", "main", "java").mkdirs()
-        
+
         file("src", "main", "java", "Driver.java").write """
             package driver;
 
@@ -53,22 +55,23 @@ class JavaExecIntegrationTest extends AbstractIntegrationSpec {
             }
         """
     }
-    
+
+    @IgnoreIf({GradleContextualExecuter.parallel})
     def "java exec is not incremental by default"() {
         when:
         run "run"
-        
+
         then:
         ":run" in nonSkippedTasks
-        
+
         when:
         run "run"
-        
+
         then:
         ":run" in nonSkippedTasks
     }
 
-    @Issue("GRADLE-1483")
+    @Issue(["GRADLE-1483", "GRADLE-3528"])
     def "when the user declares outputs it becomes incremental"() {
         given:
         buildFile << """
@@ -86,13 +89,13 @@ class JavaExecIntegrationTest extends AbstractIntegrationSpec {
 
         then:
         ":run" in skippedTasks
-        
+
         when:
         file("out.txt").delete()
-        
+
         and:
         run "run"
-        
+
         then:
         ":run" in nonSkippedTasks
     }

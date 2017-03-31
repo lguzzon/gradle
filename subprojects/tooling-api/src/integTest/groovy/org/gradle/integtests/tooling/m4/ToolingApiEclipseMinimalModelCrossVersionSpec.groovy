@@ -15,16 +15,14 @@
  */
 package org.gradle.integtests.tooling.m4
 
-import org.gradle.integtests.tooling.fixture.MinTargetGradleVersion
 import org.gradle.integtests.tooling.fixture.ToolingApiSpecification
 import org.gradle.tooling.model.eclipse.HierarchicalEclipseProject
 
-@MinTargetGradleVersion('1.0-milestone-4')
 class ToolingApiEclipseMinimalModelCrossVersionSpec extends ToolingApiSpecification {
     def "minimal Eclipse model does not attempt to resolve external dependencies"() {
-        def projectDir = dist.testDir
-        projectDir.file('settings.gradle').text = 'include "child"'
-        projectDir.file('build.gradle').text = '''
+
+        file('settings.gradle').text = 'include "child"'
+        file('build.gradle').text = '''
 apply plugin: 'java'
 dependencies {
     compile project(':child')
@@ -41,7 +39,7 @@ project(':child') {
 '''
 
         when:
-        HierarchicalEclipseProject project = withConnection { connection -> connection.getModel(HierarchicalEclipseProject.class) }
+        HierarchicalEclipseProject project = loadToolingModel(HierarchicalEclipseProject)
 
         then:
         project.projectDependencies.size() == 1
@@ -49,19 +47,20 @@ project(':child') {
     }
 
     def "minimal Eclipse model does not attempt to call any tasks"() {
-        def projectDir = dist.testDir
-        projectDir.file('build.gradle').text = '''
+        file('build.gradle').text = '''
 apply plugin: 'java'
 
 sourceSets.main.output.dir "$buildDir/foo", builtBy: 'generateResources'
 
-task generateResources << {
-  assert false : 'should not be called when building minimal model'
+task generateResources {
+    doLast {
+        assert false : 'should not be called when building minimal model'
+    }
 }
 '''
 
         when:
-        withConnection { connection -> connection.getModel(HierarchicalEclipseProject.class) }
+        loadToolingModel(HierarchicalEclipseProject)
 
         then:
         noExceptionThrown()

@@ -17,9 +17,6 @@ package org.gradle.plugins.ide.idea.model
 
 import spock.lang.Specification
 
-/**
- * @author Hans Dockter
- */
 class ModuleDependencyTest extends Specification {
     def equality() {
         expect:
@@ -40,12 +37,12 @@ class ModuleDependencyTest extends Specification {
         new ModuleDependency("a", "").hashCode() == new ModuleDependency("a", "COMPILE").hashCode()
     }
 
-    def shouldExportForCompileAndRuntimeScope() {
+    def shouldNotExportDependencies() {
         expect:
-        new ModuleDependency("a", "COMPILE").exported
-        new ModuleDependency("a", "RUNTIME").exported
-        new ModuleDependency("a", "").exported
-        new ModuleDependency("a", null).exported
+        !(new ModuleDependency("a", "COMPILE").exported)
+        !(new ModuleDependency("a", "RUNTIME").exported)
+        !(new ModuleDependency("a", "").exported)
+        !(new ModuleDependency("a", null).exported)
         !(new ModuleDependency("a", "TEST").exported)
     }
 }

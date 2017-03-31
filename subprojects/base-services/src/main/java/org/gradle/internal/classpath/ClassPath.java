@@ -20,22 +20,26 @@ import java.io.File;
 import java.net.URI;
 import java.net.URL;
 import java.util.Collection;
+import java.util.List;
 
 /**
  * An immutable classpath.
  */
 public interface ClassPath {
+
+    ClassPath EMPTY = new DefaultClassPath();
+
     boolean isEmpty();
 
-    Collection<URI> getAsURIs();
+    List<URI> getAsURIs();
 
-    Collection<File> getAsFiles();
+    List<File> getAsFiles();
 
-    Collection<URL> getAsURLs();
+    List<URL> getAsURLs();
 
     URL[] getAsURLArray();
 
     ClassPath plus(Collection<File> classPath);
-    
+
     ClassPath plus(ClassPath classPath);
 }

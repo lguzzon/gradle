@@ -5,20 +5,12 @@
             <thead>
                 <tr>
                     <td>Name</td>
-                    <td>Default with <literal>java</literal> plugin</td>
+                    <td>Default</td>
                 </tr>
             </thead>
             <tr>
-                <td>manifest</td>
-                <td/>
-            </tr>
-            <tr>
-                <td>destinationDir</td>
-                <td><literal>project.libsDir</literal></td>
-            </tr>
-            <tr>
-                <td>extension</td>
-                <td><literal>jar</literal></td>
+                <td>metadataCharset</td>
+                <td><literal>UTF-8</literal></td>
             </tr>
         </table>
     </section>
@@ -30,12 +22,6 @@
                     <td>Name</td>
                 </tr>
             </thead>
-            <tr>
-                <td>manifest</td>
-            </tr>
-            <tr>
-                <td>metaInf</td>
-            </tr>
         </table>
     </section>
 </section>

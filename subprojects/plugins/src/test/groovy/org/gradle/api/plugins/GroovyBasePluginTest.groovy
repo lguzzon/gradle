@@ -13,57 +13,48 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
- 
+
 package org.gradle.api.plugins
 
-import org.gradle.api.Project
-import org.gradle.api.internal.artifacts.configurations.Configurations
+import org.gradle.api.internal.project.ProjectInternal
 import org.gradle.api.reporting.ReportingExtension
 import org.gradle.api.tasks.compile.GroovyCompile
 import org.gradle.api.tasks.javadoc.Groovydoc
-import org.gradle.util.HelperUtil
+import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
+import org.gradle.util.TestUtil
+import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
-import static org.gradle.util.Matchers.dependsOn
-import static org.gradle.util.WrapUtil.toLinkedSet
-import static org.gradle.util.WrapUtil.toSet
-import static org.hamcrest.Matchers.*
-import static org.junit.Assert.*
 
-/**
- * @author Hans Dockter
- */
+import static org.gradle.api.tasks.TaskDependencyMatchers.dependsOn
+import static org.gradle.util.WrapUtil.toLinkedSet
+import static org.hamcrest.Matchers.*
+import static org.junit.Assert.assertThat
+import static org.junit.Assert.assertTrue
 
 class GroovyBasePluginTest {
-    private final Project project = HelperUtil.createRootProject()
-    private final GroovyBasePlugin groovyBasePlugin = new GroovyBasePlugin()
+    @Rule
+    public TestNameTestDirectoryProvider temporaryFolder = TestNameTestDirectoryProvider.newInstance()
+    private ProjectInternal project
 
-    @Test public void appliesTheJavaBasePluginToTheProject() {
-        groovyBasePlugin.apply(project)
+    @Before
+    void before() {
+        project = TestUtil.create(temporaryFolder).rootProject()
+        project.pluginManager.apply(GroovyBasePlugin)
+    }
 
+    @Test void appliesTheJavaBasePluginToTheProject() {
         assertTrue(project.getPlugins().hasPlugin(JavaBasePlugin));
     }
 
-    @Test public void addsGroovyConfigurationToTheProject() {
-        groovyBasePlugin.apply(project)
-        
-        def configuration = project.configurations.getByName(GroovyBasePlugin.GROOVY_CONFIGURATION_NAME)
-        assertThat(Configurations.getNames(configuration.extendsFrom, false), equalTo(toSet()))
-        assertFalse(configuration.visible)
-        assertFalse(configuration.transitive)
-    }
-
-    @Test public void appliesMappingsToNewSourceSet() {
-        groovyBasePlugin.apply(project)
-
-        def sourceSet = project.sourceSets.add('custom')
+    @Test void appliesMappingsToNewSourceSet() {
+        def sourceSet = project.sourceSets.create('custom')
         assertThat(sourceSet.groovy.displayName, equalTo("custom Groovy source"))
         assertThat(sourceSet.groovy.srcDirs, equalTo(toLinkedSet(project.file("src/custom/groovy"))))
     }
 
-    @Test public void addsCompileTaskToNewSourceSet() {
-        groovyBasePlugin.apply(project)
-        
-        project.sourceSets.add('custom')
+    @Test void addsCompileTaskToNewSourceSet() {
+        project.sourceSets.create('custom')
 
         def task = project.tasks['compileCustomGroovy']
         assertThat(task, instanceOf(GroovyCompile.class))
@@ -71,17 +62,13 @@ class GroovyBasePluginTest {
         assertThat(task, dependsOn('compileCustomJava'))
     }
 
-    @Test public void dependenciesOfJavaPluginTasksIncludeGroovyCompileTasks() {
-        groovyBasePlugin.apply(project)
-
-        project.sourceSets.add('custom')
+    @Test void dependenciesOfJavaPluginTasksIncludeGroovyCompileTasks() {
+        project.sourceSets.create('custom')
         def task = project.tasks['customClasses']
         assertThat(task, dependsOn(hasItem('compileCustomGroovy')))
     }
-   
-    @Test public void configuresAdditionalTasksDefinedByTheBuildScript() {
-        groovyBasePlugin.apply(project)
 
+    @Test void configuresAdditionalTasksDefinedByTheBuildScript() {
         def task = project.task('otherGroovydoc', type: Groovydoc)
         assertThat(task.destinationDir, equalTo(new File(project.docsDir, 'groovydoc')))
         assertThat(task.docTitle, equalTo(project.extensions.getByType(ReportingExtension).apiDocTitle))

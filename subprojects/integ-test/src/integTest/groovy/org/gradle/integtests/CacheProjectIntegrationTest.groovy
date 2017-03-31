@@ -16,25 +16,25 @@
 
 package org.gradle.integtests
 
-import org.gradle.api.internal.artifacts.ivyservice.DefaultCacheLockingManager
-import org.gradle.groovy.scripts.ScriptSource
-import org.gradle.groovy.scripts.UriScriptSource
+import org.gradle.api.internal.artifacts.ivyservice.CacheLayout
+import org.gradle.api.internal.hash.DefaultFileHasher
+import org.gradle.api.internal.hash.FileHasher
 import org.gradle.integtests.fixtures.AbstractIntegrationTest
-import org.gradle.integtests.fixtures.HttpServer
-import org.gradle.integtests.fixtures.MavenRepository
+import org.gradle.internal.hash.HashUtil
+import org.gradle.test.fixtures.file.TestFile
+import org.gradle.test.fixtures.server.http.HttpServer
+import org.gradle.test.fixtures.server.http.MavenHttpRepository
 import org.gradle.util.GradleVersion
-import org.gradle.util.TestFile
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 
 import static org.junit.Assert.assertEquals
 
-/**
- * @author Hans Dockter
- */
 public class CacheProjectIntegrationTest extends AbstractIntegrationTest {
     static final String TEST_FILE = "build/test.txt"
+
+    final FileHasher fileHasher = new DefaultFileHasher()
 
     @Rule public final HttpServer server = new HttpServer()
 
@@ -45,30 +45,36 @@ public class CacheProjectIntegrationTest extends AbstractIntegrationTest {
     TestFile classFile
     TestFile artifactsCache
 
-    MavenRepository repo
+    MavenHttpRepository repo
 
     @Before
     public void setUp() {
         // Use own home dir so we don't blast the shared one when we run with -C rebuild
-        distribution.requireOwnUserHomeDir()
+        executer.requireOwnGradleUserHomeDir()
 
         String version = GradleVersion.current().version
-        projectDir = distribution.getTestDir().file("project")
+        projectDir = file("project")
         projectDir.mkdirs()
-        userHomeDir = distribution.getUserHomeDir()
+        userHomeDir = executer.gradleUserHomeDir
         buildFile = projectDir.file('build.gradle')
-        ScriptSource source = new UriScriptSource("build file", buildFile)
-        propertiesFile = userHomeDir.file("caches/$version/scripts/$source.className/ProjectScript/no_buildscript/cache.properties")
-        classFile = userHomeDir.file("caches/$version/scripts/$source.className/ProjectScript/no_buildscript/classes/${source.className}.class")
-        artifactsCache = projectDir.file(".gradle/$version/taskArtifacts/taskArtifacts.bin")
 
-        def repoDir = file("repo")
-        repo = maven(repoDir)
-        server.allowGet("/repo", repo.rootDir)
-        repo.module("commons-io", "commons-io", "1.4").publish()
-        repo.module("commons-lang", "commons-lang", "2.6").publish()
+        artifactsCache = projectDir.file(".gradle/$version/taskHistory/taskHistory.bin")
+
+        repo = new MavenHttpRepository(server, mavenRepo)
+
+        repo.module("commons-io", "commons-io", "1.4").publish().allowAll()
+        repo.module("commons-lang", "commons-lang", "2.6").publish().allowAll()
 
         server.start()
+    }
+
+    private void updateCaches() {
+        String version = GradleVersion.current().version
+        def hash = HashUtil.compactStringFor(fileHasher.hash(buildFile))
+        String dirName = userHomeDir.file("caches/$version/scripts/$hash/proj").list()[0]
+        String baseDir = "caches/$version/scripts/$hash/proj/$dirName"
+        propertiesFile = userHomeDir.file("$baseDir/cache.properties")
+        classFile = userHomeDir.file("$baseDir/classes/_BuildScript_.class")
     }
 
     @Test
@@ -86,7 +92,7 @@ public class CacheProjectIntegrationTest extends AbstractIntegrationTest {
         classFileSnapshot = classFile.snapshot()
 
         testBuild("newTask", "I am new", "--recompile-scripts")
-        classFile.assertHasChangedSince(classFileSnapshot)
+        classFile.assertContentsHaveNotChangedSince(classFileSnapshot)
     }
 
     @Test
@@ -120,19 +126,6 @@ public class CacheProjectIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    public void "does not rebuild artifact cache when run with --cache rebuild"() {
-        createLargeBuildScript()
-        testBuild("hello1", "Hello 1")
-
-        TestFile dependenciesCache = findDependencyCacheDir()
-        assert dependenciesCache.isDirectory() && dependenciesCache.listFiles().length > 0
-
-        modifyLargeBuildScript()
-        testBuild("newTask", "I am new", "-Crebuild")
-        assert dependenciesCache.isDirectory() && dependenciesCache.listFiles().length > 0
-    }
-
-    @Test
     public void "does not rebuild artifact cache when run with --rerun-tasks"() {
         createLargeBuildScript()
         testBuild("hello1", "Hello 1")
@@ -146,14 +139,14 @@ public class CacheProjectIntegrationTest extends AbstractIntegrationTest {
     }
 
     private TestFile findDependencyCacheDir() {
-        def cacheVersion = DefaultCacheLockingManager.CACHE_LAYOUT_VERSION
-        def resolverArtifactCache = new TestFile(userHomeDir.file("caches/artifacts-${cacheVersion}/filestore"))
+        def resolverArtifactCache = new TestFile(userHomeDir.file("caches/${CacheLayout.ROOT.getKey()}/${CacheLayout.FILE_STORE.getKey()}"))
         return resolverArtifactCache.file("commons-io/commons-io/")
     }
 
     private def testBuild(String taskName, String expected, String... args) {
         executer.inDirectory(projectDir).withTasks(taskName).withArguments(args).run()
         assertEquals(expected, projectDir.file(TEST_FILE).text)
+        updateCaches()
         classFile.assertIsFile()
         propertiesFile.assertIsFile()
         artifactsCache.assertIsFile()
@@ -167,7 +160,7 @@ public class CacheProjectIntegrationTest extends AbstractIntegrationTest {
         String content = """
 repositories {
     maven{
-        url "http://localhost:${server.port}/repo"
+        url "${repo.uri}"
     }
 }
 configurations { compile }

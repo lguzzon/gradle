@@ -1,5 +1,5 @@
 /*
- * Copyright 2011 the original author or authors.
+ * Copyright 2013 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,40 +16,28 @@
 
 package org.gradle.tooling.internal.gradle;
 
-import org.gradle.tooling.internal.protocol.ProjectVersion3;
-import org.gradle.tooling.model.DomainObjectSet;
-import org.gradle.tooling.model.GradleProject;
-import org.gradle.tooling.model.GradleTask;
-import org.gradle.tooling.model.internal.ImmutableDomainObjectSet;
-
 import java.io.File;
 import java.io.Serializable;
+import java.util.Collection;
 import java.util.LinkedList;
 import java.util.List;
 
-/**
- * @author: Szczepan Faber, created at: 7/27/11
- */
-public class DefaultGradleProject implements ProjectVersion3, GradleProject, Serializable {
-
+public class DefaultGradleProject<T> implements Serializable, GradleProjectIdentity {
+    private DefaultGradleScript buildScript = new DefaultGradleScript();
+    private File buildDirectory;
+    private File projectDirectory;
+    private List<T> tasks = new LinkedList<T>();
     private String name;
     private String description;
-    private String path;
-    private GradleProject parent;
-    private List<? extends GradleProject> children = new LinkedList<GradleProject>();
-    private List<GradleTask> tasks = new LinkedList<GradleTask>();
-
-    public DefaultGradleProject() {}
-
-    public DefaultGradleProject(String path) {
-        this.path = path;
-    }
+    private DefaultProjectIdentifier projectIdentifier;
+    private DefaultGradleProject<T> parent;
+    private List<? extends DefaultGradleProject<T>> children = new LinkedList<DefaultGradleProject<T>>();
 
     public String getName() {
         return name;
     }
 
-    public DefaultGradleProject setName(String name) {
+    public DefaultGradleProject<T> setName(String name) {
         this.name = name;
         return this;
     }
@@ -58,57 +46,58 @@ public class DefaultGradleProject implements ProjectVersion3, GradleProject, Ser
         return description;
     }
 
-    public DefaultGradleProject setDescription(String description) {
+    public DefaultGradleProject<T> setDescription(String description) {
         this.description = description;
         return this;
     }
 
-    public GradleProject getParent() {
+    public DefaultGradleProject<T> getParent() {
         return parent;
     }
 
-    public DefaultGradleProject setParent(GradleProject parent) {
+    public DefaultGradleProject<T> setParent(DefaultGradleProject<T> parent) {
         this.parent = parent;
         return this;
     }
 
-    public DomainObjectSet<? extends GradleProject> getChildren() {
-        return new ImmutableDomainObjectSet<GradleProject>(children);
+    public Collection<? extends DefaultGradleProject<T>> getChildren() {
+        return children;
     }
 
-    public DefaultGradleProject setChildren(List<? extends GradleProject> children) {
+    public DefaultGradleProject<T> setChildren(List<? extends DefaultGradleProject<T>> children) {
         this.children = children;
         return this;
     }
 
-    public DomainObjectSet<GradleTask> getTasks() {
-        return new ImmutableDomainObjectSet<GradleTask>(tasks);
-    }
-
-    public DefaultGradleProject setTasks(List<GradleTask> tasks) {
-        this.tasks = tasks;
-        return this;
-    }
-
     public String getPath() {
-        return path;
+        return projectIdentifier.getProjectPath();
     }
 
-    public DefaultGradleProject setPath(String path) {
-        this.path = path;
+    public DefaultProjectIdentifier getProjectIdentifier() {
+        return projectIdentifier;
+    }
+
+    @Override
+    public String getProjectPath() {
+        return projectIdentifier.getProjectPath();
+    }
+
+    @Override
+    public File getRootDir() {
+        return projectIdentifier.getBuildIdentifier().getRootDir();
+    }
+
+    public DefaultGradleProject<T> setProjectIdentifier(DefaultProjectIdentifier projectIdentifier) {
+        this.projectIdentifier = projectIdentifier;
         return this;
     }
 
-    public File getProjectDirectory() {
-        throw new RuntimeException("ProjectVersion3 methods are deprecated.");
-    }
-
-    public GradleProject findByPath(String path) {
-        if (path.equals(this.path)) {
+    public DefaultGradleProject<T> findByPath(String path) {
+        if (path.equals(this.getPath())) {
             return this;
         }
-        for (GradleProject child : children) {
-            GradleProject found = child.findByPath(path);
+        for (DefaultGradleProject<T> child : children) {
+            DefaultGradleProject<T> found = child.findByPath(path);
             if (found != null) {
                 return found;
             }
@@ -119,8 +108,38 @@ public class DefaultGradleProject implements ProjectVersion3, GradleProject, Ser
 
     public String toString() {
         return "GradleProject{"
-                + "path='" + path + '\''
-                + "tasks='" + tasks + '\''
-                + '}';
+            + "path='" + getPath() + '\''
+            + '}';
+    }
+
+    public Collection<T> getTasks() {
+        return tasks;
+    }
+
+    public DefaultGradleProject<T> setTasks(List<T> tasks) {
+        this.tasks = tasks;
+        return this;
+    }
+
+    public File getBuildDirectory() {
+        return buildDirectory;
+    }
+
+    public DefaultGradleProject<T> setBuildDirectory(File buildDirectory) {
+        this.buildDirectory = buildDirectory;
+        return this;
+    }
+
+    public File getProjectDirectory() {
+        return projectDirectory;
+    }
+
+    public DefaultGradleProject<T> setProjectDirectory(File projectDirectory) {
+        this.projectDirectory = projectDirectory;
+        return this;
+    }
+
+    public DefaultGradleScript getBuildScript() {
+        return buildScript;
     }
 }

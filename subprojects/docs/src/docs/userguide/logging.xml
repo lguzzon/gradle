@@ -13,10 +13,10 @@
   ~ See the License for the specific language governing permissions and
   ~ limitations under the License.
   -->
-<chapter id='logging' xmlns:xi="http://www.w3.org/2001/XInclude">
+<chapter id='logging'>
     <title>Logging</title>
     <para>The log is the main 'UI' of a build tool. If it is too verbose, real warnings and problems are easily hidden
-        by this. On the other hand you need the relevant information for figuring out if things have gone wrong. Gradle
+        by this. On the other hand you need relevant information for figuring out if things have gone wrong. Gradle
         defines 6 log levels, as shown in <xref linkend="logLevels"/>. There are two Gradle-specific log levels, in
         addition to the ones you might normally see. Those levels are <emphasis>QUIET</emphasis> and
         <emphasis>LIFECYCLE</emphasis>. The latter is the default, and is used to report build progress.
@@ -54,7 +54,7 @@
             <td>Debug messages</td>
         </tr>
     </table>
-    <section id='sec:choosing_a_log_level'>
+    <section id="sec:choosing_a_log_level">
         <title>Choosing a log level</title>
         <para>You can use the command line switches shown in <xref linkend='logLevelCommandLineOptions'/> to choose
             different log levels. In <xref linkend='stacktraces'/> you find the command line switches which affect
@@ -74,23 +74,28 @@
             </tr>
             <tr>
                 <td>
-                    <literal>-q</literal>
+                    <literal>-q</literal> or <literal>--quiet</literal>
                 </td>
                 <td>QUIET and higher</td>
             </tr>
             <tr>
                 <td>
-                    <literal>-i</literal>
+                    <literal>-w</literal> or <literal>--warn</literal>
+                </td>
+                <td>WARN and higher</td>
+            </tr>
+            <tr>
+                <td>
+                    <literal>-i</literal> or <literal>--info</literal>
                 </td>
                 <td>INFO and higher</td>
             </tr>
             <tr>
                 <td>
-                    <literal>-d</literal>
+                    <literal>-d</literal> or <literal>--debug</literal>
                 </td>
                 <td>DEBUG and higher (that is, all log messages)</td>
             </tr>
-
         </table>
         <table id='stacktraces'>
             <title>Stacktrace command-line options</title>
@@ -103,29 +108,32 @@
             <tr>
                 <td>No stacktrace options</td>
                 <td>No stacktraces are printed to the console in case of a build error (e.g. a compile error). Only in
-                    case of internal exceptions will stacktraces be printed. If the loglevel option <literal>-d</literal>
+                    case of internal exceptions will stacktraces be printed. If the <literal>DEBUG</literal> log level
                     is chosen, truncated stacktraces are always printed.
                 </td>
             </tr>
             <tr>
                 <td>
-                    <literal>-s</literal>
+                    <literal>-s</literal> or <literal>--stacktrace</literal>
                 </td>
                 <td>Truncated stacktraces are printed. We recommend this over full stacktraces. Groovy full stacktraces
                     are extremely verbose (Due to the underlying dynamic invocation mechanisms. Yet they usually do not
                     contain relevant information for what has gone wrong in <emphasis>your</emphasis> code.)
+                    This option renders stacktraces for deprecation warnings.
                 </td>
             </tr>
             <tr>
                 <td>
-                    <literal>-S</literal>
+                    <literal>-S</literal> or <literal>--full-stacktrace</literal>
                 </td>
-                <td>The full stacktraces are printed out.</td>
+                <td>The full stacktraces are printed out.
+                    This option renders stacktraces for deprecation warnings.
+                </td>
             </tr>
 
         </table>
     </section>
-    <section id='sec:sending_your_own_log_messages'>
+    <section id="sec:sending_your_own_log_messages">
         <title>Writing your own log messages</title>
         <para>A simple option for logging in your build file is to write messages to standard output. Gradle redirects
             anything written to standard output to it's logging system at the <literal>QUIET</literal> log level.</para>
@@ -149,7 +157,7 @@
         </sample>
     </section>
 
-    <section id='sec:external_tools'>
+    <section id="sec:external_tools">
         <title>Logging from external tools and libraries</title>
         <para>Internally, Gradle uses Ant and Ivy. Both have their own logging system. Gradle redirects their logging
             output into the Gradle logging system. There is a 1:1 mapping from the Ant/Ivy log levels to the Gradle log
@@ -183,8 +191,9 @@
         <para>You can replace much of Gradle's logging UI with your own. You might do this, for example, if you want to
             customize the UI in some way - to log more or less information, or to change the formatting. You replace
             the logging using the <apilink class="org.gradle.api.invocation.Gradle" method="useLogger"/> method. This
-            is accessible from a build script, or an init script, or via the embedding API. Below is an example
-            init script which changes how task execution and build completion is logged.
+            is accessible from a build script, or an init script, or via the embedding API.
+            Note that this completely disables Gradle's default output.
+            Below is an example init script which changes how task execution and build completion is logged.
         </para>
         <sample id="custom_logging_ui" dir="userguide/initScripts/customLogger" title="Customizing what Gradle logs">
             <sourcefile file="init.gradle"/>

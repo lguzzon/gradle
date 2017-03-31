@@ -15,79 +15,96 @@
  */
 package org.gradle.initialization
 
-import org.gradle.GradleLauncher
 import org.gradle.StartParameter
-import org.gradle.cli.CommandLineConverter
+import org.gradle.internal.classpath.ClassPath
+import org.gradle.internal.event.ListenerManager
+import org.gradle.internal.logging.progress.ProgressLoggerFactory
+import org.gradle.internal.logging.services.LoggingServiceRegistry
+import org.gradle.internal.scan.BuildScanRequest
+import org.gradle.internal.service.DefaultServiceRegistry
+import org.gradle.internal.service.scopes.BuildSessionScopeServices
+import org.gradle.internal.service.scopes.GlobalScopeServices
+import org.gradle.internal.service.scopes.GradleUserHomeScopeServiceRegistry
+import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
+import org.gradle.testfixtures.internal.NativeServicesTestFixture
+import org.junit.Rule
 import spock.lang.Specification
 
 class DefaultGradleLauncherFactoryTest extends Specification {
-    final CommandLineConverter<StartParameter> parameterConverter = Mock()
-    final DefaultGradleLauncherFactory factory = new DefaultGradleLauncherFactory();
-
-    def setup() {
-        factory.setCommandLineConverter(parameterConverter);
-    }
+    @Rule
+    TestNameTestDirectoryProvider tmpDir = new TestNameTestDirectoryProvider()
+    def startParameter = new StartParameter()
+    final def globalServices = new DefaultServiceRegistry(LoggingServiceRegistry.newEmbeddableLogging(), NativeServicesTestFixture.getInstance()).addProvider(new GlobalScopeServices(false))
+    final def userHomeServices = globalServices.get(GradleUserHomeScopeServiceRegistry).getServicesFor(tmpDir.createDir("user-home"))
+    final def sessionServices = new BuildSessionScopeServices(userHomeServices, startParameter, ClassPath.EMPTY)
+    final def listenerManager = globalServices.get(ListenerManager)
+    final def progressLoggerFactory = globalServices.get(ProgressLoggerFactory)
+    final def userHomeScopeServiceRegistry = globalServices.get(GradleUserHomeScopeServiceRegistry)
+    final def factory = new DefaultGradleLauncherFactory(listenerManager, progressLoggerFactory, userHomeScopeServiceRegistry);
 
     def cleanup() {
-        GradleLauncher.injectCustomFactory(null);
+        sessionServices.close()
+        userHomeScopeServiceRegistry.release(userHomeServices)
+        globalServices.close()
     }
 
-    def registersSelfWithGradleLauncher() {
-        StartParameter startParameter = new StartParameter();
-
-        when:
-        def result = GradleLauncher.createStartParameter('a')
-
-        then:
-        result == startParameter
-        1 * parameterConverter.convert(['a']) >> startParameter
-    }
-
-    def newInstanceWithStartParameterAndRequestMetaData() {
-        StartParameter startParameter = new StartParameter();
-        BuildRequestMetaData metaData = new DefaultBuildRequestMetaData(System.currentTimeMillis());
+    def "makes services from build context available as build scoped services"() {
+        def cancellationToken = Stub(BuildCancellationToken)
+        def eventConsumer = Stub(BuildEventConsumer)
+        def requestContext = Stub(BuildRequestContext) {
+            getCancellationToken() >> cancellationToken
+            getEventConsumer() >> eventConsumer
+        }
 
         expect:
-        def launcher = factory.newInstance(startParameter, metaData)
+        def launcher = factory.newInstance(startParameter, requestContext, sessionServices)
         launcher.gradle.parent == null
         launcher.gradle.startParameter == startParameter
-        launcher.gradle.services.get(BuildRequestMetaData) == metaData
+        launcher.gradle.services.get(BuildRequestMetaData) == requestContext
+        launcher.gradle.services.get(BuildCancellationToken) == cancellationToken
+        launcher.gradle.services.get(BuildEventConsumer) == eventConsumer
     }
 
-    def newInstanceWithStartParameterWhenNoBuildRunning() {
-        StartParameter startParameter = new StartParameter();
+    def "reuses build context services for nested build"() {
+        def cancellationToken = Stub(BuildCancellationToken)
+        def clientMetaData = Stub(BuildClientMetaData)
+        def eventConsumer = Stub(BuildEventConsumer)
+        def requestContext = Stub(BuildRequestContext) {
+            getCancellationToken() >> cancellationToken
+            getClient() >> clientMetaData
+            getEventConsumer() >> eventConsumer
+        }
 
-        expect:
-        def launcher = factory.newInstance(startParameter)
-        launcher.gradle.parent == null
-        launcher.gradle.services.get(BuildRequestMetaData) instanceof DefaultBuildRequestMetaData
-    }
-
-    def newInstanceWithStartParameterWhenBuildRunning() {
-        StartParameter startParameter = new StartParameter();
-        BuildClientMetaData clientMetaData = Mock()
-        BuildRequestMetaData requestMetaData = new DefaultBuildRequestMetaData(clientMetaData, 90)
-        DefaultGradleLauncher parent = factory.newInstance(startParameter, requestMetaData);
+        def parent = factory.newInstance(startParameter, requestContext, sessionServices);
         parent.buildListener.buildStarted(parent.gradle)
 
         expect:
-        def launcher = factory.newInstance(startParameter)
+        def launcher = parent.gradle.services.get(NestedBuildFactory).nestedInstance(startParameter)
         launcher.gradle.parent == parent.gradle
+
         def request = launcher.gradle.services.get(BuildRequestMetaData)
         request instanceof DefaultBuildRequestMetaData
-        request != requestMetaData
+        request != requestContext
         request.client == clientMetaData
+        launcher.gradle.services.get(BuildCancellationToken) == cancellationToken
+        launcher.gradle.services.get(BuildEventConsumer) == eventConsumer
     }
 
-    def createStartParameter() {
-        StartParameter startParameter = new StartParameter();
-
+    def "marks BuildScanRequest as requested when build scan startparameter is set"() {
+        given:
+        startParameter.setBuildScan(true)
         when:
-        def result = factory.createStartParameter('a')
-
+        def launcher = factory.newInstance(startParameter, Stub(BuildRequestContext), sessionServices)
         then:
-        result == startParameter
-        1 * parameterConverter.convert(['a']) >> startParameter
+        launcher.gradle.getServices().get(BuildScanRequest).collectRequested()
     }
 
+    def "marks BuildScanRequest as disabled when no build scan startparameter is set"() {
+        given:
+        startParameter.setNoBuildScan(true)
+        when:
+        def launcher = factory.newInstance(startParameter, Stub(BuildRequestContext), sessionServices)
+        then:
+        launcher.gradle.getServices().get(BuildScanRequest).collectDisabled()
+    }
 }

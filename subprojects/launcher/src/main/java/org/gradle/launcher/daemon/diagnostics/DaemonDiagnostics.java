@@ -23,8 +23,6 @@ import java.io.Serializable;
 
 /**
  * Contains some daemon diagnostics information useful for the client.
- * <p>
- * by Szczepan Faber, created at: 2/28/12
  */
 public class DaemonDiagnostics implements Serializable {
 
@@ -61,7 +59,7 @@ public class DaemonDiagnostics implements Serializable {
             String tail = GFileUtils.tail(getDaemonLog(), TAIL_SIZE);
             return formatTail(tail);
         } catch (GFileUtils.TailReadingException e) {
-            return "Unable to read the tail from file: " + getDaemonLog().getAbsolutePath();
+            return "Unable to read from the daemon log file: " + getDaemonLog().getAbsolutePath() + ", because of: " + e.getCause();
         }
     }
 

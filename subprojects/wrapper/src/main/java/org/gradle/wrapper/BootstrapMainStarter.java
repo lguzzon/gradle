@@ -15,14 +15,12 @@
  */
 package org.gradle.wrapper;
 
+import java.io.Closeable;
 import java.io.File;
 import java.lang.reflect.Method;
 import java.net.URL;
 import java.net.URLClassLoader;
 
-/**
- * @author Hans Dockter
- */
 public class BootstrapMainStarter {
     public void start(String[] args, File gradleHome) throws Exception {
         File gradleJar = findLauncherJar(gradleHome);
@@ -31,6 +29,9 @@ public class BootstrapMainStarter {
         Class<?> mainClass = contextClassLoader.loadClass("org.gradle.launcher.GradleMain");
         Method mainMethod = mainClass.getMethod("main", String[].class);
         mainMethod.invoke(null, new Object[]{args});
+        if (contextClassLoader instanceof Closeable) {
+            ((Closeable) contextClassLoader).close();
+        }
     }
 
     private File findLauncherJar(File gradleHome) {

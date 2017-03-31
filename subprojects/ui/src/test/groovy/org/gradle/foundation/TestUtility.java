@@ -15,10 +15,12 @@
  */
 package org.gradle.foundation;
 
-import junit.framework.Assert;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
-import org.gradle.api.tasks.TaskContainer;
+import org.gradle.api.internal.project.DefaultProjectTaskLister;
+import org.gradle.api.internal.project.ProjectInternal;
+import org.gradle.api.internal.project.ProjectTaskLister;
+import org.gradle.api.internal.tasks.TaskContainerInternal;
 import org.gradle.foundation.ipc.gradle.ExecuteGradleCommandServerProtocol;
 import org.gradle.gradleplugin.foundation.DOM4JSerializer;
 import org.gradle.gradleplugin.foundation.GradlePluginLord;
@@ -26,8 +28,11 @@ import org.gradle.gradleplugin.foundation.request.ExecutionRequest;
 import org.gradle.gradleplugin.foundation.request.RefreshTaskListRequest;
 import org.gradle.gradleplugin.foundation.request.Request;
 import org.gradle.internal.UncheckedException;
+import org.gradle.internal.service.ServiceRegistry;
+import org.gradle.internal.service.ServiceRegistryBuilder;
 import org.jmock.Expectations;
 import org.jmock.integration.junit4.JUnit4Mockery;
+import org.junit.Assert;
 
 import javax.swing.filechooser.FileFilter;
 import java.io.File;
@@ -38,8 +43,6 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Utility class for initializing various test objects related.
- *
- * @author mhunsicker
  */
 public class TestUtility {
     private static long uniqueNameCounter = 1; //used to make unique names for JMock objects.
@@ -49,9 +52,13 @@ public class TestUtility {
      *
      * Note: depth is 0 for a root project. 1 for a root project's subproject, etc.
      */
-    public static Project createMockProject(JUnit4Mockery context, final String name, final String buildFilePath, final int depth, Project[] subProjectArray, Task[] tasks, String[] defaultTasks,
-                                            Project... dependsOnProjects) {
-        final Project project = context.mock(Project.class, "[project]_" + name + '_' + uniqueNameCounter++);
+    public static Project createMockProject(JUnit4Mockery context, final String name, final String buildFilePath, final int depth, Project[] subProjectArray, Task[] tasks, String[] defaultTasks) {
+        final ProjectInternal project = context.mock(ProjectInternal.class, "[project]_" + name + '_' + uniqueNameCounter++);
+        final ServiceRegistry services = ServiceRegistryBuilder.builder().provider(new Object() {
+            ProjectTaskLister createTaskLister() {
+                return new DefaultProjectTaskLister();
+            }
+        }).build();
 
         context.checking(new Expectations() {{
             allowing(project).getName();
@@ -62,22 +69,23 @@ public class TestUtility {
             will(returnValue(new File(buildFilePath)));
             allowing(project).getDepth();
             will(returnValue(depth));
+            allowing(project).getServices();
+            will(returnValue(services));
         }});
 
         attachSubProjects(context, project, subProjectArray);
         attachTasks(context, project, tasks);
         assignDefaultTasks(context, project, defaultTasks);
-        assignDependsOnProjects(context, project, dependsOnProjects);
 
         return project;
     }
 
     /**
-     * This makes the sub projects children of the parent project. If you call this repeatedly on the same parentProject, any previous sub projects will be replaced with the new ones.
+     * This makes the sub projects children of the root project. If you call this repeatedly on the same parentProject, any previous sub projects will be replaced with the new ones.
      *
      * @param context the mock context
      * @param parentProject where to attach the sub projects. This must be a mock object.
-     * @param subProjectArray the sub projects to attach to the parent. These must be mock objects. Pass in null or an empty array to set no sub projects.
+     * @param subProjectArray the sub projects to attach to the root. These must be mock objects. Pass in null or an empty array to set no sub projects.
      */
     public static void attachSubProjects(JUnit4Mockery context, final Project parentProject, Project... subProjectArray) {
         final Map<String, Project> childProjects = new LinkedHashMap<String, Project>();
@@ -115,19 +123,20 @@ public class TestUtility {
     }
 
     /**
-     * This makes the tasks children of the parent project. If you call this repeatedly on the same parentProject, any previous tasks will be replaced with the new ones.
+     * This makes the tasks children of the root project. If you call this repeatedly on the same parentProject, any previous tasks will be replaced with the new ones.
      *
      * @param context the mock context
      * @param parentProject where to attach the sub projects. This must be a mock object.
-     * @param taskArray the tasks to attach to the parent. these must be mock objects. Pass in null or an empty array to set no tasks.
+     * @param taskArray the tasks to attach to the root. these must be mock objects. Pass in null or an empty array to set no tasks.
      */
     public static void attachTasks(JUnit4Mockery context, final Project parentProject, Task... taskArray) {
         //first, make our project return our task container
-        final TaskContainer taskContainer = context.mock(TaskContainer.class, "[taskcontainer]_" + parentProject.getName() + '_' + uniqueNameCounter++);
+        final TaskContainerInternal taskContainer = context.mock(TaskContainerInternal.class, "[taskcontainer]_" + parentProject.getName() + '_' + uniqueNameCounter++);
 
         context.checking(new Expectations() {{
             allowing(parentProject).getTasks();
             will(returnValue(taskContainer));
+            allowing(taskContainer).realize();
         }});
 
         final Set<Task> set
@@ -136,7 +145,7 @@ public class TestUtility {
         if (taskArray != null && taskArray.length != 0) {
             set.addAll(Arrays.asList(taskArray));
 
-            //set the parent project of the tasks
+            //set the root project of the tasks
             for (int index = 0; index < taskArray.length; index++) {
                 final Task task = taskArray[index];
 
@@ -164,21 +173,6 @@ public class TestUtility {
         context.checking(new Expectations() {{
             allowing(project).getDefaultTasks();
             will(returnValue(defaultTaskList));
-        }});
-    }
-
-    private static void assignDependsOnProjects(JUnit4Mockery context, final Project project, final Project... dependsOnProjects) {
-        final Set<Project> set
-                = new LinkedHashSet<Project>();   //using a LinkedHashSet rather than TreeSet (which is what gradle uses) so I don't have to deal with compareTo() being called on mock objects.
-
-        if (dependsOnProjects != null && dependsOnProjects.length != 0) {
-            set.addAll(Arrays.asList(dependsOnProjects));
-        }
-
-        //populate the subprojects (this may be an empty set)
-        context.checking(new Expectations() {{
-            allowing(project).getDependsOnProjects();
-            will(returnValue(set));
         }});
     }
 
@@ -301,8 +295,6 @@ public class TestUtility {
         }
     }
 
-    //wrapper around File.createTempFile just so we don't have to deal with the exception for tests.
-
     /**
      * This refreshes the projects but blocks until it is complete (its being executed in a separate process).
      *
@@ -317,6 +309,7 @@ public class TestUtility {
             }
 
             public void reportExecutionFinished(boolean wasSuccessful, String message, Throwable throwable) {
+                System.out.println(message);
             }
 
             public void reportTaskStarted(String message, float percentComplete) {
@@ -326,14 +319,13 @@ public class TestUtility {
             }
 
             public void reportLiveOutput(String message) {
+                System.out.println(message);
             }
         }, maximumWaitValue, maximumWaitUnits);
     }
 
     private static void refreshProjectsBlocking(GradlePluginLord gradlePluginLord, final ExecuteGradleCommandServerProtocol.ExecutionInteraction executionInteraction, int maximumWaitValue,
                                                 TimeUnit maximumWaitUnits) {
-        gradlePluginLord.startExecutionQueue();   //make sure its started
-
         final CountDownLatch complete = new CountDownLatch(1);
         final AtomicReference<String> errorOutput = new AtomicReference<String>();
 
@@ -393,8 +385,6 @@ public class TestUtility {
      */
     public static void executeBlocking(GradlePluginLord gradlePluginLord, String fullCommandLine, String displayName,
                                        final ExecuteGradleCommandServerProtocol.ExecutionInteraction executionInteraction, int maximumWaitSeconds) {
-        gradlePluginLord.startExecutionQueue();   //make sure its started
-
         final CountDownLatch complete = new CountDownLatch(1);
 
         GradlePluginLord.RequestObserver observer = new GradlePluginLord.RequestObserver() {

@@ -16,10 +16,9 @@
 
 package org.gradle.tooling.model.idea;
 
-import org.gradle.tooling.model.DomainObjectSet;
-import org.gradle.tooling.model.GradleProject;
-import org.gradle.tooling.model.HasGradleProject;
-import org.gradle.tooling.model.HierarchicalElement;
+import org.gradle.api.Incubating;
+import org.gradle.api.Nullable;
+import org.gradle.tooling.model.*;
 
 /**
  * Represents information about the IDEA module.
@@ -29,9 +28,29 @@ import org.gradle.tooling.model.HierarchicalElement;
 public interface IdeaModule extends HierarchicalElement, HasGradleProject {
 
     /**
+     * Returns the Java language settings for this element, or {@code null} if this element is not a Java element.
+     *
+     * @return The Java language settings.
+     * @throws UnsupportedMethodException For Gradle versions older than 2.11, where this method is not supported.
+     * @since 2.11
+     */
+    @Nullable @Incubating
+    IdeaJavaLanguageSettings getJavaLanguageSettings() throws UnsupportedMethodException;
+
+    /**
+     * Returns the name of the JDK.
+     *
+     * @return The name of the JDK.
+     * @since 3.4
+     */
+    @Incubating
+    String getJdkName() throws UnsupportedMethodException;
+
+    /**
      * All content roots. Most idea modules have a single content root.
      *
      * @return content roots
+     * @since 1.0-milestone-5
      */
     DomainObjectSet<? extends IdeaContentRoot> getContentRoots();
 
@@ -42,6 +61,7 @@ public interface IdeaModule extends HierarchicalElement, HasGradleProject {
      * See {@link HasGradleProject}
      *
      * @return associated gradle project
+     * @since 1.0-milestone-5
      */
     GradleProject getGradleProject();
 
@@ -50,6 +70,7 @@ public interface IdeaModule extends HierarchicalElement, HasGradleProject {
      * Alias to {@link #getProject()}
      *
      * @return idea project
+     * @since 1.0-milestone-5
      */
     IdeaProject getParent();
 
@@ -58,11 +79,14 @@ public interface IdeaModule extends HierarchicalElement, HasGradleProject {
      * Alias to {@link #getParent()}
      *
      * @return idea project
+     * @since 1.0-milestone-5
      */
     IdeaProject getProject();
 
     /**
-     * information about idea compiler output (output dirs, inheritance of output dir, etc.)
+     * Returns information about idea compiler output (output dirs, inheritance of output dir, etc.)
+     *
+     * @since 1.0-milestone-5
      */
     IdeaCompilerOutput getCompilerOutput();
 
@@ -70,6 +94,7 @@ public interface IdeaModule extends HierarchicalElement, HasGradleProject {
      * dependencies of this module (i.e. module dependencies, library dependencies, etc.)
      *
      * @return dependencies
+     * @since 1.0-milestone-5
      */
     DomainObjectSet<? extends IdeaDependency> getDependencies();
 }

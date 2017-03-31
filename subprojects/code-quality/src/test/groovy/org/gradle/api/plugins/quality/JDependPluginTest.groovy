@@ -15,21 +15,19 @@
  */
 package org.gradle.api.plugins.quality
 
-import org.gradle.api.Project
 import org.gradle.api.plugins.JavaBasePlugin
 import org.gradle.api.plugins.ReportingBasePlugin
 import org.gradle.api.tasks.SourceSet
-import org.gradle.util.HelperUtil
-import spock.lang.Specification
-import static org.gradle.util.Matchers.dependsOn
+import org.gradle.test.fixtures.AbstractProjectBuilderSpec
+
+import static org.gradle.api.tasks.TaskDependencyMatchers.dependsOn
 import static org.hamcrest.Matchers.*
 import static spock.util.matcher.HamcrestSupport.that
 
-class JDependPluginTest extends Specification {
-    Project project = HelperUtil.createRootProject()
+class JDependPluginTest extends AbstractProjectBuilderSpec {
 
     def setup() {
-        project.plugins.apply(JDependPlugin)
+        project.pluginManager.apply(JDependPlugin)
     }
 
     def "applies reporting-base plugin"() {
@@ -55,7 +53,7 @@ class JDependPluginTest extends Specification {
     }
 
     def "configures jdepend task for each source set"() {
-        project.plugins.apply(JavaBasePlugin)
+        project.pluginManager.apply(JavaBasePlugin)
         project.sourceSets {
             main
             test
@@ -80,7 +78,7 @@ class JDependPluginTest extends Specification {
     }
 
     def "configures any additional JDepend tasks"() {
-        def task = project.tasks.add("jdependCustom", JDepend)
+        def task = project.tasks.create("jdependCustom", JDepend)
 
         expect:
         task.description == null
@@ -90,7 +88,7 @@ class JDependPluginTest extends Specification {
     }
 
     def "adds jdepend tasks to check lifecycle task"() {
-        project.plugins.apply(JavaBasePlugin)
+        project.pluginManager.apply(JavaBasePlugin)
         project.sourceSets {
             main
             test
@@ -102,7 +100,7 @@ class JDependPluginTest extends Specification {
     }
 
     def "can customize settings via extension"() {
-        project.plugins.apply(JavaBasePlugin)
+        project.pluginManager.apply(JavaBasePlugin)
         project.sourceSets {
             main
             test
@@ -124,7 +122,7 @@ class JDependPluginTest extends Specification {
     }
 
     def "can customize any additional JDepend tasks via extension"() {
-        def task = project.tasks.add("jdependCustom", JDepend)
+        def task = project.tasks.create("jdependCustom", JDepend)
         project.jdepend {
             reportsDir = project.file("jdepend-reports")
         }
@@ -138,7 +136,7 @@ class JDependPluginTest extends Specification {
 
     def "can configure reporting"() {
         given:
-        project.plugins.apply(JavaBasePlugin)
+        project.pluginManager.apply(JavaBasePlugin)
         project.sourceSets {
             main
         }

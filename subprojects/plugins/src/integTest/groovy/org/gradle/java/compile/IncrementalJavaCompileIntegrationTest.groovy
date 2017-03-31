@@ -1,5 +1,5 @@
 /*
- * Copyright 2010 the original author or authors.
+ * Copyright 2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,109 +13,170 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.gradle.java.compile
 
-import org.junit.Rule
-import org.gradle.integtests.fixtures.TestResources
-import org.gradle.integtests.fixtures.GradleDistribution
-import org.gradle.integtests.fixtures.GradleDistributionExecuter
-import org.junit.Test
-import org.gradle.integtests.fixtures.ExecutionFailure
+import org.gradle.integtests.fixtures.AbstractIntegrationSpec
 
-class IncrementalJavaCompileIntegrationTest {
-    @Rule public final GradleDistribution distribution = new GradleDistribution()
-    @Rule public final GradleDistributionExecuter executer = new GradleDistributionExecuter()
-    @Rule public final TestResources resources = new TestResources()
+class IncrementalJavaCompileIntegrationTest extends AbstractIntegrationSpec implements IncrementalCompileMultiProjectTestFixture {
 
-    @Test
-    public void recompilesSourceWhenPropertiesChange() {
-        executer.withTasks('compileJava').run().assertTasksSkipped()
+    def "recompiles source when properties change"() {
+        given:
+        file('src/main/java/Test.java') << 'public class Test{}'
+        buildFile << '''
+            apply plugin: 'java'
+            sourceCompatibility = 1.7
+            compileJava.options.debug = true
+        '''.stripIndent()
 
-        distribution.testFile('build.gradle').text += '''
-            sourceCompatibility = 1.4
-'''
+        when:
+        succeeds ':compileJava'
 
-        executer.withTasks('compileJava').run().assertTasksSkipped()
+        then:
+        executedAndNotSkipped ':compileJava'
 
-        distribution.testFile('build.gradle').text += '''
-            compileJava.options.debug = false
-'''
+        when:
+        buildFile << 'sourceCompatibility = 1.6\n'
+        succeeds ':compileJava'
 
-        executer.withTasks('compileJava').run().assertTasksSkipped()
+        then:
+        executedAndNotSkipped ':compileJava'
 
-        executer.withTasks('compileJava').run().assertTasksSkipped(':compileJava')
+        when:
+        buildFile << 'compileJava.options.debug = false\n'
+        succeeds ':compileJava'
+
+        then:
+        executedAndNotSkipped ':compileJava'
+
+        when:
+        succeeds ':compileJava'
+
+        then:
+        skipped ':compileJava'
     }
 
-    @Test
-    public void recompilesDependentClasses() {
-        executer.withTasks("classes").run();
+    def "recompiles dependent classes"() {
+        given:
+        file('src/main/java/IPerson.java') << basicInterface
+        file('src/main/java/Person.java') << classImplementingBasicInterface
+        buildFile << 'apply plugin: "java"\n'
 
-        // Update interface, compile should fail
-        distribution.testFile('src/main/java/IPerson.java').assertIsFile().copyFrom(distribution.testFile('NewIPerson.java'))
-        
-        ExecutionFailure failure = executer.withTasks("classes").runWithFailure();
-        failure.assertHasDescription("Execution failed for task ':compileJava'.");
+        expect:
+        succeeds 'classes'
+
+        when: 'update interface, compile should fail'
+        file('src/main/java/IPerson.java').text = extendedInterface
+
+        then:
+        def failure = fails 'classes'
+        failure.assertHasDescription "Execution failed for task ':compileJava'."
     }
 
-    @Test
-    public void recompilesDependentClassesAcrossProjectBoundaries() {
-        executer.withTasks("app:classes").run();
+    def "recompiles dependent classes across project boundaries"() {
+        given:
+        file('lib/src/main/java/IPerson.java') << basicInterface
+        file('app/src/main/java/Person.java') << classImplementingBasicInterface
+        settingsFile << 'include "lib", "app"'
+        buildFile << '''
+            subprojects {
+                apply plugin: 'java'
+            }            
+            project(':app') {
+                dependencies {
+                    compile project(':lib')
+                }
+            }
+        '''.stripIndent()
 
-        // Update interface, compile should fail
-        distribution.testFile('lib/src/main/java/IPerson.java').assertIsFile().copyFrom(distribution.testFile('NewIPerson.java'))
+        expect:
+        succeeds 'app:classes'
 
-        ExecutionFailure failure = executer.withTasks("app:classes").runWithFailure();
-        failure.assertHasDescription("Execution failed for task ':app:compileJava'.");
+        when: 'update interface, compile should fail'
+        file('lib/src/main/java/IPerson.java').text = extendedInterface
+
+        then:
+        def failure = fails 'app:classes'
+        failure.assertHasDescription "Execution failed for task ':app:compileJava'."
     }
 
-    @Test
-    public void recompilesDependentClassesWhenUsingAntDepend() {
-        distribution.testFile("build.gradle").writelns(
-                "apply plugin: 'java'",
-                "compileJava.options.depend()"
-        );
-        writeShortInterface();
-        writeTestClass();
+    def "recompiles dependent classes when using ant depend"() {
+        given:
+        file('src/main/java/IPerson.java') << basicInterface
+        file('src/main/java/Person.java') << classImplementingBasicInterface
+        buildFile << '''
+            apply plugin: 'java'
+            compileJava.options.depend()
+        '''.stripIndent()
 
-        executer.withTasks("classes").run();
+        expect:
+        executer.expectDeprecationWarning() // incremental compiler
+        executer.expectDeprecationWarning() // ant
+        succeeds 'classes'
 
-        // file system time stamp may not see change without this wait
-        Thread.sleep(1000L);
+        and: 'file system time stamp may not see change without this wait'
+        sleep 1000
 
-        // Update interface, compile should fail because depend deletes old class
-        writeLongInterface();
-        ExecutionFailure failure = executer.withTasks("classes").runWithFailure();
-        failure.assertHasDescription("Execution failed for task ':compileJava'.");
+        when: 'update interface, compile should fail because depend deletes old class'
+        file('src/main/java/IPerson.java').text = extendedInterface
 
-        // assert that dependency caching is on
-        distribution.testFile("build/dependency-cache/dependencies.txt").assertExists();
+        then:
+        executer.expectDeprecationWarning() // incremental compiler
+        executer.expectDeprecationWarning() // ant
+        def failure = fails 'classes'
+        failure.assertHasDescription "Execution failed for task ':compileJava'."
+
+        and: 'assert that dependency caching is on'
+        file('build/dependency-cache/dependencies.txt').assertExists()
     }
 
-    private void writeShortInterface() {
-        distribution.testFile("src/main/java/IPerson.java").writelns(
-                "interface IPerson {",
-                "    String getName();",
-                "}"
-        );
+    def "task outcome is UP-TO-DATE when no recompilation necessary"() {
+        given:
+        libraryAppProjectWithIncrementalCompilation()
+
+        when:
+        succeeds appCompileJava
+
+        then:
+        executedAndNotSkipped appCompileJava
+
+        when:
+        writeUnusedLibraryClass()
+
+        then:
+        executer.withArgument('-i')
+        succeeds appCompileJava
+
+        and:
+        result.output.contains "None of the classes needs to be compiled!"
+        result.output.contains "${appCompileJava} UP-TO-DATE"
+        executedAndNotSkipped(libraryCompileJava)
     }
 
-    private void writeLongInterface() {
-        distribution.testFile("src/main/java/IPerson.java").writelns(
-                "interface IPerson {",
-                "    String getName();",
-                "    String getAddress();",
-                "}"
-        );
+    private String getBasicInterface() {
+        '''
+            interface IPerson {
+                String getName();
+            }
+        '''.stripIndent()
     }
 
-    private void writeTestClass() {
-        distribution.testFile("src/main/java/Person.java").writelns(
-                "public class Person implements IPerson {",
-                "    private final String name = \"never changes\";",
-                "    public String getName() {",
-                "        return name;\n" +
-                "    }",
-                "}"
-        );
+    private String getExtendedInterface() {
+        '''
+            interface IPerson {
+                String getName();
+                String getAddress();
+            }
+        '''.stripIndent()
+    }
+
+    private String getClassImplementingBasicInterface() {
+        '''
+            class Person implements IPerson {
+                public String getName() {
+                    return "name";
+                }
+            }
+        '''.stripIndent()
     }
 }

@@ -15,19 +15,18 @@
  */
 package org.gradle.tooling.model.eclipse;
 
-import org.gradle.tooling.model.DomainObjectSet;
-import org.gradle.tooling.model.ExternalDependency;
-import org.gradle.tooling.model.GradleProject;
-import org.gradle.tooling.model.HasGradleProject;
-
-import java.io.File;
+import org.gradle.api.Incubating;
+import org.gradle.api.Nullable;
+import org.gradle.tooling.model.*;
 
 /**
  * The complete model of an Eclipse project.
  *
  * <p>Note that the names of Eclipse projects are unique, and can be used as an identifier for the project.
+ *
+ * @since 1.0-milestone-3
  */
-public interface EclipseProject extends HierarchicalEclipseProject, HasGradleProject {
+public interface EclipseProject extends HierarchicalEclipseProject {
     /**
      * {@inheritDoc}
      */
@@ -39,8 +38,18 @@ public interface EclipseProject extends HierarchicalEclipseProject, HasGradlePro
     DomainObjectSet<? extends EclipseProject> getChildren();
 
     /**
+     * Returns the Java source settings for this project.
+     *
+     * @return the settings for Java sources or {@code null} if not a Java element.
+     * @throws UnsupportedMethodException For Gradle versions older than 2.10, where this method is not supported.
+     * @since 2.10
+     */
+    @Nullable @Incubating
+    EclipseJavaSourceSettings getJavaSourceSettings() throws UnsupportedMethodException;
+
+    /**
      * The gradle project that is associated with this project.
-     * Typically, a single eclipse project corresponds to a single gradle project.
+     * Typically, a single Eclipse project corresponds to a single gradle project.
      * <p>
      * See {@link HasGradleProject}
      *
@@ -53,14 +62,61 @@ public interface EclipseProject extends HierarchicalEclipseProject, HasGradlePro
      * Returns the external dependencies which make up the classpath of this project.
      *
      * @return The dependencies. Returns an empty set if the project has no external dependencies.
+     * @since 1.0-milestone-3
      */
-    DomainObjectSet<? extends ExternalDependency> getClasspath();
+    DomainObjectSet<? extends EclipseExternalDependency> getClasspath();
 
     /**
-     * Returns the project directory for this project.
+     * Returns the Eclipse natures configured on the project.
+     * <p>
+     * Some natures are automatically added to the result based on the Gradle plugins applied on the project.
+     * For example, if the project applies the 'java' plugin the result will contain the
+     * {@code "org.eclipse.jdt.core.javanature"} entry. Note, that the exact list of automatically added
+     * natures is not part of the API and can vary between Gradle releases.
+     * <p>
+     * The result can be customized via the 'eclipse' plugin configuration.
      *
-     * @return The project directory.
+     * @return The list of Eclipse project natures.
+     * @since 2.9
+     * @throws UnsupportedMethodException For Gradle versions older than 2.9, where this method is not supported.
      */
-    File getProjectDirectory();
+    @Incubating
+    DomainObjectSet<? extends EclipseProjectNature> getProjectNatures() throws UnsupportedMethodException;
 
+    /**
+     * Returns the Eclipse build commands configured on the project.
+     * <p>
+     * Some build commands are automatically added to the result based on the Gradle plugins applied on the project.
+     * For example, if the project applies the 'java' plugin the result will contain the
+     * {@code "org.eclipse.jdt.core.javabuilder"} build command. Note, that the exact list of automatically
+     * added build commands is not part of the API and can vary between Gradle releases.
+     * <p>
+     * The result can be customized via the 'eclipse' plugin configuration.
+     *
+     * @return The list of Eclipse build commands.
+     * @since 2.9
+     * @throws UnsupportedMethodException For Gradle versions older than 2.9, where this method is not supported.
+     */
+    @Incubating
+    DomainObjectSet<? extends EclipseBuildCommand> getBuildCommands() throws UnsupportedMethodException;
+
+    /**
+     * Returns the Eclipse classpath containers defined on the project.
+     *
+     * @return The list of classpath containers.
+     * @since 3.0
+     * @throws UnsupportedMethodException For Gradle versions older than 3.0, where this method is not supported.
+     */
+    @Incubating
+    DomainObjectSet<? extends EclipseClasspathContainer> getClasspathContainers() throws UnsupportedMethodException;
+
+    /**
+     * Returns the output location of this project.
+     *
+     * @return The project's output location.
+     * @since 3.0
+     * @throws UnsupportedMethodException For Gradle versions older than 3.0, where this method is not supported.
+     */
+    @Incubating
+    EclipseOutputLocation getOutputLocation() throws UnsupportedMethodException;
 }

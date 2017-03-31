@@ -19,23 +19,29 @@ import org.gradle.integtests.fixtures.WellBehavedPluginTest
 
 class BuildAnnouncementsPluginIntegrationTest extends WellBehavedPluginTest {
     @Override
-    String getPluginId() {
-        return "build-announcements"
-    }
-
-    @Override
     String getMainTask() {
         return "tasks"
     }
 
     def "does not blow up when a local notification mechanism is not available"() {
         buildFile << """
-apply plugin: 'java'
 apply plugin: 'build-announcements'
 """
 
         expect:
-        succeeds 'assemble'
+        succeeds 'tasks'
+    }
+
+    def "does not blow up in headless mode when a local notification mechanism is not available"() {
+        buildFile << """
+apply plugin: 'build-announcements'
+"""
+
+        given:
+        executer.withArgument("-Djava.awt.headless=false")
+
+        expect:
+        succeeds 'tasks'
     }
 
     def "can use custom announcer to receive announcements"() {
@@ -59,7 +65,11 @@ announce.local = ({title, message -> println "[\$title][\$message]" } as Announc
         buildFile << """
 apply plugin: 'build-announcements'
 
-task broken << { throw new RuntimeException() }
+task broken {
+    doLast {
+        throw new RuntimeException()
+    }
+}
 
 announce.local = ({title, message -> println "[\$title][\$message]" } as Announcer)
 """
@@ -75,8 +85,16 @@ announce.local = ({title, message -> println "[\$title][\$message]" } as Announc
         buildFile << """
 apply plugin: 'build-announcements'
 
-task broken1 << { throw new RuntimeException() }
-task broken2 << { throw new RuntimeException() }
+task broken1 {
+    doLast {
+        throw new RuntimeException()
+    }
+}
+task broken2 {
+    doLast {
+        throw new RuntimeException()
+    }
+}
 
 announce.local = ({title, message -> println "[\$title][\$message]" } as Announcer)
 """

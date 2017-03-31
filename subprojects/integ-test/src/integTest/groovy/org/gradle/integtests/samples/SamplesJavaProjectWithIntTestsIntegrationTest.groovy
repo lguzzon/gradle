@@ -16,31 +16,27 @@
 
 package org.gradle.integtests.samples
 
-import org.gradle.integtests.fixtures.GradleDistribution
-import org.gradle.integtests.fixtures.GradleDistributionExecuter
-import org.gradle.integtests.fixtures.JUnitTestExecutionResult
+import org.gradle.integtests.fixtures.AbstractIntegrationTest
+import org.gradle.integtests.fixtures.DefaultTestExecutionResult
 import org.gradle.integtests.fixtures.Sample
-import org.gradle.util.TestFile
+import org.gradle.test.fixtures.file.TestFile
 import org.junit.Rule
 import org.junit.Test
 
-/**
- * @author Hans Dockter
- */
-class SamplesJavaProjectWithIntTestsIntegrationTest {
-    @Rule public final GradleDistribution dist = new GradleDistribution()
-    @Rule public final GradleDistributionExecuter executer = new GradleDistributionExecuter()
-    @Rule public final Sample sample = new Sample('java/withIntegrationTests')
+class SamplesJavaProjectWithIntTestsIntegrationTest extends AbstractIntegrationTest {
+
+    @Rule public final Sample sample = new Sample(testDirectoryProvider, 'java/withIntegrationTests')
 
     @Test
     public void canRunIntegrationTests() {
         TestFile javaprojectDir = sample.dir
-        
+
         // Run int tests
         executer.inDirectory(javaprojectDir).withTasks('clean', 'integrationTest').run()
 
         // Check tests have run
-        JUnitTestExecutionResult result = new JUnitTestExecutionResult(javaprojectDir)
+
+        def result = new DefaultTestExecutionResult(javaprojectDir, 'build', '', '', 'integrationTest')
         result.assertTestClassesExecuted('org.gradle.PersonIntegrationTest')
     }
 }

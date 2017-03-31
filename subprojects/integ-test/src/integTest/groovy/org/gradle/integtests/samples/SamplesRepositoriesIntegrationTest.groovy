@@ -16,28 +16,26 @@
  
 package org.gradle.integtests.samples
 
-import org.gradle.integtests.fixtures.GradleDistribution
-import org.gradle.integtests.fixtures.GradleDistributionExecuter
+import org.gradle.integtests.fixtures.AbstractIntegrationTest
 import org.gradle.integtests.fixtures.Sample
 import org.junit.Rule
 import org.junit.Test
+
 import static org.hamcrest.Matchers.equalTo
 import static org.junit.Assert.assertThat
 
-/**
- * @author Hans Dockter
- */
-class SamplesRepositoriesIntegrationTest {
-    @Rule public final GradleDistribution dist = new GradleDistribution()
-    @Rule public final GradleDistributionExecuter executer = new GradleDistributionExecuter()
-    @Rule public final Sample sample = new Sample('userguide/artifacts/defineRepository')
+class SamplesRepositoriesIntegrationTest extends AbstractIntegrationTest {
+
+    @Rule public final Sample sample = new Sample(testDirectoryProvider, 'userguide/artifacts/defineRepository')
 
     @Test
     public void repositoryNotations() {
         // This test is not very strong. Its main purpose is to the for the correct syntax as we use many
         // code snippets from this build script in the user's guide.
         File projectDir = sample.dir
-        String output = executer.inDirectory(projectDir).withQuietLogging().withTasks('lookup').run().getOutput()
-        assertThat(output, equalTo(String.format("localRepository%nlocalRepository%n")))
+        String output = executer.inDirectory(projectDir).withQuietLogging().withTasks('lookup').run().output
+        assertThat(output, equalTo("""localRepository
+localRepository
+"""))
     }
 }

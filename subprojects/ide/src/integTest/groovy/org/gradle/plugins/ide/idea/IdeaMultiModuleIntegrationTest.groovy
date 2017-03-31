@@ -14,18 +14,14 @@
  * limitations under the License.
  */
 package org.gradle.plugins.ide.idea
-
 import org.gradle.integtests.fixtures.TestResources
 import org.gradle.plugins.ide.AbstractIdeIntegrationTest
 import org.junit.Rule
 import org.junit.Test
 
-/**
- * @author Szczepan Faber, @date 03.03.11
- */
 class IdeaMultiModuleIntegrationTest extends AbstractIdeIntegrationTest {
     @Rule
-    public final TestResources testResources = new TestResources()
+    public final TestResources testResources = new TestResources(testDirectoryProvider)
 
     @Test
     void buildsCorrectModuleDependencies() {
@@ -69,10 +65,101 @@ project(':shared:model') {
         executer.usingBuildScript(buildFile).usingSettingsFile(settingsFile).withTasks("ideaModule").run()
 
         //then
-        def apiDeps = parseImlDependencies(project: 'master/api', "api.iml")
-        ['shared-api', 'model'].each { assert apiDeps.contains(it) }
-        def modelDeps = parseImlDependencies(project: 'master/shared/model', "model.iml")
-        ['util'].each { assert modelDeps.contains(it) }
+        def dependencies = parseIml("master/api/master-api.iml").dependencies
+        assert dependencies.modules.size() == 4
+        dependencies.assertHasModule(['PROVIDED', 'RUNTIME','TEST'], "shared-api")
+        dependencies.assertHasModule("TEST", "model")
+
+        dependencies = parseIml("master/shared/model/model.iml").dependencies
+        assert dependencies.modules.size() == 1
+        dependencies.assertHasModule("TEST", "util")
+    }
+
+    @Test
+    void respectsApiOfJavaLibraries() {
+        def settingsFile = file("master/settings.gradle")
+        settingsFile << """
+include 'api'
+include 'impl'
+include 'library'
+include 'application'
+        """
+
+        def buildFile = file("master/build.gradle")
+        buildFile << """
+allprojects {
+    apply plugin: 'java'
+    apply plugin: 'idea'
+}
+
+project(":library") {
+    apply plugin: 'java-library'
+    dependencies {
+        api project(":api")
+        implementation project(":impl")
+    }
+}
+
+project(":application") {
+    dependencies {
+        compile project(":library")
+    }
+}
+"""
+
+        //when
+        executer.usingBuildScript(buildFile).usingSettingsFile(settingsFile).withTasks("ideaModule").run()
+
+        //then
+        def dependencies = parseIml("master/library/library.iml").dependencies
+        assert dependencies.modules.size() == 6
+        dependencies.assertHasModule(['PROVIDED', 'RUNTIME','TEST'], "api")
+        dependencies.assertHasModule(['PROVIDED', 'RUNTIME','TEST'], "impl")
+
+        dependencies = parseIml("master/application/application.iml").dependencies
+        assert dependencies.modules.size() == 8
+
+        dependencies.assertHasModule(['PROVIDED', 'RUNTIME','TEST'], "library")
+        dependencies.assertHasModule(['PROVIDED', 'RUNTIME','TEST'], "api")
+        dependencies.assertHasModule(['RUNTIME','TEST'], "impl")
+    }
+
+    @Test
+    void buildsCorrectModuleDependenciesWhenRootProjectDoesNotApplyIdePlugin() {
+        def settingsFile = file("settings.gradle")
+        settingsFile << """
+include 'api'
+include 'util'
+include 'other'
+        """
+
+        def buildFile = file("build.gradle")
+        buildFile << """
+subprojects {
+    apply plugin: 'java'
+    apply plugin: 'idea'
+}
+
+project(':api') {
+    dependencies {
+        compile project(':util')
+        compile project(':other')
+    }
+}
+
+project(':other') {
+    idea.module.name = 'other-renamed'
+}
+"""
+
+        //when
+        executer.usingBuildScript(buildFile).usingSettingsFile(settingsFile).withTasks("ideaModule").run()
+
+        //then
+        def dependencies = parseIml("api/api.iml").dependencies
+        assert dependencies.modules.size() == 6
+        dependencies.assertHasModule(['PROVIDED', 'RUNTIME','TEST'], "util")
+        dependencies.assertHasModule(['PROVIDED', 'RUNTIME','TEST'], "other-renamed")
     }
 
     @Test
@@ -139,30 +226,18 @@ project(':services:utilities') {
 
         //then
         assertIprContainsCorrectModules()
-        assertApiModuleContainsCorrectDependencies()
-        assertServicesUtilModuleContainsCorrectDependencies()
-    }
 
-    def assertServicesUtilModuleContainsCorrectDependencies() {
-        List moduleDeps = parseImlDependencies(project: 'master/services/utilities', "services-util.iml")
+        def moduleDeps = parseIml("master/api/master-api.iml").dependencies
+        assert moduleDeps.modules.size() == 6
+        moduleDeps.assertHasModule(['PROVIDED', 'RUNTIME','TEST'], "shared-api")
+        moduleDeps.assertHasModule(['PROVIDED', 'RUNTIME','TEST'], "very-cool-model")
 
-        assert moduleDeps.contains("very-cool-model")
-        assert moduleDeps.contains("util")
-        assert moduleDeps.contains("shared-api")
-        assert moduleDeps.contains("contrib-services-util")
-    }
-
-    List parseImlDependencies(options, file) {
-        def iml = parseFile(options, file)
-        def moduleDeps = iml.component.orderEntry.'@module-name'.collect { it.text() }
-        return moduleDeps
-    }
-
-    def assertApiModuleContainsCorrectDependencies() {
-        def moduleDeps = parseImlDependencies(project: 'master/api', "api.iml")
-
-        assert moduleDeps.contains("very-cool-model")
-        assert moduleDeps.contains("shared-api")
+        moduleDeps = parseIml("master/services/utilities/master-services-util.iml").dependencies
+        assert moduleDeps.modules.size() == 12
+        moduleDeps.assertHasModule(['PROVIDED', 'RUNTIME','TEST'], "shared-api")
+        moduleDeps.assertHasModule(['PROVIDED', 'RUNTIME','TEST'], "very-cool-model")
+        moduleDeps.assertHasModule(['PROVIDED', 'RUNTIME','TEST'], "master-util")
+        moduleDeps.assertHasModule(['PROVIDED', 'RUNTIME','TEST'], "contrib-services-util")
     }
 
     def assertIprContainsCorrectModules() {
@@ -170,11 +245,11 @@ project(':services:utilities') {
 
         ['master.iml',
          'shared-api.iml', 'shared.iml',
-         'services.iml', 'services-util.iml',
+         'master-services.iml', 'master-services-util.iml',
          'contrib-services-util.iml', 'contrib.iml', 'contrib-services.iml',
          'very-cool-model.iml',
-         'api.iml',
-         'util.iml'].each {
+         'master-api.iml',
+         'master-util.iml'].each {
             assert moduleFileNames.contains(it)
         }
     }
@@ -222,6 +297,121 @@ project(':api') {
         assert moduleFileNames.contains("master.api.iml")
         assert moduleFileNames.contains("master.shared.iml")
         assert moduleFileNames.contains("master.iml")
+    }
+
+    @Test
+    void handlesModuleDependencyCycles() {
+        def settingsFile = file("master/settings.gradle")
+        settingsFile << """
+include 'one'
+include 'two'
+include 'three'
+        """
+
+        def buildFile = file("master/build.gradle")
+        buildFile << """
+allprojects {
+    apply plugin: 'java'
+    apply plugin: 'idea'
+}
+
+project(':one') {
+    dependencies {
+        compile project(':two')
+    }
+}
+
+project(':two') {
+    dependencies {
+        compile project(':three')
+    }
+}
+
+project(':three') {
+    dependencies {
+        compile project(':one')
+    }
+}
+"""
+
+        //when
+        executer.usingBuildScript(buildFile).usingSettingsFile(settingsFile).withTasks("idea").run()
+
+        //then
+        def dependencies = parseIml("master/one/one.iml").dependencies
+        assert dependencies.modules.size() == 6
+        dependencies.assertHasModule(['PROVIDED', 'RUNTIME','TEST'], "two")
+        dependencies.assertHasModule(['PROVIDED', 'RUNTIME','TEST'], "three")
+
+        dependencies = parseIml("master/two/two.iml").dependencies
+        assert dependencies.modules.size() == 6
+        dependencies.assertHasModule(['PROVIDED', 'RUNTIME','TEST'], "three")
+        dependencies.assertHasModule(['PROVIDED', 'RUNTIME','TEST'], "one")
+
+        dependencies = parseIml("master/three/three.iml").dependencies
+        assert dependencies.modules.size() == 6
+        dependencies.assertHasModule(['PROVIDED', 'RUNTIME','TEST'], "one")
+        dependencies.assertHasModule(['PROVIDED', 'RUNTIME','TEST'], "two")
+    }
+
+    @Test
+    void classpathContainsConflictResolvedDependencies() {
+        def someLib1Jar = mavenRepo.module('someGroup', 'someLib', '1.0').publish().artifactFile
+        def someLib2Jar= mavenRepo.module('someGroup', 'someLib', '2.0').publish().artifactFile
+
+        def settingsFile = file("master/settings.gradle")
+        settingsFile << """
+include 'one'
+include 'two'
+        """
+        def buildFile = file("master/build.gradle")
+        buildFile << """
+allprojects {
+    apply plugin: 'java'
+    apply plugin: 'idea'
+
+    repositories {
+        maven { url "${mavenRepo.uri}" }
+    }
+}
+
+project(':one') {
+    dependencies {
+        compile ('someGroup:someLib:1.0') {
+            force = project.hasProperty("forceDeps")
+        }
+        compile project(':two')
+    }
+}
+
+project(':two') {
+    dependencies {
+        compile 'someGroup:someLib:2.0'
+    }
+}
+
+"""
+        //when
+        executer.usingBuildScript(buildFile).usingSettingsFile(settingsFile).withTasks("idea").run()
+
+        //then
+        def dependencies = parseIml("master/one/one.iml").dependencies
+        dependencies.assertHasModule(['PROVIDED', 'RUNTIME','TEST'], "two")
+        assert dependencies.libraries*.jarName as Set == [someLib2Jar.name] as Set
+
+        dependencies = parseIml("master/two/two.iml").dependencies
+        assert dependencies.libraries*.jarName as Set == [someLib2Jar.name] as Set
+
+        executer.usingBuildScript(buildFile).usingSettingsFile(settingsFile).withArgument("-PforceDeps=true").withTasks("idea").run()
+
+        //then
+        dependencies = parseIml("master/one/one.iml").dependencies
+        assert dependencies.modules.size() == 3
+        dependencies.assertHasModule(['PROVIDED', 'RUNTIME','TEST'], "two")
+        assert dependencies.libraries*.jarName as Set == [someLib1Jar.name] as Set
+
+        dependencies = parseIml("master/two/two.iml").dependencies
+        assert dependencies.libraries*.jarName as Set == [someLib2Jar.name] as Set
     }
 
     @Test
@@ -301,5 +491,48 @@ allprojects {
         //then
         String content = getFile(project: 'master', 'master.ipr').text
         assert content.count('filepath="$PROJECT_DIR$/api/api.iml"') == 1
+    }
+
+    @Test
+    void buildsCorrectModuleDependenciesWithScopes() {
+        def settingsFile = file("master/settings.gradle")
+        settingsFile << """
+include 'api'
+include 'impl'
+include 'app'
+"""
+
+        def buildFile = file("master/build.gradle")
+        buildFile << """
+allprojects {
+    apply plugin: 'java'
+    apply plugin: 'idea'
+}
+
+project(':impl') {
+    dependencies {
+        compile project(':api')
+    }
+}
+
+project(':app') {
+    dependencies {
+        compile project(':api')
+        testCompile project(':impl')
+        runtime project(':impl')
+    }
+}
+"""
+
+        //when
+        executer.usingBuildScript(buildFile).usingSettingsFile(settingsFile).withTasks("ideaModule").run()
+
+        //then
+        def dependencies = parseIml("master/app/app.iml").dependencies
+        assert dependencies.modules.size() == 5
+        dependencies.assertHasInheritedJdk()
+        dependencies.assertHasSource('false')
+        dependencies.assertHasModule(['PROVIDED', 'RUNTIME','TEST'], 'api')
+        dependencies.assertHasModule(['RUNTIME','TEST'], 'impl')
     }
 }

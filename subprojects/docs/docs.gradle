@@ -14,38 +14,95 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+plugins {
+    id 'org.asciidoctor.convert' version '1.5.3'
+}
+
+import javax.xml.transform.TransformerFactory
+import javax.xml.transform.stream.StreamResult
+import javax.xml.transform.stream.StreamSource
+
+import org.asciidoctor.gradle.AsciidoctorTask
+import org.gradle.build.docs.UserGuideSectionVerifier
 import org.gradle.build.docs.UserGuideTransformTask
 import org.gradle.build.docs.ExtractSnippetsTask
+import org.gradle.build.docs.ExtractSamplesTask
 import org.gradle.build.docs.AssembleSamplesDocTask
 import org.gradle.build.docs.Docbook2Xhtml
+import org.gradle.build.docs.Xhtml2Pdf
+import org.gradle.build.docs.dsl.source.GenerateDefaultImportsTask
 import org.gradle.build.docs.dsl.docbook.AssembleDslDocTask
-import org.gradle.build.docs.dsl.ExtractDslMetaDataTask
-import org.gradle.build.GenerateReleasesXml
-import org.gradle.internal.os.OperatingSystem
+import org.gradle.build.docs.dsl.source.ExtractDslMetaDataTask
+import org.gradle.build.docs.releasenotes.*
+import org.gradle.build.docs.releasenotes.checks.*
+import org.apache.tools.ant.filters.ReplaceTokens
+import org.gradle.plugins.pegdown.PegDown
 
 apply plugin: 'base'
 apply plugin: 'pegdown'
 apply plugin: 'jsoup'
+apply plugin: 'javascript-base'
+
+repositories {
+    javaScript.googleApis()
+
+    ivy {
+        name "Google Fonts"
+        url "http://themes.googleusercontent.com/static/fonts/"
+        layout 'pattern', {
+            artifact '[organisation]/v[revision](/[classifier])(.[ext])'
+            ivy '[organisation]/v[revision]/ivy(.[ext])'
+        }
+    }
+
+    maven { url 'https://repo.gradle.org/gradle/gradle-build-internal' }
+}
 
 configurations {
     userGuideStyleSheets
     userGuideTask
+    jquery
+    jqueryTipTip
+    fonts
 }
 
 dependencies {
-    userGuideTask 'xalan:xalan:2.7.1', 'xerces:xercesImpl:2.9.1'
+    userGuideTask 'xalan:xalan:2.7.1', libraries.xerces
     userGuideTask module('xhtmlrenderer:xhtmlrenderer:R8rc1') {
         dependency 'itext:itext:2.0.8@jar'
     }
     userGuideTask 'xslthl:xslthl:2.0.1@jar'
 
     userGuideStyleSheets 'docbook:docbook-xsl:1.75.2@zip'
+    jquery "jquery:jquery.min:1.8.0@js"
+    jqueryTipTip "com.drewwilson.code:jquery.tipTip:1.3:minified@js"
+
+    fonts \
+        "lato:regular:6:v0SdcGFAl2aezM9Vq_aFTQ@ttf",
+        "lato:regular-italic:6:LqowQDslGv4DmUBAfWa2Vw@ttf",
+        "lato:bold:6:DvlFBScY1r-FMtZSYIYoYw@ttf",
+        "lato:bold-italic:6:HkF_qI1x_noxlxhrhMQYEKCWcynf_cDxXwCLxiixG1c@ttf",
+        "ubuntumono:regular:3:ViZhet7Ak-LRXZMXzuAfkZ0EAVxt0G0biEntp43Qt6E@ttf",
+        "ubuntumono:regular-italic:3:KAKuHXAHZOeECOWAHsRKA-LrC4Du4e_yfTJ8Ol60xk0@ttf",
+        "ubuntumono:bold:3:ceqTZGKHipo8pJj4molytp_TkvowlIOtbR7ePgFOpF4@ttf",
+        "ubuntumono:bold-italic:3:n_d8tv_JOIiYyMXR4eaV9WsGzsqhEorxQDpu60nfWEc@ttf"
+
+    testCompile "org.pegdown:pegdown:1.1.0"
+    testCompile libraries.jsoup
+    testCompile "org.gebish:geb-spock:0.9.3"
+    testCompile('org.seleniumhq.selenium:selenium-htmlunit-driver:2.42.2') {
+        exclude group: 'org.apache.httpcomponents'
+    }
+    testCompile libraries.commons_httpclient
+    testCompile 'org.apache.httpcomponents:httpmime:4.4.1'
+    testCompile project(":core")
+    testRuntime project(path: ":versionInfo", configuration: "testVersionInfo")
 }
 
 ext {
     srcDocsDir = file('src/docs')
     userguideSrcDir = new File(srcDocsDir, 'userguide')
-    cssSrcDir = new File(srcDocsDir, 'css')
+    asciidocSanitizeStylesheet = file("$srcDocsDir/stylesheets/asciidocSanitize.xsl")
     dslSrcDir = new File(srcDocsDir, 'dsl')
     docsDir = file("$buildDir/docs")
     userguideDir = new File(docsDir, 'userguide')
@@ -63,7 +120,41 @@ outputs.distDocs = files(distDocsDir) {
     builtBy 'distDocs'
 }
 outputs.docs = files(docsDir) {
-    builtBy 'javadoc', 'groovydoc', 'userguide', 'dslHtml', 'releaseNotes'
+    builtBy 'javadocAll', 'userguide', 'dslHtml', 'releaseNotes'
+}
+
+tasks.withType(AsciidoctorTask) {
+    backends = ['docbook']
+    separateOutputDirs = false
+    options doctype: 'book'
+    inputs.file asciidocSanitizeStylesheet withPropertyName "sanitizerStylesheet"
+
+    extensions {
+        inlinemacro (name: "api") {
+            parent, target, attributes ->
+            def (className, method) = target.split('#', 2) as List
+            def content = "<apilink class=\"$className\""
+            if (method) {
+                // Add space after comma, because we can't have spaces in api: targets
+                // Restore Asciidoc's '&hellip;&zwsp;' replacement to the original '...'
+                content += " method=\"${method.replaceAll(/,\s*/, ', ').replaceAll(/\&#8230;\&#8203;/, '...')}\""
+            }
+            content += " />"
+            return content
+        }
+    }
+
+    doLast {
+        outputDir.eachFile { File file ->
+            def contents = file.getText("utf-8")
+            try {
+                def transformer = TransformerFactory.newInstance().newTransformer(new StreamSource(asciidocSanitizeStylesheet))
+                transformer.transform(new StreamSource(new StringReader(contents)), new StreamResult(file))
+            } catch (Exception ex) {
+                throw new RuntimeException("Couldn't process $file:\n" + contents, ex)
+            }
+        }
+    }
 }
 
 tasks.withType(Docbook2Xhtml) {
@@ -71,20 +162,68 @@ tasks.withType(Docbook2Xhtml) {
     classpath = configurations.userGuideTask
     stylesheetsDir = userguideStyleSheets.destinationDir
 }
+
 tasks.withType(UserGuideTransformTask) {
     dependsOn samples, dslDocbook
     snippetsDir = samples.snippetsDir
     linksFile = dslDocbook.linksFile
+    websiteUrl = 'http://www.gradle.org'
+    outputs.doNotCacheIf('Has an ever changing version as an input') { true }
+
+    if (name in ["pdfUserguideDocbook", "userguideFragmentSrc"]) {
+        // These will only be valid for releases, but that's ok
+        javadocUrl = "http://www.gradle.org/docs/${->version}/javadoc"
+        dsldocUrl = "http://www.gradle.org/docs/${->version}/dsl"
+    } else {
+        javadocUrl = '../javadoc'
+        dsldocUrl = '../dsl'
+    }
 }
+
 tasks.withType(AssembleDslDocTask) {
     classDocbookDir = dslSrcDir
+}
+
+task configureCss {
+    doLast {
+        def images = fileTree(dir: "src/docs/css/images", include: "*.*").files.collectEntries {
+            [it.name, it.bytes.encodeBase64().toString()]
+        }
+
+        def fonts = configurations.fonts.resolvedConfiguration.resolvedArtifacts.collectEntries {
+            def id = it.moduleVersion.id
+            ["${id.group}-${id.name}".toString(), it.file.bytes.encodeBase64().toString()]
+        }
+
+        ext.tokens = images + fonts
+        css.inputs.property 'tokens', tokens
+        css.filter ReplaceTokens, tokens: tokens
+    }
+}
+
+task css(type: Sync, dependsOn: configureCss) {
+    into "$buildDir/css"
+    from "src/docs/css"
+    include "*.css"
+    include "*.svg"
+}
+
+ext.cssFiles = fileTree(css.destinationDir) {
+    builtBy css
 }
 
 task samples(type: ExtractSnippetsTask) {
     source samplesSrcDir
     exclude 'userguideOutput/**'
-    exclude 'userguide/tutorial/antLoadfileResources/**'
     exclude '**/readme.xml'
+    exclude '**/build/**'
+    exclude '**/.gradle/**'
+
+    // Resources that should not be filtered
+    exclude 'userguide/tutorial/antLoadfileResources/**'
+    exclude 'native-binaries/cunit/libs/**'
+    exclude 'native-binaries/google-test/libs/**'
+
     destDir = samplesDir
     snippetsDir = new File(buildDir, 'snippets')
     doLast {
@@ -92,6 +231,8 @@ task samples(type: ExtractSnippetsTask) {
             from samplesSrcDir
             into samplesDir
             include 'userguide/tutorial/antLoadfileResources/**'
+            include 'native-binaries/cunit/libs/**'
+            include 'native-binaries/google-test/libs/**'
         }
     }
 }
@@ -102,13 +243,19 @@ task userguideStyleSheets(type: Copy) {
     from(stylesheetsDir) {
         include '*.xsl'
     }
-    from(cssSrcDir) {
-        include '*.css'
-    }
-    from(zipTree(configurations.userGuideStyleSheets.singleFile)) {
+    from(cssFiles)
+    from({ zipTree(configurations.userGuideStyleSheets.singleFile) }) {
         // Remove the prefix
         eachFile { fcd -> fcd.path = fcd.path.replaceFirst('^docbook-xsl-[0-9\\.]+/', '') }
     }
+}
+
+tasks.remove(asciidoctor)
+
+task userguideAsciidoc(type: AsciidoctorTask) {
+    sourceDir = userguideSrcDir
+    sources { include '*.adoc' }
+    outputDir = file("$buildDir/asciidoc/userguide")
 }
 
 task samplesDocbook(type: AssembleSamplesDocTask) {
@@ -123,13 +270,13 @@ task samplesDocs(type: Docbook2Xhtml) {
     stylesheetName = 'standaloneHtml.xsl'
 }
 
-task dslMetaData(type: ExtractDslMetaDataTask) {  //TODO SF: parseSourceCode
-    source { groovydoc.source }
+task dslMetaData(type: ExtractDslMetaDataTask) {
+    source { javadocAll.source }
     destFile = new File(docbookSrc, 'dsl-meta-data.bin')
 }
 
 task dslDocbook(type: AssembleDslDocTask, dependsOn: [dslMetaData]) {
-    inputs.files fileTree(dir: dslSrcDir, includes: ['*.xml'])
+    sources = fileTree(dir: dslSrcDir, includes: ['*.xml'])
     sourceFile = new File(dslSrcDir, 'dsl.xml')
     classMetaDataFile = dslMetaData.destFile
     pluginsMetaDataFile = new File(dslSrcDir, 'plugins.xml')
@@ -137,188 +284,199 @@ task dslDocbook(type: AssembleDslDocTask, dependsOn: [dslMetaData]) {
     linksFile = new File(docbookSrc, 'api-links.bin')
 }
 
+task defaultImports(type: GenerateDefaultImportsTask, dependsOn: dslMetaData) {
+    metaDataFile = dslMetaData.destFile
+    importsDestFile = new File(generatedResourcesDir, "default-imports.txt")
+    mappingDestFile = new File(generatedResourcesDir, "api-mapping.txt")
+    // These are part of the API, but not the DSL
+    excludePackage 'org.gradle.tooling.**'
+    excludePackage 'org.gradle.testfixtures.**'
+
+    // Tweak the imports due to some inconsistencies introduced before we automated the default-imports generation
+    excludePackage 'org.gradle.plugins.ide.eclipse.model'
+    excludePackage 'org.gradle.plugins.ide.idea.model'
+    excludePackage 'org.gradle.api.tasks.testing.logging'
+    extraPackage 'org.gradle.util'
+
+    // TODO - rename some incubating types to remove collisions and then remove these exclusions
+    excludePackage 'org.gradle.plugins.binaries.model'
+
+    // Exclude classes that were moved in a different package but the deprecated ones are not removed yet
+    excludePackage 'org.gradle.platform.base.test'
+}
+
 task dslStandaloneDocbook(type: UserGuideTransformTask, dependsOn: [dslDocbook]) {
     sourceFile = dslDocbook.destFile
     destFile = new File(docbookSrc, 'dsl-standalone.xml')
-    javadocUrl = '../javadoc'
-    groovydocUrl = '../groovydoc'
     dsldocUrl = '.'
-    websiteUrl = 'http://www.gradle.org'
 }
 
 task dslHtml(type: Docbook2Xhtml) {
+    group = "Documentation"
     source dslStandaloneDocbook
     destDir = new File(docsDir, 'dsl')
     stylesheetName = 'dslHtml.xsl'
-    resources = fileTree(cssSrcDir) {
-        include '*.css'
-    } + fileTree(dslSrcDir) {
+    resources = cssFiles + fileTree(dslSrcDir) {
         include '*.js'
     }
+    ext.entryPoint = "$destDir/index.html"
+    outputs.doNotCacheIf('Depends on the output of dslStandaloneDocbook, which contains an ever changing version') { true }
+}
+
+task checkSectionIds(type: UserGuideSectionVerifier) {
+    dependsOn userguideAsciidoc
+    docbookFiles = files(
+        fileTree(userguideSrcDir) { include "**/*.xml" },
+        userguideAsciidoc.outputs.files
+    )
+}
+
+[configureCss, samples, samplesDocbook, defaultImports]*.mustRunAfter(checkSectionIds)
+
+task extractSamples(type: ExtractSamplesTask) {
+    // We need default imports since it is included by userguide.xml
+    // We need samplesList.xml (generated by samplesDocbook) since it is included by userguide.xml
+    // Both files are not an input since they do not affect the generated samples.xml
+    dependsOn defaultImports, samplesDocbook, userguideAsciidoc
+    sourceFile = new File(userguideSrcDir, 'userguide.xml')
+    destFile = new File(docbookSrc, 'samples.xml')
 }
 
 // This is used in the distribution and for the online version
-task userguideDocbook(type: UserGuideTransformTask, dependsOn: [samples, samplesDocbook]) {
+task userguideDocbook(type: UserGuideTransformTask) {
     destFile = new File(docbookSrc, 'userguide.xml')
-    javadocUrl = '../javadoc'
-    groovydocUrl = '../groovydoc'
-    dsldocUrl = '../dsl'
+    dependsOn checkSectionIds
 }
 
 // This is used for the PDF, where we need absolute links to the javadoc etc.
-task pdfUserguideDocbook(type: UserGuideTransformTask, dependsOn: [samples, samplesDocbook]) {
+task pdfUserguideDocbook(type: UserGuideTransformTask) {
     destFile = new File(docbookSrc, 'remoteUserguide.xml')
-    javadocUrl = project.version.javadocUrl
-    groovydocUrl = project.version.groovydocUrl
-    dsldocUrl = project.version.dsldocUrl
 }
 
 configure([userguideDocbook, pdfUserguideDocbook]) {
     // The master userguide.xml pulls these files in via xi:include, making them input
-    inputs.files fileTree(dir: userguideSrcDir, includes: ['*.xml'])
+    includes = files(samplesDocbook,
+        defaultImports.importsDestFile,
+        fileTree(dir: userguideSrcDir, includes: ['*.xml']),
+        userguideAsciidoc.outputs.files
+    )
+
+    dependsOn samples, samplesDocbook, defaultImports
 
     sourceFile new File(userguideSrcDir, 'userguide.xml')
-    websiteUrl 'http://www.gradle.org'
 }
 
+def resourceFiles = fileTree(userguideSrcDir) {
+        include 'img/*.png'
+} + cssFiles
+
 task userguideHtml(type: Docbook2Xhtml) {
+    group = "Documentation"
     source userguideDocbook
     destDir = userguideDir
     stylesheetName = 'userGuideHtml.xsl'
-    resources = fileTree(userguideSrcDir) {
-        include 'img/*.png'
-    }
-    resources += fileTree(cssSrcDir) {
-        include '*.css'
-    }
+    resources = resourceFiles
+    ext.entryPoint = "$destDir/userguide.html"
+    outputs.doNotCacheIf('Depends on the output of userguideDocbook, which contains an ever changing version') { true }
 }
 
 task userguideSingleHtml(type: Docbook2Xhtml) {
+    group = "Documentation"
     source userguideDocbook
     destFile = new File(userguideDir, 'userguide_single.html')
     stylesheetName = 'userGuideSingleHtml.xsl'
-    resources = fileTree(userguideSrcDir) {
-        include 'img/*.png'
-    }
-    resources += fileTree(cssSrcDir) {
-        include '*.css'
-    }
+    resources = resourceFiles
+    ext.entryPoint = destFile
+    outputs.doNotCacheIf('Depends on the output of userguideDocbook, which contains an ever changing version') { true }
 }
 
 task pdfUserguideXhtml(type: Docbook2Xhtml) {
     source pdfUserguideDocbook
     destFile = new File(buildDir, 'tmp/userguidePdf/userguidePdf.html')
     stylesheetName = 'userGuidePdf.xsl'
-    resources = fileTree(userguideSrcDir) {
-        include 'img/*.png'
-    }
-    resources += fileTree(cssSrcDir) {
-        include '*.css'
-    }
+    resources = resourceFiles
+    ext.entryPoint = destFile
+    outputs.doNotCacheIf('Depends on the output of pdfUserguideDocbook, which contains an ever changing version') { true }
 }
 
 task userguidePdf(type: Xhtml2Pdf, dependsOn: pdfUserguideXhtml) {
-    inputs.dir cssSrcDir
     sourceFile = pdfUserguideXhtml.destFile
     destFile = new File(userguideDir, 'userguide.pdf')
     classpath = configurations.userGuideTask
+    resources = resourceFiles
+    outputs.doNotCacheIf('Depends on the output of pdfUserguideXhtml, which contains an ever changing version') { true }
 }
 
-def javaApiUrl = "http://docs.oracle.com/javase/1.5.0/docs/api/"
-def groovyApiUrl = "http://groovy.codehaus.org/gapi/"
+def javaApiUrl = "https://docs.oracle.com/javase/7/docs/api"
+def groovyApiUrl = "http://docs.groovy-lang.org/docs/groovy-${versions.groovy}/html/gapi"
+def mavenApiUrl = "http://maven.apache.org/ref/${versions.maven}/maven-model/apidocs"
 
-task javadoc(type: Javadoc) {
+task javadocAll(type: Javadoc) {
     ext.stylesheetFile = file("src/docs/css/javadoc.css")
-    inputs.file stylesheetFile
+    inputs.file stylesheetFile withPropertyName "stylesheetFile" withPathSensitivity PathSensitivity.NAME_ONLY
+    outputs.doNotCacheIf('Title contains an ever changing version') { true }
 
     group = 'documentation'
     options.encoding = 'utf-8'
     options.docEncoding = 'utf-8'
     options.charSet = 'utf-8'
+    if (!java7Home && javaVersion.isJava8Compatible()) {
+        options.addStringOption 'Xdoclint:none', '-quiet'
+    }
     options.addStringOption "stylesheetfile", stylesheetFile.absolutePath
-    source groovyProjects().collect {project -> project.sourceSets.main.allJava }
+    source publicGroovyProjects.collect {project -> project.sourceSets.main.allJava }
     destinationDir = new File(docsDir, 'javadoc')
-    classpath = files(groovyProjects().collect {project -> [project.sourceSets.main.compileClasspath, project.sourceSets.main.output] })
-    include 'org/gradle/api/**'
+    classpath = files(publicGroovyProjects.collect {project -> [project.sourceSets.main.compileClasspath, project.sourceSets.main.output] })
     include 'org/gradle/*'
+    include 'org/gradle/api/**'
+    include 'org/gradle/authentication/**'
+    include 'org/gradle/buildinit/**'
+    include 'org/gradle/caching/**'
     include 'org/gradle/external/javadoc/**'
-    include 'org/gradle/process/**'
+    include 'org/gradle/ide/**'
+    include 'org/gradle/ivy/**'
+    include 'org/gradle/jvm/**'
+    include 'org/gradle/language/**'
+    include 'org/gradle/maven/**'
+    include 'org/gradle/nativeplatform/**'
+    include 'org/gradle/platform/**'
+    include 'org/gradle/play/**'
+    include 'org/gradle/plugin/devel/**'
+    include 'org/gradle/plugin/repository/*'
+    include 'org/gradle/plugin/use/*'
+    include 'org/gradle/plugin/management/*'
     include 'org/gradle/plugins/**'
+    include 'org/gradle/process/**'
     include 'org/gradle/testfixtures/**'
+    include 'org/gradle/testing/jacoco/**'
     include 'org/gradle/tooling/**'
+    include 'org/gradle/model/**'
+    include 'org/gradle/testkit/**'
+    include 'org/gradle/testing/**'
     exclude '**/internal/**'
-    options.links(javaApiUrl, groovyApiUrl, "http://maven.apache.org/ref/2.2.1/maven-core/apidocs",
-        "http://maven.apache.org/ref/2.2.1/maven-model/apidocs")
-    doFirst {
-        title = "Gradle API $version"
-    }
-}
-
-task configureGroovydoc {
-    doFirst {
-        project.configure(groovydoc) {
-            [javaApiUrl, groovyApiUrl].each {
-                link(it, *(new URL("$it/package-list").text.tokenize("\n")))
-            }
-            docTitle = "Gradle API $version"
-            windowTitle = "Gradle API $version"
-            footer = "Gradle API $version"
-        }
-    }
-}
-
-task groovydoc(type: Groovydoc, dependsOn: configureGroovydoc) {
-    group = 'documentation'
-    source groovyProjects().collect {project -> project.sourceSets.main.groovy + project.sourceSets.main.java }
-    destinationDir = new File(docsDir, 'groovydoc')
-    classpath = javadoc.classpath
-    includes = javadoc.includes
-    excludes = javadoc.excludes
-    doFirst {
-        windowTitle = "Gradle API $version"
-        docTitle = windowTitle
-    }
-    groovyClasspath = project(':core').configurations.groovy
-    doLast {
-        def index = new File(destinationDir, "index.html")
-        index.text = index.text.replace("{todo.title}", windowTitle) // workaround groovydoc bug
-    }
-
-    gradle.taskGraph.whenReady {
-        if (it.hasTask(groovydoc)) {
-            def systemCharset = java.nio.charset.Charset.defaultCharset().name()
-            if (systemCharset != "UTF-8") {
-                if (isReleaseBuild()) {
-                    throw new InvalidUserDataException("Cannot run $groovydoc.name task unless system charset is UTF-8 (it's $systemCharset, set -Dfile.encoding=UTF-8) in GRADLE_OPTS")
-                } else {
-                    logger.warn("Groovydoc will be generated in this build, but the default character encoding is '$systemCharset'. It should be 'UTF-8'. This is ok for a non release build.")
-                }
-            }
-        }
-    }
+    options.links(javaApiUrl, groovyApiUrl, mavenApiUrl)
+    title = "Gradle API $version"
+    ext.entryPoint = "$destinationDir/index.html"
 }
 
 task checkstyleApi(type: Checkstyle) {
-    source javadoc.source
+    source javadocAll.source
     configFile = file("$checkstyleConfigDir/checkstyle-api.xml")
     classpath = files()
     reports.xml.destination = file("$checkstyle.reportsDir/checkstyle-api.xml")
 }
 
-task userguideFragmentSrc(type: UserGuideTransformTask, dependsOn: [userguideStyleSheets, samples]) {
+task userguideFragmentSrc(type: UserGuideTransformTask, dependsOn: [userguideStyleSheets]) {
     tags << 'standalone'
     sourceFile = new File(userguideSrcDir, 'installation.xml')
     destFile = new File(docbookSrc, 'installation.xml')
-    javadocUrl = project.version.javadocUrl
-    groovydocUrl = project.version.groovydocUrl
-    dsldocUrl = project.version.dsldocUrl
-    websiteUrl = 'http://www.gradle.org'
 }
 
 task distDocs(type: Docbook2Xhtml) {
     source userguideFragmentSrc
     destFile = new File(distDocsDir, 'getting-started.html')
     stylesheetName = 'standaloneHtml.xsl'
+    outputs.doNotCacheIf('Depends on the output of userguideFragmentSrc, which contains an ever changing version') { true }
 }
 
 task userguide {
@@ -327,71 +485,66 @@ task userguide {
     group = 'documentation'
 }
 
+task editReleaseNotes() {
+    group = "release notes"
+    doLast {
+        Class.forName("java.awt.Desktop").newInstance().edit(file("src/docs/release/notes.md"))
+    }
+}
+
+task releaseNotesMarkdown(type: PegDown) {
+    group = "release notes"
+    markdownFile = file("src/docs/release/notes.md")
+    destination = new File(buildDir, "release-notes-raw/release-notes.html")
+}
+
+task releaseNotes(type: Copy) {
+    group = "release notes"
+    ext.fileName = "release-notes.html"
+    into "$docsDir"
+    from releaseNotesMarkdown
+    jsoup.plugins "src/transforms/release-notes.gradle"
+    filter(ReplaceTokens, tokens: [version: project.version.toString(), baseVersion: rootProject.baseVersion])
+    ext.entryPoint = file("$docsDir/$fileName")
+}
+
+tasks.addRule("view«Doc Task Name» - Opens entry point") { String taskName ->
+    if (taskName.startsWith("view")) {
+        def realTaskName = (taskName - "view")
+        realTaskName = realTaskName[0].toLowerCase() + realTaskName[1..-1]
+        def task = tasks.findByName(realTaskName)
+        if (task && task.hasProperty("entryPoint")) {
+            tasks.create(taskName) {
+                dependsOn task
+                doLast {
+                    Class.forName("java.awt.Desktop").newInstance().browse(file(task.entryPoint).toURI())
+                }
+            }
+        }
+    }
+}
+
+sourceSets.main.output.dir generatedResourcesDir, builtBy: defaultImports
+
+['test', 'java9Test'].each {
+    tasks[it].configure {
+        dependsOn releaseNotes
+        inputs.files releaseNotesMarkdown.markdownFile withPropertyName "releaseNotesSource" withPathSensitivity PathSensitivity.NONE
+        inputs.dir releaseNotes.destinationDir withPropertyName "releaseNotesRendered" withPathSensitivity PathSensitivity.NONE
+        inputs.property "systemProperties", [:]
+        systemProperty "org.gradle.docs.releasenotes.source", releaseNotesMarkdown.markdownFile
+        systemProperty "org.gradle.docs.releasenotes.rendered", new File(releaseNotes.destinationDir, releaseNotes.fileName)
+
+        outputs.doNotCacheIf('Has release notes as an input, which contains an ever changing version') { true }
+    }
+}
+
 task docs {
-    dependsOn javadoc, groovydoc, userguide, distDocs, samplesDocs, dslHtml
+    dependsOn javadocAll, userguide, distDocs, samplesDocs, dslHtml, releaseNotes
     description = 'Generates all documentation'
     group = 'documentation'
 }
 
 task docsZip(type: Zip) {
     from project.outputs.docs
-}
-
-import org.gradle.plugins.pegdown.PegDown
-import org.gradle.plugins.jsoup.Jsoup
-
-task editReleaseNotes() << {
-    Class.forName("java.awt.Desktop").newInstance().edit(file("src/docs/release/notes.md"))
-}
-
-task releaseNotesMarkdown(type: PegDown) {
-    source "src/docs/release/notes.md"
-    destination "$buildDir/release-notes/notes-raw.html"
-}
-
-task decorateReleaseNotes(type: Jsoup) {
-    source releaseNotesMarkdown
-    destination "$buildDir/release-notes/notes-decorated.html"
-    
-    inputs.file "release-notes-transform.gradle"
-    apply from: "release-notes-transform.gradle"
-}
-
-import org.apache.tools.ant.filters.*
-task releaseNotes(type: Copy) {
-    ext.fileName = "release-notes.html"
-    into "$docsDir"
-    from decorateReleaseNotes, {
-        rename ".+", "release-notes.html"
-        doFirst {
-            owner.filter(ReplaceTokens, tokens: [version: project.version.toString()])
-        }
-    }
-}
-
-task viewReleaseNotes(dependsOn: releaseNotes) << {
-    Class.forName("java.awt.Desktop").newInstance().browse(new File(releaseNotes.destinationDir, releaseNotes.fileName).toURI())
-}
-
-class Xhtml2Pdf extends DefaultTask {
-    @InputFile
-    File sourceFile
-
-    @OutputFile
-    File destFile
-
-    @InputFiles
-    FileCollection classpath
-
-    @TaskAction
-    def transform() {
-        def uris = classpath.files.collect {it.toURI().toURL()}
-        def classloader = new URLClassLoader(uris as URL[], getClass().classLoader)
-        def renderer = classloader.loadClass('org.xhtmlrenderer.pdf.ITextRenderer').newInstance()
-        renderer.setDocument(sourceFile)
-        renderer.layout()
-        destFile.withOutputStream {
-            renderer.createPDF(it)
-        }
-    }
 }

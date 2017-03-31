@@ -32,11 +32,29 @@ public class DefaultGradleConnector extends GradleConnector {
     private final DistributionFactory distributionFactory;
     private Distribution distribution;
 
-    private final DefaultConnectionParameters connectionParameters = new DefaultConnectionParameters();
+    private final DefaultConnectionParameters.Builder connectionParamsBuilder = DefaultConnectionParameters.builder();
 
     public DefaultGradleConnector(ConnectionFactory connectionFactory, DistributionFactory distributionFactory) {
         this.connectionFactory = connectionFactory;
         this.distributionFactory = distributionFactory;
+    }
+
+    /**
+     * Closes the tooling API, releasing all resources. Blocks until completed.
+     *
+     * <p>May attempt to expire some or all daemons started by this tooling API client. The exact behaviour here is implementation-specific and not guaranteed.
+     * The expiration is best effort only. This method may return before the daemons have stopped.</p>
+     *
+     * <p>Note: this is not yet part of the public tooling API yet.</p>
+     *
+     * TODO - need to model this as a long running operation, and allow stdout, stderr and progress listener to be supplied.
+     * TODO - need to define exceptions.
+     * TODO - no further operations are allowed after this has been called
+     * TODO - cancel current operations or block until complete
+     * TODO - introduce a 'tooling API client' interface and move this method there
+     */
+    public static void close() {
+        ConnectorServices.close();
     }
 
     public GradleConnector useInstallation(File gradleHome) {
@@ -59,51 +77,59 @@ public class DefaultGradleConnector extends GradleConnector {
         return this;
     }
 
-    public GradleConnector useDefaultDistribution() {
+    public GradleConnector useBuildDistribution() {
         distribution = null;
         return this;
     }
 
+    public GradleConnector useDistributionBaseDir(File distributionBaseDir) {
+        distributionFactory.setDistributionBaseDir(distributionBaseDir);
+        return this;
+    }
+
     public GradleConnector forProjectDirectory(File projectDir) {
-        connectionParameters.setProjectDir(projectDir);
+        connectionParamsBuilder.setProjectDir(projectDir);
         return this;
     }
 
     public GradleConnector useGradleUserHomeDir(File gradleUserHomeDir) {
-        connectionParameters.setGradleUserHomeDir(gradleUserHomeDir);
+        connectionParamsBuilder.setGradleUserHomeDir(gradleUserHomeDir);
         return this;
     }
 
     public GradleConnector searchUpwards(boolean searchUpwards) {
-        connectionParameters.setSearchUpwards(searchUpwards);
+        connectionParamsBuilder.setSearchUpwards(searchUpwards);
         return this;
     }
 
     public GradleConnector embedded(boolean embedded) {
-        connectionParameters.setEmbedded(embedded);
+        connectionParamsBuilder.setEmbedded(embedded);
         return this;
     }
 
     public GradleConnector daemonMaxIdleTime(int timeoutValue, TimeUnit timeoutUnits) {
-        connectionParameters.setDaemonMaxIdleTimeValue(timeoutValue);
-        connectionParameters.setDaemonMaxIdleTimeUnits(timeoutUnits);
+        connectionParamsBuilder.setDaemonMaxIdleTimeValue(timeoutValue);
+        connectionParamsBuilder.setDaemonMaxIdleTimeUnits(timeoutUnits);
+        return this;
+    }
+
+    public GradleConnector daemonBaseDir(File daemonBaseDir) {
+        connectionParamsBuilder.setDaemonBaseDir(daemonBaseDir);
         return this;
     }
 
     /**
      * If true then debug log statements will be shown
-     *
-     * @param verboseLogging
-     * @return
      */
     public DefaultGradleConnector setVerboseLogging(boolean verboseLogging) {
-        connectionParameters.setVerboseLogging(verboseLogging);
+        connectionParamsBuilder.setVerboseLogging(verboseLogging);
         return this;
     }
 
     public ProjectConnection connect() throws GradleConnectionException {
         LOGGER.debug("Connecting from tooling API consumer version {}", GradleVersion.current().getVersion());
 
+        ConnectionParameters connectionParameters = connectionParamsBuilder.build();
         if (connectionParameters.getProjectDir() == null) {
             throw new IllegalStateException("A project directory must be specified before creating a connection.");
         }
@@ -115,9 +141,5 @@ public class DefaultGradleConnector extends GradleConnector {
 
     ConnectionFactory getConnectionFactory() {
         return connectionFactory;
-    }
-
-    void setDistribution(Distribution distribution) {
-        this.distribution = distribution;
     }
 }

@@ -16,27 +16,30 @@
 
 package org.gradle.integtests
 
+import org.gradle.integtests.fixtures.versions.ReleasedVersionDistributions
 import org.gradle.util.DistributionLocator
 import org.gradle.util.GradleVersion
+import org.gradle.util.Requires
+import org.gradle.util.TestPrecondition
 import spock.lang.Specification
 
-/**
- * @author: Szczepan Faber, created at: 8/20/11
- */
+@Requires(TestPrecondition.ONLINE)
 class DistributionLocatorIntegrationTest extends Specification {
 
     def locator = new DistributionLocator()
+    def distributions = new ReleasedVersionDistributions()
 
     def "locates release versions"() {
         expect:
         urlExist(locator.getDistributionFor(GradleVersion.version("0.8")))
         urlExist(locator.getDistributionFor(GradleVersion.version("0.9.1")))
         urlExist(locator.getDistributionFor(GradleVersion.version("1.0-milestone-3")))
+        urlExist(locator.getDistributionFor(GradleVersion.version("1.12")))
     }
 
     def "locates snapshot versions"() {
         expect:
-        urlExist(locator.getDistributionFor(GradleVersion.version("1.0-milestone-7-20111216000006+0100")))
+        urlExist(locator.getDistributionFor(distributions.mostRecentSnapshot.version))
     }
 
     void urlExist(URI url) {

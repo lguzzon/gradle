@@ -15,22 +15,29 @@
  */
 package org.gradle.launcher.cli
 
+import org.apache.tools.ant.Main
 import org.gradle.api.Action
 import org.gradle.cli.CommandLineArgumentException
-import org.gradle.cli.CommandLineConverter
 import org.gradle.cli.CommandLineParser
 import org.gradle.internal.Factory
+import org.gradle.internal.jvm.Jvm
+import org.gradle.internal.logging.LoggingManagerInternal
+import org.gradle.internal.logging.services.LoggingServiceRegistry
+import org.gradle.internal.logging.progress.ProgressLoggerFactory
+import org.gradle.internal.logging.text.StyledTextOutput
+import org.gradle.internal.logging.text.StyledTextOutputFactory
+import org.gradle.internal.os.OperatingSystem
 import org.gradle.internal.service.ServiceRegistry
 import org.gradle.launcher.bootstrap.ExecutionListener
-import org.gradle.logging.internal.OutputEventListener
-import org.gradle.logging.internal.StreamingStyledTextOutput
+import org.gradle.internal.logging.events.OutputEventListener
+import org.gradle.internal.logging.text.StreamingStyledTextOutput
+import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
 import org.gradle.util.GradleVersion
 import org.gradle.util.RedirectStdOutAndErr
 import org.gradle.util.SetSystemProperties
-import org.gradle.util.TemporaryFolder
 import org.junit.Rule
 import spock.lang.Specification
-import org.gradle.logging.*
+import spock.lang.Unroll
 
 class CommandLineActionFactoryTest extends Specification {
     @Rule
@@ -38,16 +45,15 @@ class CommandLineActionFactoryTest extends Specification {
     @Rule
     public final SetSystemProperties sysProperties = new SetSystemProperties();
     @Rule
-    TemporaryFolder tmpDir = new TemporaryFolder();
+    TestNameTestDirectoryProvider tmpDir = new TestNameTestDirectoryProvider();
     final ExecutionListener executionListener = Mock()
-    final ServiceRegistry loggingServices = Mock()
-    final CommandLineConverter<LoggingConfiguration> loggingConfigurationConverter = Mock()
+    final LoggingServiceRegistry loggingServices = Mock()
     final LoggingManagerInternal loggingManager = Mock()
     final CommandLineAction actionFactory1 = Mock()
     final CommandLineAction actionFactory2 = Mock()
     final CommandLineActionFactory factory = new CommandLineActionFactory() {
         @Override
-        ServiceRegistry createLoggingServices() {
+        LoggingServiceRegistry createLoggingServices() {
             return loggingServices
         }
 
@@ -61,7 +67,6 @@ class CommandLineActionFactoryTest extends Specification {
     def setup() {
         ProgressLoggerFactory progressLoggerFactory = Mock()
         _ * loggingServices.get(ProgressLoggerFactory) >> progressLoggerFactory
-        _ * loggingServices.get(CommandLineConverter) >> loggingConfigurationConverter
         _ * loggingServices.get(OutputEventListener) >> Mock(OutputEventListener)
         Factory<LoggingManagerInternal> loggingManagerFactory = Mock()
         _ * loggingServices.getFactory(LoggingManagerInternal) >> loggingManagerFactory
@@ -73,7 +78,7 @@ class CommandLineActionFactoryTest extends Specification {
     }
 
     def "delegates to each action factory to configure the command-line parser and create the action"() {
-        Action<ExecutionListener> rawAction = Mock()
+        def rawAction = Mock(Runnable)
 
         when:
         def action = factory.convert(["--some-option"])
@@ -88,7 +93,7 @@ class CommandLineActionFactoryTest extends Specification {
         1 * actionFactory1.configureCommandLineParser(!null) >> { CommandLineParser parser -> parser.option("some-option") }
         1 * actionFactory2.configureCommandLineParser(!null)
         1 * actionFactory1.createAction(!null, !null) >> rawAction
-        1 * rawAction.execute(executionListener)
+        1 * rawAction.run()
     }
 
     def "configures logging before parsing command-line"() {
@@ -110,6 +115,30 @@ class CommandLineActionFactoryTest extends Specification {
         1 * actionFactory1.configureCommandLineParser(!null)
         1 * actionFactory2.configureCommandLineParser(!null)
         1 * actionFactory1.createAction(!null, !null) >> rawAction
+    }
+
+    @Unroll
+    def "set logging max worker count to #expectedMaxWorkerCount according to command line flags #flags"() {
+        when:
+        def action = factory.convert(flags)
+
+        then:
+        action
+
+        when:
+        action.execute(executionListener)
+
+        then:
+        1 * loggingManager.setMaxWorkerCount(expectedMaxWorkerCount);
+
+        where:
+        expectedMaxWorkerCount | flags
+        1                      | []
+        1                      | ['--max-workers=4']
+        4                      | ['--parallel', '--max-workers=4']
+        4                      | ['--parallel', '-Dorg.gradle.workers.max=4']
+        6                      | ['--parallel', '--max-workers=6', '-Dorg.gradle.workers.max=4']
+        4                      | ['-Dorg.gradle.parallel=true', '--max-workers=4']
     }
 
     def "reports command-line parse failure"() {
@@ -149,7 +178,7 @@ class CommandLineActionFactoryTest extends Specification {
         0 * executionListener._
     }
 
-    def "ignores failure to parse logging configuration"() {
+    def "continues on failure to parse logging configuration"() {
         when:
         def action = factory.convert(["--logging=broken"])
         action.execute(executionListener)
@@ -161,7 +190,6 @@ class CommandLineActionFactoryTest extends Specification {
         outputs.stdErr.contains('--some-option')
 
         and:
-        1 * loggingConfigurationConverter.configure(!null) >> {CommandLineParser parser -> parser.option("logging").hasArgument()}
         1 * actionFactory1.configureCommandLineParser(!null) >> {CommandLineParser parser -> parser.option('some-option')}
         1 * executionListener.onFailure({it instanceof CommandLineArgumentException})
         0 * executionListener._
@@ -213,12 +241,29 @@ class CommandLineActionFactoryTest extends Specification {
     }
 
     def "displays version message"() {
+        def version = GradleVersion.current()
+        def expectedText = [
+            "",
+            "------------------------------------------------------------",
+            "Gradle ${version.version}",
+            "------------------------------------------------------------",
+            "",
+            "Build time:   $version.buildTime",
+            "Revision:     $version.revision",
+            "",
+            "Groovy:       $GroovySystem.version",
+            "Ant:          $Main.antVersion",
+            "JVM:          ${Jvm.current()}",
+            "OS:           ${OperatingSystem.current()}",
+            ""
+        ].join(System.lineSeparator())
+
         when:
         def action = factory.convert([option])
         action.execute(executionListener)
 
         then:
-        outputs.stdOut.contains(GradleVersion.current().prettyPrint())
+        outputs.stdOut.contains(expectedText)
 
         and:
         1 * loggingManager.start()

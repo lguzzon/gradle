@@ -15,22 +15,16 @@
  */
 package org.gradle.api.publication.maven.internal
 
-import org.gradle.api.artifacts.ConfigurationContainer
-import org.gradle.api.artifacts.maven.Conf2ScopeMappingContainer
 import org.gradle.api.artifacts.maven.GroovyMavenDeployer
 import org.gradle.api.artifacts.maven.MavenResolver
 import org.gradle.api.internal.artifacts.dsl.DefaultRepositoryHandler
-
 import org.gradle.api.internal.file.FileResolver
 import spock.lang.Specification
 
 class DefaultMavenRepositoryHandlerConventionTest extends Specification {
     final DefaultRepositoryHandler container = Mock()
     final FileResolver fileResolver = Mock()
-    final ConfigurationContainer configurationContainer = Mock()
-    final Conf2ScopeMappingContainer conf2ScopeMappingContainer = Mock()
     final DeployerFactory factory = Mock()
-    final MavenPomMetaInfoProvider metaInfoProvider = Mock()
     final DefaultMavenRepositoryHandlerConvention convention = new DefaultMavenRepositoryHandlerConvention(container, factory)
 
     public void mavenDeployerWithoutName() {
@@ -54,7 +48,8 @@ class DefaultMavenRepositoryHandlerConventionTest extends Specification {
         then:
         result == deployer
         1 * factory.createMavenDeployer() >> deployer
-        1 * container.addRepository(deployer, [name: 'someName'], "mavenDeployer") >> deployer
+        1 * container.addRepository(deployer, "mavenDeployer", _) >> { def d, def name, def action -> action.execute(d); d }
+        1 * deployer.setName("someName")
     }
 
     public void mavenDeployerWithArgsAndClosure() {
@@ -69,7 +64,9 @@ class DefaultMavenRepositoryHandlerConventionTest extends Specification {
         then:
         result == deployer
         1 * factory.createMavenDeployer() >> deployer
-        1 * container.addRepository(deployer, [name: 'someName'], cl, "mavenDeployer") >> deployer
+        1 * container.addRepository(deployer, "mavenDeployer", _) >> { def d, def name, def action -> action.execute(d); d }
+        1 * deployer.setName("someName")
+        1 * deployer.setName("other")
     }
 
     public void mavenDeployerWithClosure() {
@@ -84,7 +81,8 @@ class DefaultMavenRepositoryHandlerConventionTest extends Specification {
         then:
         result == deployer
         1 * factory.createMavenDeployer() >> deployer
-        1 * container.addRepository(deployer, cl, "mavenDeployer") >> deployer
+        1 * container.addRepository(deployer, "mavenDeployer", _) >> { def d, def name, def action -> action.execute(d); d }
+        1 * deployer.setName("other")
     }
 
     public void mavenInstallerWithoutName() {
@@ -108,7 +106,8 @@ class DefaultMavenRepositoryHandlerConventionTest extends Specification {
         then:
         result == installer
         1 * factory.createMavenInstaller() >> installer
-        1 * container.addRepository(installer, [name: 'name'], "mavenInstaller") >> installer
+        1 * container.addRepository(installer, "mavenInstaller", _) >> { def d, def name, def action -> action.execute(d); d }
+        1 * installer.setName("name")
     }
 
     public void mavenInstallerWithNameAndClosure() {
@@ -121,7 +120,9 @@ class DefaultMavenRepositoryHandlerConventionTest extends Specification {
         then:
         result == installer
         1 * factory.createMavenInstaller() >> installer
-        1 * container.addRepository(installer, [name: 'name'], cl, "mavenInstaller") >> installer
+        1 * container.addRepository(installer, "mavenInstaller", _) >> { def d, def name, def action -> action.execute(d); d }
+        1 * installer.setName("name")
+        1 * installer.setName("other")
     }
 
     public void mavenInstallerWithClosure() {
@@ -134,7 +135,8 @@ class DefaultMavenRepositoryHandlerConventionTest extends Specification {
         then:
         result == installer
         1 * factory.createMavenInstaller() >> installer
-        1 * container.addRepository(installer, cl, "mavenInstaller") >> installer
+        1 * container.addRepository(installer, "mavenInstaller", _) >> { def d, def name, def action -> action.execute(d); d }
+        1 * installer.setName("other")
     }
 
 }

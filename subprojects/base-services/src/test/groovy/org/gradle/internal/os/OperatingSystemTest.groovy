@@ -15,29 +15,48 @@
  */
 package org.gradle.internal.os
 
+import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
 import org.gradle.util.SetSystemProperties
-import org.gradle.util.TemporaryFolder
 import org.junit.Rule
 import spock.lang.Specification
 
+import java.lang.reflect.Field
+import java.lang.reflect.Modifier
+
 class OperatingSystemTest extends Specification {
     @Rule SetSystemProperties systemProperties = new SetSystemProperties()
-    @Rule TemporaryFolder tmpDir = new TemporaryFolder()
+    @Rule TestNameTestDirectoryProvider tmpDir = new TestNameTestDirectoryProvider()
+
+    def setup() {
+        OperatingSystem.resetCurrent()
+    }
+
+    def cleanup() {
+        OperatingSystem.resetCurrent()
+    }
+
+    def cleanupSpec() {
+        resetOperatingSystemClassStaticFields()
+    }
 
     def "uses os.name property to determine OS name"() {
+        given:
         System.properties['os.name'] = 'GradleOS 1.0'
-        
+        boolean resetStateSuccess = resetOperatingSystemClassStaticFields()
+
         expect:
-        OperatingSystem.current().name == 'GradleOS 1.0'
+        OperatingSystem.current().name == 'GradleOS 1.0' || !resetStateSuccess
     }
-    
+
     def "uses os.version property to determine OS version"() {
+        given:
         System.properties['os.version'] = '42'
-        
+        boolean resetStateSuccess = resetOperatingSystemClassStaticFields()
+
         expect:
-        OperatingSystem.current().version == '42'
+        OperatingSystem.current().version == '42' || !resetStateSuccess
     }
-    
+
     def "uses os.name property to determine if windows"() {
         System.properties['os.name'] = 'Windows 7'
 
@@ -61,6 +80,9 @@ class OperatingSystemTest extends Specification {
         os.getScriptName("a.bat") == "a.bat"
         os.getScriptName("a.BAT") == "a.BAT"
         os.getScriptName("a") == "a.bat"
+        os.getScriptName("a.exe") == "a.bat"
+        os.getScriptName("a.b/c") == "a.b/c.bat"
+        os.getScriptName("a.b\\c") == "a.b\\c.bat"
     }
 
     def "windows transforms executable names"() {
@@ -70,6 +92,9 @@ class OperatingSystemTest extends Specification {
         os.getExecutableName("a.exe") == "a.exe"
         os.getExecutableName("a.EXE") == "a.EXE"
         os.getExecutableName("a") == "a.exe"
+        os.getExecutableName("a.bat") == "a.exe"
+        os.getExecutableName("a.b/c") == "a.b/c.exe"
+        os.getExecutableName("a.b\\c") == "a.b\\c.exe"
     }
 
     def "windows transforms shared library names"() {
@@ -79,6 +104,21 @@ class OperatingSystemTest extends Specification {
         os.getSharedLibraryName("a.dll") == "a.dll"
         os.getSharedLibraryName("a.DLL") == "a.DLL"
         os.getSharedLibraryName("a") == "a.dll"
+        os.getSharedLibraryName("a.lib") == "a.dll"
+        os.getSharedLibraryName("a.b/c") == "a.b/c.dll"
+        os.getSharedLibraryName("a.b\\c") == "a.b\\c.dll"
+    }
+
+    def "windows transforms static library names"() {
+        def os = new OperatingSystem.Windows()
+
+        expect:
+        os.getStaticLibraryName("a.lib") == "a.lib"
+        os.getStaticLibraryName("a.LIB") == "a.LIB"
+        os.getStaticLibraryName("a") == "a.lib"
+        os.getStaticLibraryName("a.dll") == "a.lib"
+        os.getStaticLibraryName("a.b/c") == "a.b/c.lib"
+        os.getStaticLibraryName("a.b\\c") == "a.b\\c.lib"
     }
 
     def "windows searches for executable in path"() {
@@ -109,6 +149,12 @@ class OperatingSystemTest extends Specification {
 
         then:
         OperatingSystem.current() instanceof OperatingSystem.MacOs
+
+        when:
+        System.properties['os.name'] = 'osx'
+
+        then:
+        OperatingSystem.current() instanceof OperatingSystem.MacOs
     }
 
     def "Mac OS X identifies itself correctly"() {
@@ -120,10 +166,17 @@ class OperatingSystemTest extends Specification {
         os.macOsX
     }
 
-    def "uses os.name property to determine if solaris"() {
+    def "uses os.name property to determine if sunos"() {
+        when:
         System.properties['os.name'] = 'SunOS'
 
-        expect:
+        then:
+        OperatingSystem.current() instanceof OperatingSystem.Solaris
+
+        when:
+        System.properties['os.name'] = 'solaris'
+
+        then:
         OperatingSystem.current() instanceof OperatingSystem.Solaris
     }
 
@@ -132,6 +185,13 @@ class OperatingSystemTest extends Specification {
 
         expect:
         OperatingSystem.current() instanceof OperatingSystem.Linux
+    }
+
+    def "uses os.name property to determine if freebsd"() {
+        System.properties['os.name'] = 'FreeBSD'
+
+        expect:
+        OperatingSystem.current() instanceof OperatingSystem.FreeBSD
     }
 
     def "uses default implementation for other os"() {
@@ -178,6 +238,18 @@ class OperatingSystemTest extends Specification {
         os.getSharedLibraryName("path/a") == "path/liba.so"
     }
 
+    def "UNIX transforms static library names"() {
+        def os = new OperatingSystem.Unix()
+
+        expect:
+        os.getStaticLibraryName("a.a") == "a.a"
+        os.getStaticLibraryName("liba.a") == "liba.a"
+        os.getStaticLibraryName("a") == "liba.a"
+        os.getStaticLibraryName("lib1") == "liblib1.a"
+        os.getStaticLibraryName("path/liba.a") == "path/liba.a"
+        os.getStaticLibraryName("path/a") == "path/liba.a"
+    }
+
     def "UNIX searches for executable in path"() {
         def exe = tmpDir.createFile("bin/a")
         tmpDir.createFile("bin2/a")
@@ -194,36 +266,28 @@ class OperatingSystemTest extends Specification {
     }
 
     def "solaris uses prefix of x86 for 32bit intel"() {
+        given:
+        System.properties['os.arch'] = arch
         def solaris = new OperatingSystem.Solaris()
 
-        when:
-        System.properties['os.arch'] = 'i386'
+        expect:
+        solaris.nativePrefix == prefix
 
-        then:
-        solaris.nativePrefix == 'sunos-x86'
-
-        when:
-        System.properties['os.arch'] = 'x86'
-
-        then:
-        solaris.nativePrefix == 'sunos-x86'
+        where:
+        [arch, prefix] << [['i386', 'sunos-x86'], ['x86', 'sunos-x86']]
     }
 
     def "unix uses prefix of i386 for 32bit intel"() {
-        def unix = new OperatingSystem.Unix()
+        given:
         System.properties['os.name'] = 'unknown'
+        System.properties['os.arch'] = arch
+        def unix = new OperatingSystem.Unix()
 
-        when:
-        System.properties['os.arch'] = 'x86'
+        expect:
+        unix.nativePrefix == prefix
 
-        then:
-        unix.nativePrefix == 'unknown-i386'
-
-        when:
-        System.properties['os.arch'] = 'i386'
-
-        then:
-        unix.nativePrefix == 'unknown-i386'
+        where:
+        [arch, prefix] << [['i386', 'unknown-i386'], ['x86', 'unknown-i386']]
     }
 
     def "os x uses same prefix for all architectures"() {
@@ -245,4 +309,27 @@ class OperatingSystemTest extends Specification {
         os.getSharedLibraryName("path/a") == "path/liba.dylib"
     }
 
+    private static boolean resetOperatingSystemClassStaticFields() {
+        try {
+            OperatingSystem.getDeclaredFields()
+                .findAll { Modifier.isStatic(it.modifiers) && Modifier.isFinal(it.modifiers) }
+                .each { Field field ->
+                if (OperatingSystem.isAssignableFrom(field.getType())) {
+                    makeFinalFieldAccessibleForTesting(field)
+                    field.set(null, field.getType().newInstance())
+                }
+            }
+            return true
+        } catch (Exception e) {
+            System.err.println "Unable to make fields accessible on this JVM, error was:\n${e.message}"
+            return false
+        }
+    }
+
+    private static void makeFinalFieldAccessibleForTesting(Field field) {
+        field.setAccessible(true)
+        Field modifiersField = Field.class.getDeclaredField("modifiers")
+        modifiersField.setAccessible(true)
+        modifiersField.setInt(field, field.getModifiers() & ~Modifier.FINAL)
+    }
 }

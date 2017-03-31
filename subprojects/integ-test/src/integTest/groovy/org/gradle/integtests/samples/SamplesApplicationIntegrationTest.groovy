@@ -15,15 +15,15 @@
  */
 package org.gradle.integtests.samples
 
-import org.gradle.util.TestFile
+import org.gradle.integtests.fixtures.AbstractIntegrationSpec
+import org.gradle.integtests.fixtures.Sample
+import org.gradle.integtests.fixtures.ScriptExecuter
+import org.gradle.test.fixtures.file.TestFile
 import org.junit.Rule
-import spock.lang.Specification
-import org.gradle.integtests.fixtures.*
 
-class SamplesApplicationIntegrationTest extends Specification {
-    @Rule GradleDistribution distribution = new GradleDistribution()
-    @Rule GradleDistributionExecuter executer = new GradleDistributionExecuter()
-    @Rule Sample sample = new Sample('application')
+class SamplesApplicationIntegrationTest extends AbstractIntegrationSpec {
+
+    @Rule Sample sample = new Sample(temporaryFolder, 'application')
 
     def canRunTheApplicationUsingRunTask() {
         when:
@@ -35,7 +35,7 @@ class SamplesApplicationIntegrationTest extends Specification {
 
     def canBuildAndRunTheInstalledApplication() {
         when:
-        executer.inDirectory(sample.dir).withTasks('installApp').run()
+        executer.inDirectory(sample.dir).withTasks('installDist').run()
 
         then:
         def installDir = sample.dir.file('build/install/application')
@@ -57,12 +57,12 @@ class SamplesApplicationIntegrationTest extends Specification {
 
         checkApplicationImage(installDir.file('application-1.0.2'))
     }
-    
+
     private void checkApplicationImage(TestFile installDir) {
         installDir.file('bin/application').assertIsFile()
         installDir.file('bin/application.bat').assertIsFile()
         installDir.file('lib/application-1.0.2.jar').assertIsFile()
-        installDir.file('lib/commons-collections-3.2.1.jar').assertIsFile()
+        installDir.file('lib/commons-collections-3.2.2.jar').assertIsFile()
 
         installDir.file('LICENSE').assertIsFile()
         installDir.file('docs/readme.txt').assertIsFile()

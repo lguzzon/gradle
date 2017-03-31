@@ -16,26 +16,24 @@
 package org.gradle.api.internal.file
 
 import org.gradle.api.file.FileTreeElement
-import org.gradle.util.Requires
-import org.gradle.util.TemporaryFolder
-import org.gradle.util.TestPrecondition
-import org.gradle.internal.nativeplatform.filesystem.FileSystems
-
+import org.gradle.internal.nativeintegration.filesystem.Chmod
+import org.gradle.internal.nativeintegration.filesystem.Stat
+import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
 import org.junit.Rule
 import spock.lang.Specification
 
 class DefaultFileTreeElementTest extends Specification {
-    @Rule TemporaryFolder tmpDir = new TemporaryFolder()
+    @Rule TestNameTestDirectoryProvider tmpDir = new TestNameTestDirectoryProvider()
 
-    @Requires(TestPrecondition.FILE_PERMISSIONS)
     def "permissions on file can be read"() {
+        def stat = Mock(Stat)
         def f = tmpDir.createFile("f")
-        FileTreeElement e = new DefaultFileTreeElement(f, null)
+        FileTreeElement e = new DefaultFileTreeElement(f, null, Stub(Chmod), stat)
 
-        when:
-        FileSystems.default.chmod(f, 0644)
+        given:
+        stat.getUnixMode(f) >> 0644
 
-        then:
+        expect:
         e.mode == 0644
     }
 }

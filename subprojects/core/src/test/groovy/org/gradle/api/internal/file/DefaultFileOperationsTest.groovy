@@ -22,31 +22,46 @@ import org.gradle.api.InvalidUserDataException
 import org.gradle.api.PathValidation
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.FileTree
+import org.gradle.api.internal.AsmBackedClassGenerator
+import org.gradle.api.internal.ClassGeneratorBackedInstantiator
 import org.gradle.api.internal.file.archive.TarFileTree
 import org.gradle.api.internal.file.archive.ZipFileTree
 import org.gradle.api.internal.file.collections.DefaultConfigurableFileCollection
+import org.gradle.api.internal.file.collections.DefaultDirectoryFileTreeFactory
 import org.gradle.api.internal.file.collections.FileTreeAdapter
-import org.gradle.api.internal.file.copy.CopyActionImpl
-import org.gradle.api.internal.file.copy.CopySpecImpl
+import org.gradle.api.internal.file.copy.DefaultCopySpec
 import org.gradle.api.internal.tasks.TaskResolver
-import org.gradle.internal.os.OperatingSystem
+import org.gradle.internal.classloader.ClasspathUtil
+import org.gradle.internal.reflect.DirectInstantiator
+import org.gradle.internal.reflect.Instantiator
 import org.gradle.process.ExecResult
 import org.gradle.process.internal.ExecException
-import org.gradle.util.ClasspathUtil
-import org.gradle.util.TemporaryFolder
-import org.gradle.util.TestFile
+import org.gradle.test.fixtures.file.TestFile
+import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
+import org.gradle.util.Requires
+import org.gradle.util.TestPrecondition
+import org.gradle.util.UsesNativeServices
 import org.junit.Rule
-import org.junit.Test
 import spock.lang.Specification
-import org.gradle.internal.nativeplatform.filesystem.FileSystems
 
+@UsesNativeServices
 public class DefaultFileOperationsTest extends Specification {
-    private final FileResolver resolver = Mock()
+    private final FileResolver resolver = Mock() {
+        getPatternSetFactory() >> TestFiles.getPatternSetFactory()
+    }
     private final TaskResolver taskResolver = Mock()
     private final TemporaryFileProvider temporaryFileProvider = Mock()
-    private DefaultFileOperations fileOperations = new DefaultFileOperations(resolver, taskResolver, temporaryFileProvider)
+    private final Instantiator instantiator = new ClassGeneratorBackedInstantiator(new AsmBackedClassGenerator(), DirectInstantiator.INSTANCE)
+    private final FileLookup fileLookup = Mock()
+    private final DefaultDirectoryFileTreeFactory directoryFileTreeFactory = Mock()
+    private DefaultFileOperations fileOperations = instance()
+
+    private DefaultFileOperations instance(FileResolver resolver = resolver) {
+        instantiator.newInstance(DefaultFileOperations, resolver, taskResolver, temporaryFileProvider, instantiator, fileLookup, directoryFileTreeFactory)
+    }
+
     @Rule
-    public final TemporaryFolder tmpDir = new TemporaryFolder()
+    public final TestNameTestDirectoryProvider tmpDir = new TestNameTestDirectoryProvider()
 
     def resolvesFile() {
         when:
@@ -72,15 +87,27 @@ public class DefaultFileOperationsTest extends Specification {
         fileOperations.uri('path') == uri
     }
 
-    def resolvesFiles() {
+    def resolvesFilesInOrder() {
         when:
-        def fileCollection = fileOperations.files('a', 'b')
+        def fileCollection = fileOperations.files('a', 'b', 'c')
 
         then:
         fileCollection instanceof DefaultConfigurableFileCollection
-        fileCollection.from == ['a', 'b'] as LinkedHashSet
+        fileCollection.from as List == ['a', 'b', 'c']
         fileCollection.resolver.is(resolver)
         fileCollection.buildDependency.resolver.is(taskResolver)
+
+        when:
+        def files = fileCollection.files
+        then:
+        1 * resolver.resolve('a') >> new File('a')
+        then:
+        1 * resolver.resolve('b') >> new File('b')
+        then:
+        1 * resolver.resolve('c') >> new File('c')
+        then:
+        files*.name as List == ['a', 'b', 'c']
+        0 * _
     }
 
     def createsFileTree() {
@@ -95,40 +122,11 @@ public class DefaultFileOperationsTest extends Specification {
         fileTree.resolver.is(resolver)
     }
 
-    def createsAndConfiguresFileTree() {
-        given:
-        TestFile baseDir = expectPathResolved('base')
-        
-        when:
-        def fileTree = fileOperations.fileTree('base') {
-            builtBy 1
-        }
-        
-        then:
-        fileTree instanceof FileTree
-        fileTree.dir == baseDir
-        fileTree.resolver.is(resolver)
-        fileTree.builtBy == [1] as Set
-    }
-    
     def createsFileTreeFromMap() {
         TestFile baseDir = expectPathResolved('base')
 
         when:
         def fileTree = fileOperations.fileTree(dir: 'base')
-
-        then:
-        fileTree instanceof FileTree
-        fileTree.dir == baseDir
-        fileTree.resolver.is(resolver)
-    }
-
-    @Test
-    public void createsFileTreeFromClosure() {
-        TestFile baseDir = expectPathResolved('base')
-
-        when:
-        def fileTree = fileOperations.fileTree { from 'base' }
 
         then:
         fileTree instanceof FileTree
@@ -149,7 +147,7 @@ public class DefaultFileOperationsTest extends Specification {
 
     def createsTarFileTree() {
         TestFile file = tmpDir.file('path')
-        resolver.resolveResource('path') >> new FileResource(file)
+        resolver.resolve('path') >> file
 
         when:
         def tarTree = fileOperations.tarTree('path')
@@ -160,19 +158,18 @@ public class DefaultFileOperationsTest extends Specification {
     }
 
     def copiesFiles() {
-        FileTree fileTree = Mock(FileTree)
+        def fileTree = Mock(FileTreeInternal)
         resolver.resolveFilesAsTree(_) >> fileTree
         // todo we should make this work so that we can be more specific
 //        resolver.resolveFilesAsTree(['file'] as Object[]) >> fileTree
 //        resolver.resolveFilesAsTree(['file'] as Set) >> fileTree
         fileTree.matching(_) >> fileTree
-        resolver.resolve('dir') >> tmpDir.getDir()
+        resolver.resolve('dir') >> tmpDir.getTestDirectory()
 
         when:
         def result = fileOperations.copy { from 'file'; into 'dir' }
 
         then:
-        result instanceof CopyActionImpl
         !result.didWork
     }
 
@@ -214,10 +211,10 @@ public class DefaultFileOperationsTest extends Specification {
 
     def createsCopySpec() {
         when:
-        def spec = fileOperations.copySpec { include 'pattern'}
+        def spec = fileOperations.copySpec { include 'pattern' }
 
         then:
-        spec instanceof CopySpecImpl
+        spec instanceof DefaultCopySpec
         spec.includes == ['pattern'] as Set
     }
 
@@ -241,13 +238,13 @@ public class DefaultFileOperationsTest extends Specification {
 
     def javaexec() {
         File testFile = tmpDir.file("someFile")
-        fileOperations = new DefaultFileOperations(resolver(), taskResolver, temporaryFileProvider)
-        List files = ClasspathUtil.getClasspath(getClass().classLoader)
+        fileOperations = instance(resolver())
+        List files = ClasspathUtil.getClasspath(getClass().classLoader).asFiles
 
         when:
         ExecResult result = fileOperations.javaexec {
             classpath(files as Object[])
-            main = 'org.gradle.api.internal.file.SomeMain'
+            main = SomeMain.name
             args testFile.absolutePath
         }
 
@@ -257,7 +254,7 @@ public class DefaultFileOperationsTest extends Specification {
     }
 
     def javaexecWithNonZeroExitValueShouldThrowException() {
-        fileOperations = new DefaultFileOperations(resolver(), taskResolver, temporaryFileProvider)
+        fileOperations = instance(resolver())
 
         when:
         fileOperations.javaexec {
@@ -269,7 +266,7 @@ public class DefaultFileOperationsTest extends Specification {
     }
 
     def javaexecWithNonZeroExitValueAndIgnoreExitValueShouldNotThrowException() {
-        fileOperations = new DefaultFileOperations(resolver(), taskResolver, temporaryFileProvider)
+        fileOperations = instance(resolver())
 
         when:
         ExecResult result = fileOperations.javaexec {
@@ -281,18 +278,15 @@ public class DefaultFileOperationsTest extends Specification {
         result.exitValue != 0
     }
 
+    @Requires(TestPrecondition.NOT_WINDOWS)
     def exec() {
-        if (OperatingSystem.current().isWindows()) {
-            return
-        }
-
-        fileOperations = new DefaultFileOperations(resolver(), taskResolver, temporaryFileProvider)
+        fileOperations = instance(resolver())
         File testFile = tmpDir.file("someFile")
 
         when:
         ExecResult result = fileOperations.exec {
             executable = "touch"
-            workingDir = tmpDir.getDir()
+            workingDir = tmpDir.getTestDirectory()
             args testFile.name
         }
 
@@ -301,35 +295,31 @@ public class DefaultFileOperationsTest extends Specification {
         result.exitValue == 0
     }
 
+    @Requires(TestPrecondition.NOT_WINDOWS)
     def execWithNonZeroExitValueShouldThrowException() {
-        if (OperatingSystem.current().isWindows()) {
-            return
-        }
-        fileOperations = new DefaultFileOperations(resolver(), taskResolver, temporaryFileProvider)
+        fileOperations = instance(resolver())
 
         when:
         fileOperations.exec {
             executable = "touch"
-            workingDir = tmpDir.getDir()
-            args tmpDir.dir.name + "/nonExistingDir/someFile"
+            workingDir = tmpDir.getTestDirectory()
+            args tmpDir.testDirectory.name + "/nonExistingDir/someFile"
         }
 
         then:
         thrown(ExecException)
     }
 
+    @Requires(TestPrecondition.NOT_WINDOWS)
     def execWithNonZeroExitValueAndIgnoreExitValueShouldNotThrowException() {
-        if (OperatingSystem.current().isWindows()) {
-            return
-        }
-        fileOperations = new DefaultFileOperations(resolver(), taskResolver, temporaryFileProvider)
+        fileOperations = instance(resolver())
 
         when:
         ExecResult result = fileOperations.exec {
             ignoreExitValue = true
             executable = "touch"
-            workingDir = tmpDir.getDir()
-            args tmpDir.dir.name + "/nonExistingDir/someFile"
+            workingDir = tmpDir.getTestDirectory()
+            args tmpDir.testDirectory.name + "/nonExistingDir/someFile"
         }
 
         then:
@@ -337,12 +327,13 @@ public class DefaultFileOperationsTest extends Specification {
     }
 
     def resolver() {
-        return new BaseDirFileResolver(FileSystems.default, tmpDir.testDir)
+        return TestFiles.resolver(tmpDir.testDirectory)
+    }
+
+    class SomeMain {
+        static void main(String[] args) {
+            FileUtils.touch(new File(args[0]))
+        }
     }
 }
 
-class SomeMain {
-    static void main(String[] args) {
-        FileUtils.touch(new File(args[0]))
-    }
-}

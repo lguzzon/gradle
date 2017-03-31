@@ -17,42 +17,30 @@
 package org.gradle.plugins.javascript.base
 
 import org.gradle.api.Project
+import org.gradle.api.artifacts.repositories.MavenArtifactRepository
 import org.gradle.testfixtures.ProjectBuilder
 import spock.lang.Specification
-import org.gradle.api.artifacts.repositories.MavenArtifactRepository
 
 class JavaScriptBasePluginTest extends Specification {
-
     Project project = ProjectBuilder.builder().build()
-    JavaScriptExtension extension
-
-    def setup() {
-        apply(plugin: JavaScriptBasePlugin)
-        extension = javaScript
-    }
-
-    def methodMissing(String name, args) {
-        project."$name"(*args)
-    }
-
-    def propertyMissing(String name) {
-        project."$name"
-    }
-
-    def propertyMissing(String name, value) {
-        project."$name" = value
-    }
 
     def "extension is available"() {
-        expect:
-        extension != null
+        when:
+        project.pluginManager.apply(JavaScriptBasePlugin)
+
+        then:
+        project.javaScript != null
     }
 
     def "can get public repo"() {
-        expect:
-        extension.gradlePublicJavaScriptRepository instanceof MavenArtifactRepository
-        MavenArtifactRepository repo = extension.gradlePublicJavaScriptRepository as MavenArtifactRepository
-        repo.url.toString() == JavaScriptExtension.GRADLE_PUBLIC_JAVASCRIPT_REPO_URL
+        when:
+        project.pluginManager.apply(JavaScriptBasePlugin)
+
+        then:
+        project.repositories.javaScript.gradle()
+        project.repositories.gradleJs instanceof MavenArtifactRepository
+        MavenArtifactRepository repo = project.repositories.gradleJs as MavenArtifactRepository
+        repo.url.toString() == JavaScriptRepositoriesExtension.GRADLE_PUBLIC_JAVASCRIPT_REPO_URL
     }
 
 }

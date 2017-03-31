@@ -17,18 +17,22 @@
 package org.gradle.testfixtures
 
 import org.gradle.api.DefaultTask
-import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.internal.project.DefaultProject
-import org.gradle.api.tasks.TaskAction
+import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
 import org.gradle.util.Resources
-import org.gradle.util.TemporaryFolder
 import org.junit.Rule
+import spock.lang.Ignore
+import spock.lang.Issue
 import spock.lang.Specification
 
+import java.util.concurrent.atomic.AtomicBoolean
+
 class ProjectBuilderTest extends Specification {
-    @Rule public final TemporaryFolder temporaryFolder = new TemporaryFolder()
-    @Rule public final Resources resources = new Resources()
+    @Rule
+    public final TestNameTestDirectoryProvider temporaryFolder = new TestNameTestDirectoryProvider()
+    @Rule
+    public final Resources resources = new Resources()
 
     def canCreateARootProject() {
 
@@ -46,19 +50,23 @@ class ProjectBuilderTest extends Specification {
         project.gradle.gradleUserHomeDir == project.file('userHome')
     }
 
+    private Project buildProject() {
+        ProjectBuilder.builder().withProjectDir(temporaryFolder.testDirectory).build()
+    }
+
     def canCreateARootProjectWithAGivenProjectDir() {
         when:
-        def project = ProjectBuilder.builder().withProjectDir(temporaryFolder.dir).build()
+        def project = buildProject()
 
         then:
-        project.projectDir == temporaryFolder.dir
+        project.projectDir == temporaryFolder.testDirectory
         project.gradle.gradleHomeDir == project.file('gradleHome')
         project.gradle.gradleUserHomeDir == project.file('userHome')
     }
 
-    def canApplyACustomPluginByType() {
+    def canApplyACustomPluginUsingClass() {
         when:
-        def project = ProjectBuilder.builder().withProjectDir(temporaryFolder.dir).build()
+        def project = buildProject()
         project.apply plugin: CustomPlugin
 
         then:
@@ -67,8 +75,17 @@ class ProjectBuilderTest extends Specification {
 
     def canApplyACustomPluginById() {
         when:
-        def project = ProjectBuilder.builder().withProjectDir(temporaryFolder.dir).build()
+        def project = buildProject()
         project.apply plugin: 'custom-plugin'
+
+        then:
+        project.tasks.hello instanceof DefaultTask
+    }
+
+    def canApplyACustomPluginByType() {
+        when:
+        def project = buildProject()
+        project.pluginManager.apply(CustomPlugin)
 
         then:
         project.tasks.hello instanceof DefaultTask
@@ -76,7 +93,7 @@ class ProjectBuilderTest extends Specification {
 
     def canCreateAndExecuteACustomTask() {
         when:
-        def project = ProjectBuilder.builder().withProjectDir(temporaryFolder.dir).build()
+        def project = buildProject()
         def task = project.task('custom', type: CustomTask)
         task.doStuff()
 
@@ -86,25 +103,52 @@ class ProjectBuilderTest extends Specification {
 
     def canApplyABuildScript() {
         when:
-        def project = ProjectBuilder.builder().withProjectDir(temporaryFolder.dir).build()
+        def project = buildProject()
         project.apply from: resources.getResource('ProjectBuilderTest.gradle')
 
         then:
         project.tasks.hello instanceof DefaultTask
     }
-}
 
-public class CustomTask extends DefaultTask {
-    def String property
+    def "Can trigger afterEvaluate programmatically"() {
+        setup:
+        def latch = new AtomicBoolean(false)
 
-    @TaskAction
-    def doStuff() {
-        property = 'some value'
+        when:
+        def project = buildProject()
+
+        project.afterEvaluate {
+            latch.getAndSet(true)
+        }
+
+        project.evaluate()
+
+        then:
+        noExceptionThrown()
+        latch.get()
+    }
+
+    @Ignore
+    @Issue("GRADLE-3136")
+    def "Can trigger afterEvaluate programmatically after calling getTasksByName"() {
+        setup:
+        def latch = new AtomicBoolean(false)
+
+        when:
+        def project = buildProject()
+
+        project.getTasksByName('myTask', true)
+
+        project.afterEvaluate {
+            latch.getAndSet(true)
+        }
+
+        project.evaluate()
+
+        then:
+        noExceptionThrown()
+        latch.get()
     }
 }
 
-public class CustomPlugin implements Plugin<Project> {
-    void apply(Project target) {
-        target.task('hello');
-    }
-}
+

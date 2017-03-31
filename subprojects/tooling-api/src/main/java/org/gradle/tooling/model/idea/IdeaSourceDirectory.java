@@ -16,6 +16,7 @@
 
 package org.gradle.tooling.model.idea;
 
+import org.gradle.api.Incubating;
 import org.gradle.tooling.model.SourceDirectory;
 
 /**
@@ -23,4 +24,13 @@ import org.gradle.tooling.model.SourceDirectory;
  *
  * @since 1.0-milestone-5
  */
-public interface IdeaSourceDirectory extends SourceDirectory {}
+public interface IdeaSourceDirectory extends SourceDirectory {
+    /**
+     * Return {@code true} if this source directory is generated.
+     *
+     * @return true if source directory is generated
+     * @since 2.2
+     */
+    @Incubating
+    boolean isGenerated();
+}

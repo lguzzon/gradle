@@ -17,10 +17,11 @@
 
 package org.gradle.plugins.ide
 
-import org.gradle.integtests.fixtures.ExecutionResult
-import org.gradle.integtests.fixtures.MavenRepository
 import org.gradle.integtests.fixtures.AbstractIntegrationTest
-import org.gradle.util.TestFile
+import org.gradle.integtests.fixtures.executer.ExecutionResult
+import org.gradle.plugins.ide.fixtures.IdeaFixtures
+import org.gradle.plugins.ide.fixtures.IdeaModuleFixture
+import org.gradle.test.fixtures.file.TestFile
 
 abstract class AbstractIdeIntegrationTest extends AbstractIntegrationTest {
     protected ExecutionResult runTask(taskName, settingsScript = "rootProject.name = 'root'", buildScript) {
@@ -49,15 +50,15 @@ abstract class AbstractIdeIntegrationTest extends AbstractIntegrationTest {
         buildFile.parentFile.file("src/main/resources").createDir()
     }
 
-    protected MavenRepository getMavenRepo() {
-        return new MavenRepository(getFile([:], 'repo'))
-    }
-
     protected ExecutionResult runIdeaTask(buildScript) {
         return runTask("idea", buildScript)
     }
 
-    protected parseImlFile(Map options = [:], String projectName) {
-        parseFile(options, "${projectName}.iml")
+    protected IdeaModuleFixture parseIml(String moduleFile) {
+        return IdeaFixtures.parseIml(file(moduleFile))
+    }
+
+    protected parseImlFile(String projectName) {
+        IdeaFixtures.parseFile(file("${projectName}.iml"))
     }
 }

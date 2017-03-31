@@ -25,8 +25,6 @@ import java.util.List;
 
 /**
  * This handles prompting the user how to handle adding multiple tasks as favorites.
- *
- * @author mhunsicker
  */
 public class SwingAddMultipleFavoritesInteraction implements FavoritesEditor.AddMultipleFavoritesInteraction {
     private Window parent;
@@ -75,8 +73,7 @@ public class SwingAddMultipleFavoritesInteraction implements FavoritesEditor.Add
                 secondTask += ",";   //add a comma
 
                 thirdTask = '\"' + tasksSample.get(2).getFullTaskName() + "\"";
-                if (tasksSample.size() > 3)  //if there are more, show a comma and ellipses
-                {
+                if (tasksSample.size() > 3) { //if there are more, show a comma and ellipses
                     thirdTask += ", ... ";
                 }
             }

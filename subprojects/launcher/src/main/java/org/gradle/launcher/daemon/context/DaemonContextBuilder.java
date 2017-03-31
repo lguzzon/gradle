@@ -17,14 +17,15 @@ package org.gradle.launcher.daemon.context;
 
 import com.google.common.collect.Lists;
 import org.gradle.internal.Factory;
-import org.gradle.internal.nativeplatform.ProcessEnvironment;
-import org.gradle.launcher.daemon.configuration.DaemonParameters;
 import org.gradle.internal.jvm.Jvm;
+import org.gradle.internal.nativeintegration.ProcessEnvironment;
+import org.gradle.launcher.daemon.configuration.DaemonParameters;
 
 import java.io.File;
 import java.util.List;
+import java.util.Locale;
 
-import static org.gradle.util.GFileUtils.canonicalise;
+import static org.gradle.internal.FileUtils.canonicalize;
 
 /**
  * Builds a daemon context, reflecting the current environment.
@@ -39,10 +40,11 @@ public class DaemonContextBuilder implements Factory<DaemonContext> {
     private File daemonRegistryDir;
     private Long pid;
     private Integer idleTimeout;
+    private Locale locale = Locale.getDefault();
     private List<String> daemonOpts = Lists.newArrayList();
 
     public DaemonContextBuilder(ProcessEnvironment processEnvironment) {
-        javaHome = canonicalise(Jvm.current().getJavaHome());
+        javaHome = canonicalize(Jvm.current().getJavaHome());
         pid = processEnvironment.maybeGetPid();
     }
 
@@ -55,7 +57,7 @@ public class DaemonContextBuilder implements Factory<DaemonContext> {
     }
 
     public File getDaemonRegistryDir() {
-        return this.daemonRegistryDir = daemonRegistryDir;
+        return this.daemonRegistryDir;
     }
 
     public void setDaemonRegistryDir(File daemonRegistryDir) {
@@ -86,6 +88,14 @@ public class DaemonContextBuilder implements Factory<DaemonContext> {
         this.idleTimeout = idleTimeout;
     }
 
+    public Locale getLocale() {
+        return locale;
+    }
+
+    public void setLocale(Locale locale) {
+        this.locale = locale;
+    }
+
     public List<String> getDaemonOpts() {
         return daemonOpts;
     }
@@ -95,7 +105,7 @@ public class DaemonContextBuilder implements Factory<DaemonContext> {
     }
 
     public void useDaemonParameters(DaemonParameters daemonParameters) {
-        setJavaHome(daemonParameters.getEffectiveJavaHome());
+        setJavaHome(daemonParameters.getEffectiveJvm().getJavaHome());
         setDaemonOpts(daemonParameters.getEffectiveJvmArgs());
     }
 

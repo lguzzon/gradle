@@ -11,7 +11,8 @@ task copyTaskWithPatterns(type: Copy) {
     into 'build/explodedWar'
     include '**/*.html'
     include '**/*.jsp'
-    exclude { details -> details.file.name.endsWith('.html') && details.file.text.contains('staging') }
+    exclude { details -> details.file.name.endsWith('.html') &&
+                         details.file.text.contains('staging') }
 }
 // END SNIPPET copy-task-with-patterns
 
@@ -37,15 +38,32 @@ def getDestDir() {
 }
 
 // START SNIPPET copy-method
-task copyMethod << {
-    copy {
-        from 'src/main/webapp'
-        into 'build/explodedWar'
-        include '**/*.html'
-        include '**/*.jsp'
+task copyMethod {
+    doLast {
+        copy {
+            from 'src/main/webapp'
+            into 'build/explodedWar'
+            include '**/*.html'
+            include '**/*.jsp'
+        }
     }
 }
 // END SNIPPET copy-method
+
+// START SNIPPET copy-method-with-dependency
+task copyMethodWithExplicitDependencies{
+    // up-to-date check for inputs, plus add copyTask as dependency
+    inputs.file copyTask
+    outputs.dir 'some-dir' // up-to-date check for outputs
+    doLast{
+        copy {
+            // Copy the output of copyTask
+            from copyTask
+            into 'some-dir'
+        }
+    }
+}
+// END SNIPPET copy-method-with-dependency
 
 configurations { runtime }
 
@@ -83,7 +101,7 @@ import org.apache.tools.ant.filters.ReplaceTokens
 task filter(type: Copy) {
     from 'src/main/webapp'
     into 'build/explodedWar'
-    // Substitute property references in files
+    // Substitute property tokens in files
     expand(copyright: '2009', version: '2.3.1')
     expand(project.properties)
     // Use some of the filters provided by Ant
@@ -93,9 +111,16 @@ task filter(type: Copy) {
     filter { String line ->
         "[$line]"
     }
+    // Use a closure to remove lines
+    filter { String line ->
+        line.startsWith('-') ? null : line
+    }
+    filteringCharset = 'UTF-8'
 }
 // END SNIPPET filter-files
 
 task test {
-    dependsOn tasks.matching { it.name != 'test' }
+    dependsOn tasks.withType(Copy)
+    dependsOn copyMethod
+    dependsOn copyMethodWithExplicitDependencies
 }

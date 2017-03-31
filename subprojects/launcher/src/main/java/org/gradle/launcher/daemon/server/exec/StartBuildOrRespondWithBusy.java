@@ -20,10 +20,15 @@ import org.gradle.api.logging.Logging;
 import org.gradle.launcher.daemon.diagnostics.DaemonDiagnostics;
 import org.gradle.launcher.daemon.protocol.Build;
 import org.gradle.launcher.daemon.protocol.BuildStarted;
-import org.gradle.launcher.daemon.protocol.DaemonBusy;
+import org.gradle.launcher.daemon.protocol.DaemonUnavailable;
+import org.gradle.launcher.daemon.protocol.Failure;
+import org.gradle.launcher.daemon.server.api.DaemonCommandExecution;
+import org.gradle.launcher.daemon.server.api.DaemonStateControl;
+import org.gradle.launcher.daemon.server.api.DaemonStoppedException;
+import org.gradle.launcher.daemon.server.api.DaemonUnavailableException;
 
 /**
- * Updates the daemon idle/busy status, sending a DaemonBusy result back to the client if the daemon is busy.
+ * Updates the daemon idle/busy status, sending a DaemonUnavailable result back to the client if the daemon is busy.
  */
 public class StartBuildOrRespondWithBusy extends BuildCommandOnly {
     
@@ -34,24 +39,24 @@ public class StartBuildOrRespondWithBusy extends BuildCommandOnly {
         this.diagnostics = diagnostics;
     }
 
-    protected void doBuild(DaemonCommandExecution execution, Build build) {
+    protected void doBuild(final DaemonCommandExecution execution, final Build build) {
         DaemonStateControl stateCoordinator = execution.getDaemonStateControl();
 
-        DaemonCommandExecution existingExecution = stateCoordinator.onStartCommand(execution);
-        if (existingExecution != null) {
-            LOGGER.info("Daemon will not handle the request: {} because is busy executing: {}. Dispatching 'Busy' response...", build, existingExecution);
-            execution.getConnection().dispatch(new DaemonBusy(existingExecution.getCommand()));
-        } else {
-            try {
-                LOGGER.info("Daemon is about to start building: " + build + ". Dispatching build started information...");
-                execution.getConnection().dispatch(new BuildStarted(diagnostics));
-                execution.proceed();
-            } finally {
-                stateCoordinator.onFinishCommand();
-            }
+        try {
+            Runnable command = new Runnable() {
+                public void run() {
+                    LOGGER.info("Daemon is about to start building {}. Dispatching build started information...", build);
+                    execution.getConnection().buildStarted(new BuildStarted(diagnostics));
+                    execution.proceed();
+                }
+            };
+
+            stateCoordinator.runCommand(command, execution.toString());
+        } catch (DaemonUnavailableException e) {
+            LOGGER.info("Daemon will not handle the command {} because is unavailable: {}", build, e.getMessage());
+            execution.getConnection().daemonUnavailable(new DaemonUnavailable(e.getMessage()));
+        } catch (DaemonStoppedException e) {
+            execution.getConnection().completed(new Failure(e));
         }
     }
-    
-    
-
 }

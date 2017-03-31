@@ -15,49 +15,88 @@
  */
 package org.gradle.integtests.fixtures;
 
+import org.gradle.api.Action;
+import org.gradle.api.Transformer;
+import org.gradle.integtests.fixtures.executer.GradleDistribution;
+import org.gradle.integtests.fixtures.executer.IntegrationTestBuildContext;
+import org.gradle.integtests.fixtures.executer.UnderDevelopmentGradleDistribution;
+import org.gradle.integtests.fixtures.versions.ReleasedVersionDistributions;
 import org.gradle.internal.jvm.Jvm;
 import org.gradle.internal.os.OperatingSystem;
+import org.gradle.util.CollectionUtils;
+import org.gradle.util.GradleVersion;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+
+import static org.gradle.util.CollectionUtils.*;
 
 /**
  * A base class for those test runners which execute a test multiple times against a set of Gradle versions.
  */
 public abstract class AbstractCompatibilityTestRunner extends AbstractMultiTestRunner {
-    protected final GradleDistribution current = new GradleDistribution();
-    protected final List<BasicGradleDistribution> previous;
+
+    private static final String VERSIONS_SYSPROP_NAME = "org.gradle.integtest.versions";
+    protected final IntegrationTestBuildContext buildContext = IntegrationTestBuildContext.INSTANCE;
+    protected final GradleDistribution current = new UnderDevelopmentGradleDistribution(buildContext);
+    protected final List<GradleDistribution> previous;
+    protected final boolean implicitVersion;
 
     protected AbstractCompatibilityTestRunner(Class<?> target) {
-        this(target, null);
+        this(target, System.getProperty(VERSIONS_SYSPROP_NAME, "latest"));
     }
 
-    protected AbstractCompatibilityTestRunner(Class<?> target, String versionStr) {
+    private AbstractCompatibilityTestRunner(Class<?> target, String versionStr) {
         super(target);
         validateTestName(target);
 
-        previous = new ArrayList<BasicGradleDistribution>();
-        if (versionStr == null) {
-            versionStr = System.getProperty("org.gradle.integtest.versions", "latest");
-        }
-        ReleasedVersions previousVersions = new ReleasedVersions(current);
-        if (!versionStr.equals("all")) {
-            previous.add(previousVersions.getLast());
-        } else {
-            List<BasicGradleDistribution> all = previousVersions.getAll();
-            for (BasicGradleDistribution previous : all) {
-                if (!previous.worksWith(Jvm.current())) {
-                    add(new IgnoredVersion(previous, "does not work with current JVM"));
-                    continue;
-                }
-                if (!previous.worksWith(OperatingSystem.current())) {
-                    add(new IgnoredVersion(previous, "does not work with current OS"));
-                    continue;
-                }
-                this.previous.add(previous);
+        previous = new ArrayList<GradleDistribution>();
+        final ReleasedVersionDistributions releasedVersions = new ReleasedVersionDistributions(buildContext);
+        if (versionStr.equals("latest")) {
+            implicitVersion = true;
+            addVersionIfCompatibleWithJvmAndOs(releasedVersions.getMostRecentFinalRelease());
+        } else if (versionStr.equals("all")) {
+            implicitVersion = true;
+            List<GradleDistribution> previousVersionsToTest = choosePreviousVersionsToTest(releasedVersions);
+            for (GradleDistribution previousVersion : previousVersionsToTest) {
+                addVersionIfCompatibleWithJvmAndOs(previousVersion);
             }
+        } else if (versionStr.matches("^\\d.*$")) {
+            implicitVersion = false;
+            String[] versions = versionStr.split(",");
+            List<GradleVersion> gradleVersions = CollectionUtils.sort(collect(Arrays.asList(versions), new Transformer<GradleVersion, String>() {
+                public GradleVersion transform(String versionString) {
+                    return GradleVersion.version(versionString);
+                }
+            }), Collections.reverseOrder());
+
+            inject(previous, gradleVersions, new Action<InjectionStep<List<GradleDistribution>, GradleVersion>>() {
+                public void execute(InjectionStep<List<GradleDistribution>, GradleVersion> step) {
+                    GradleDistribution distribution = releasedVersions.getDistribution(step.getItem());
+                    if (distribution == null) {
+                        throw new RuntimeException("Gradle version '" + step.getItem().getVersion() + "' is not a valid testable released version");
+                    }
+                    step.getTarget().add(distribution);
+                }
+            });
+        } else {
+            throw new RuntimeException("Invalid value for " + VERSIONS_SYSPROP_NAME + " system property: " + versionStr + "(valid values: 'all', 'latest' or comma separated list of versions)");
         }
     }
+
+    private void addVersionIfCompatibleWithJvmAndOs(GradleDistribution previousVersion) {
+        if (!previousVersion.worksWith(Jvm.current())) {
+            add(new IgnoredVersion(previousVersion, "does not work with current JVM"));
+        } else if (!previousVersion.worksWith(OperatingSystem.current())) {
+            add(new IgnoredVersion(previousVersion, "does not work with current OS"));
+        } else {
+            this.previous.add(previousVersion);
+        }
+    }
+
+    protected abstract List<GradleDistribution> choosePreviousVersionsToTest(ReleasedVersionDistributions previousVersions);
 
     /**
      * Makes sure the test adhers to the naming convention.
@@ -73,21 +112,21 @@ public abstract class AbstractCompatibilityTestRunner extends AbstractMultiTestR
         }
     }
 
-    public List<BasicGradleDistribution> getPrevious() {
+    public List<GradleDistribution> getPrevious() {
         return previous;
     }
 
     private static class IgnoredVersion extends Execution {
-        private final BasicGradleDistribution distribution;
+        private final GradleDistribution distribution;
         private final String why;
 
-        private IgnoredVersion(BasicGradleDistribution distribution, String why) {
+        private IgnoredVersion(GradleDistribution distribution, String why) {
             this.distribution = distribution;
             this.why = why;
         }
 
         @Override
-        protected boolean isEnabled() {
+        protected boolean isTestEnabled(TestDetails testDetails) {
             return false;
         }
 

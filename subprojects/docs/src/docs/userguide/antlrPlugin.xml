@@ -15,24 +15,30 @@
   -->
 
 <chapter id="antlr_plugin">
-    <title>The Antlr Plugin</title>
+    <title>The ANTLR Plugin</title>
 
-    <para>The Antlr plugin extends the Java plugin to add support for generating parsers using <ulink url="http://www.antlr.org/">Antlr</ulink>.</para>
+    <para>The ANTLR plugin extends the Java plugin to add support for generating parsers using <ulink url="http://www.antlr.org/">ANTLR</ulink>.</para>
 
-    <section>
+    <note>
+        <para>
+            The ANTLR plugin supports ANTLR version 2, 3 and 4.
+        </para>
+    </note>
+
+    <section id="sec:antlr_usage">
         <title>Usage</title>
-        <para>To use the Antlr plugin, include in your build script:</para>
-        <sample id="useAntlrPlugin" dir="antlr" title="Using the Antlr plugin">
+        <para>To use the ANTLR plugin, include the following in your build script:</para>
+        <sample id="useAntlrPlugin" dir="antlr" title="Using the ANTLR plugin">
             <sourcefile file="build.gradle" snippet="use-plugin"/>
         </sample>
     </section>
 
-    <section>
+    <section id="sec:antlr_tasks">
         <title>Tasks</title>
-        <para>The Antlr plugin adds a number of tasks to your project, as shown below.</para>
+        <para>The ANTLR plugin adds a number of tasks to your project, as shown below.</para>
 
         <table>
-            <title>Antlr plugin - tasks</title>
+            <title>ANTLR plugin - tasks</title>
             <thead>
                 <tr>
                     <td>Task name</td>
@@ -47,7 +53,7 @@
                 </td>
                 <td>-</td>
                 <td><apilink class="org.gradle.api.plugins.antlr.AntlrTask"/></td>
-                <td>Generates the source files for all production Antlr grammars.</td>
+                <td>Generates the source files for all production ANTLR grammars.</td>
             </tr>
             <tr>
                 <td>
@@ -55,7 +61,7 @@
                 </td>
                 <td>-</td>
                 <td><apilink class="org.gradle.api.plugins.antlr.AntlrTask"/></td>
-                <td>Generates the source files for all test Antlr grammars.</td>
+                <td>Generates the source files for all test ANTLR grammars.</td>
             </tr>
             <tr>
                 <td>
@@ -63,12 +69,12 @@
                 </td>
                 <td>-</td>
                 <td><apilink class="org.gradle.api.plugins.antlr.AntlrTask"/></td>
-                <td>Generates the source files for all Antlr grammars for the given source set.</td>
+                <td>Generates the source files for all ANTLR grammars for the given source set.</td>
             </tr>
         </table>
-        <para>The Antlr plugin adds the following dependencies to tasks added by the Java plugin.</para>
+        <para>The ANTLR plugin adds the following dependencies to tasks added by the Java plugin.</para>
         <table>
-            <title>Antlr plugin - additional task dependencies</title>
+            <title>ANTLR plugin - additional task dependencies</title>
             <thead>
                 <td>Task name</td>
                 <td>Depends on</td>
@@ -88,10 +94,10 @@
         </table>
     </section>
 
-    <section>
+    <section id="sec:antlr_project_layout">
         <title>Project layout</title>
         <table>
-            <title>Antlr plugin - project layout</title>
+            <title>ANTLR plugin - project layout</title>
             <thead>
                 <tr>
                     <td>Directory</td>
@@ -102,42 +108,49 @@
                 <td>
                     <filename>src/main/antlr</filename>
                 </td>
-                <td>Production Antlr grammar files.</td>
+                <td>Production ANTLR grammar files. If the ANTLR grammar is organized in packages, the structure in the antlr folder should reflect
+                the package structure. This ensures that the generated sources end up in the correct target subfolder.</td>
             </tr>
             <tr>
                 <td>
                     <filename>src/test/antlr</filename>
                 </td>
-                <td>Test Antlr grammar files.</td>
+                <td>Test ANTLR grammar files.</td>
             </tr>
             <tr>
                 <td>
                     <filename>src/<replaceable>sourceSet</replaceable>/antlr</filename>
                 </td>
-                <td>Antlr grammar files for the given source set.</td>
+                <td>ANTLR grammar files for the given source set.</td>
             </tr>
         </table>
     </section>
 
-    <section>
+    <section id="sec:antlr_dependency_management">
         <title>Dependency management</title>
-        <para>The Antlr plugin adds an <literal>antlr</literal> dependency configuration. You use this to declare the
-            version of Antlr you wish to use.</para>
-        <sample id="declareAntlrVersion" dir="antlr" title="Declare Antlr version">
+        <para>
+            The ANTLR plugin adds an <literal>antlr</literal> dependency configuration which provides the ANTLR implementation to use.
+            The following example shows how to use ANTLR version 3.
+        </para>
+        <sample id="declareAntlrVersion" dir="antlr" title="Declare ANTLR version">
             <sourcefile file="build.gradle" snippet="declare-dependency"/>
         </sample>
+        <para>
+            If no dependency is declared, <literal>antlr:antlr:2.7.7</literal> will be used as the default.
+            To use a different ANTLR version add the appropriate dependency to the <literal>antlr</literal> dependency configuration as above.
+        </para>
     </section>
 
-    <section>
+    <section id="sec:antlr_convention_properties">
         <title>Convention properties</title>
-        <para>The Antlr plugin does not add any convention properties.</para>
+        <para>The ANTLR plugin does not add any convention properties.</para>
     </section>
 
-    <section>
+    <section id="sec:antlr_source_set_properties">
         <title>Source set properties</title>
-        <para>The Antlr plugin adds the following properties to each source set in the project.</para>
+        <para>The ANTLR plugin adds the following properties to each source set in the project.</para>
         <table>
-            <title>Antlr plugin - source set properties</title>
+            <title>ANTLR plugin - source set properties</title>
             <thead>
                 <tr>
                     <td>Property name</td>
@@ -157,7 +170,7 @@
                     Not null
                 </td>
                 <td>
-                    The Antlr grammar files of this source set. Contains all <filename>.g</filename> found in the Antlr
+                    The ANTLR grammar files of this source set. Contains all <filename>.g</filename> or <filename>.g4</filename> files found in the ANTLR
                     source directories, and excludes all other types of files.
                 </td>
             </tr>
@@ -172,10 +185,24 @@
                     <literal>[<replaceable>projectDir</replaceable>/src/<replaceable>name</replaceable>/antlr]</literal>
                 </td>
                 <td>
-                    The source directories containing the Antlr grammar files of this source set.
+                    The source directories containing the ANTLR grammar files of this source set.
                 </td>
             </tr>
         </table>
+    </section>
+    <section id="sec:controlling_the_antlr_generator_process">
+        <title>Controlling the ANTLR generator process</title>
+        <para>
+            The ANTLR tool is executed in a forked process.
+            This allows fine grained control over memory settings for the ANTLR process.
+            To set the heap size of a ANTLR process, the <literal>maxHeapSize</literal> property
+            of <apilink class="org.gradle.api.plugins.antlr.AntlrTask"/> can be used.
+            To pass additional command-line arguments, append to the <literal>arguments</literal> property
+            of <apilink class="org.gradle.api.plugins.antlr.AntlrTask"/>.
+        </para>
+        <sample id="advanced" dir="antlr" title="setting custom max heap size and extra arguments for ANTLR">
+            <sourcefile file="build.gradle" snippet="generate-grammar-settings"/>
+        </sample>
     </section>
 
 </chapter>

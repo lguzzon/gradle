@@ -35,7 +35,7 @@ import java.net.URI;
  *
  * </ol>
  *
- * Example:
+ * <p>Example:</p>
  * <pre autoTested=''>
  * ProjectConnection connection = GradleConnector.newConnector()
  *    .forProjectDirectory(new File("someProjectFolder"))
@@ -48,8 +48,30 @@ import java.net.URI;
  * }
  * </pre>
  *
- * <p>{@code GradleConnector} instances are not thread-safe. If you want to use a {@code GradleConnector} concurrently you *must* always create a
+ * <p>The connection will use the version of Gradle that the target build is configured to use, for example in the Gradle wrapper properties file. When no Gradle version is defined for the build, the connection will use the tooling API's version as the Gradle version to run the build.
+ *  Generally, you should avoid configuring a Gradle distribution or version and instead use the default provided by the tooling API.
+ * </p>
+ *
+ * <p>Similarly, the connection will use the JVM and JVM arguments that the target build is configured to use, for example in the {@code gradle.properties} file. When no JVM or JVM arguments are defined for the build, the connection will use the current JVM and some default JVM arguments.</p>
+ *
+ * <p>{@code GradleConnector} instances are not thread-safe. If you want to use a {@code GradleConnector} concurrently you <em>must</em> always create a
  * new instance for each thread using {@link #newConnector()}. Note, however, the {@link ProjectConnection} instances that a connector creates are completely thread-safe.</p>
+ *
+ * <h2>Gradle version compatibility</h2>
+ *
+ * <p>The Tooling API is both forwards and backwards compatible with other versions of Gradle. It supports execution of Gradle builds that use older or newer versions of Gradle.</p>
+ *
+ * <p>The current version of the Tooling API supports running builds using Gradle versions 1.2.</p>
+ *
+ * <p>You should note that not all features of the Tooling API are available for all versions of Gradle. For example, build cancellation is only available for builds using Gradle 2.1 and later. Refer to the documentation for each class and method for more details.</p>
+ *
+ * <p>The current Gradle version can be used from Tooling API versions 2.0 or later.
+ *
+ * <h2>Java version compatibility</h2>
+ *
+ * <p>The Tooling API requires Java 7 or later. The Gradle version used by builds may have additional Java version requirements.</p>
+ *
+ * @since 1.0-milestone-3
  */
 public abstract class GradleConnector {
 
@@ -57,43 +79,68 @@ public abstract class GradleConnector {
      * Creates a new connector instance.
      *
      * @return The instance. Never returns null.
+     * @since 1.0-milestone-3
      */
     public static GradleConnector newConnector() {
-        return new ConnectorServices().createConnector();
+        return ConnectorServices.createConnector();
     }
 
     /**
-     * Specifies which Gradle installation to use. This replaces any value specified using {@link #useDistribution(java.net.URI)} or {@link #useGradleVersion(String)}. Defaults to a project-specific
-     * Gradle version.
+     * Creates a new {@link CancellationTokenSource} that can be used to cancel one or more {@link org.gradle.tooling.LongRunningOperation} executions.
+     *
+     * @return The instance. Never returns {@code null}.
+     * @since 2.1
+     */
+    public static CancellationTokenSource newCancellationTokenSource() {
+        return ConnectorServices.createCancellationTokenSource();
+    }
+
+    /**
+     * Specifies which Gradle installation to use. This replaces any value specified using {@link #useDistribution(URI)}, {@link #useGradleVersion(String)}, or {@link #useBuildDistribution()}.
+     * Defaults to a project-specific Gradle version.
      *
      * @param gradleHome The Gradle installation directory.
      * @return this
+     * @since 1.0-milestone-3
      */
     public abstract GradleConnector useInstallation(File gradleHome);
 
     /**
      * Specifies which Gradle version to use. The appropriate distribution is downloaded and installed into the user's Gradle home directory. This replaces any value specified using {@link
-     * #useInstallation(java.io.File)} or {@link #useDistribution(java.net.URI)}. Defaults to a project-specific Gradle version.
+     * #useInstallation(File)}, {@link #useDistribution(URI)}, or {@link #useBuildDistribution()}. Defaults to a project-specific Gradle version.
      *
      * @param gradleVersion The version to use.
      * @return this
+     * @since 1.0-milestone-3
      */
     public abstract GradleConnector useGradleVersion(String gradleVersion);
 
     /**
      * Specifies which Gradle distribution to use. The appropriate distribution is downloaded and installed into the user's Gradle home directory. This replaces any value specified using {@link
-     * #useInstallation(java.io.File)} or {@link #useGradleVersion(String)}. Defaults to a project-specific Gradle version.
+     * #useInstallation(File)}, {@link #useGradleVersion(String)}, or {@link #useBuildDistribution()}. Defaults to a project-specific Gradle version.
      *
      * @param gradleDistribution The distribution to use.
      * @return this
+     * @since 1.0-milestone-3
      */
     public abstract GradleConnector useDistribution(URI gradleDistribution);
+
+    /**
+     * Specifies to use the Gradle distribution defined by the target Gradle build. The appropriate distribution defined by the target Gradle build is downloaded and installed into the user's
+     * Gradle home directory. If the target Gradle build does not define the distribution that it should be built with, the Gradle version of this connector is used. This replaces any value
+     * specified using {@link #useInstallation(File)}, {@link #useDistribution(URI)}, or {@link #useGradleVersion(String)}. Acts as the default behavior.
+     *
+     * @return this
+     * @since 2.3
+     */
+    public abstract GradleConnector useBuildDistribution();
 
     /**
      * Specifies the working directory to use.
      *
      * @param projectDir The working directory.
      * @return this
+     * @since 1.0-milestone-3
      */
     public abstract GradleConnector forProjectDirectory(File projectDir);
 
@@ -102,6 +149,7 @@ public abstract class GradleConnector {
      *
      * @param gradleUserHomeDir The user's Gradle home directory to use.
      * @return this
+     * @since 1.0-milestone-3
      */
     public abstract GradleConnector useGradleUserHomeDir(File gradleUserHomeDir);
 
@@ -111,7 +159,8 @@ public abstract class GradleConnector {
      * @return The connection. Never return null.
      * @throws UnsupportedVersionException When the target Gradle version does not support this version of the tooling API.
      * @throws GradleConnectionException On failure to establish a connection with the target Gradle version.
+     * @since 1.0-milestone-3
      */
-    public abstract ProjectConnection connect() throws GradleConnectionException, UnsupportedVersionException;
+    public abstract ProjectConnection connect() throws GradleConnectionException;
 
 }

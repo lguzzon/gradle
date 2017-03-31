@@ -22,24 +22,22 @@ import org.gradle.foundation.queue.ExecutionQueue;
 /**
  * This represents a basic reques to gradle that is executed in a separate process using the ProcessLauncherServer. This stores the command line to execute and has the ability to cancel itself by
  * either removing it from the queue if it hasn't started yet, or killing the external process.
- *
- * @author mhunsicker
  */
 public abstract class AbstractRequest implements Request {
     private long requestID;
     private String fullCommandLine;
     private String displayName;
     private boolean forceOutputToBeShown;
-    private ExecutionQueue executionQueue;
+    private ExecutionQueue.RequestCancellation cancellation;
     private ProcessLauncherServer server;
     protected ExecuteGradleCommandServerProtocol.ExecutionInteraction executionInteraction = new DummyExecutionInteraction();
 
-    public AbstractRequest(long requestID, String fullCommandLine, String displayName, boolean forceOutputToBeShown, ExecutionQueue executionQueue) {
+    public AbstractRequest(long requestID, String fullCommandLine, String displayName, boolean forceOutputToBeShown, ExecutionQueue.RequestCancellation cancellation) {
         this.requestID = requestID;
         this.fullCommandLine = fullCommandLine;
         this.displayName = displayName;
         this.forceOutputToBeShown = forceOutputToBeShown;
-        this.executionQueue = executionQueue;
+        this.cancellation = cancellation;
     }
 
     public long getRequestID() {
@@ -66,7 +64,7 @@ public abstract class AbstractRequest implements Request {
             server.killProcess();
         }
 
-        executionQueue.removeRequestFromQueue(this);
+        cancellation.onCancel(this);
         return true;
     }
 

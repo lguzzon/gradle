@@ -1,7 +1,9 @@
 evaluationDependsOn(':producer')
 
-message = rootProject.hasProperty('producerMessage') ? rootProject.producerMessage : 'null'
+def message = rootProject.producerMessage
 
-task consume << {
-    println("Consuming message: " + message)
+task consume {
+    doLast {
+        println("Consuming message: " + message)
+    }
 }

@@ -29,12 +29,12 @@ list.add('org/gradle/api/**')
 list.add('org/gradle/internal/**')
 test.includes = list
 
-// Map literal
-apply plugin: 'java'
+// Map literal.
+Map<String, String> map = [key1:'value1', key2: 'value2']
 
-Map<String, String> map = new HashMap<String, String>()
-map.put('plugin', 'java')
-apply(map)
+// Groovy will coerce named arguments
+// into a single map argument
+apply plugin: 'java'
 // END SNIPPET listAndMapLiterals
 
 // START SNIPPET closureAsLastParam
@@ -48,7 +48,7 @@ repositories({ println "in a closure" })
 // START SNIPPET closureDelegates
 dependencies {
     assert delegate == project.dependencies
-    compile('junit:junit:4.8.2')
-    delegate.compile('junit:junit:4.8.2')
+    testCompile('junit:junit:4.12')
+    delegate.testCompile('junit:junit:4.12')
 }
 // END SNIPPET closureDelegates

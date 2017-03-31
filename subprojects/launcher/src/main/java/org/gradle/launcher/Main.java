@@ -15,36 +15,21 @@
  */
 package org.gradle.launcher;
 
-import org.gradle.launcher.cli.CommandLineActionFactory;
 import org.gradle.launcher.bootstrap.EntryPoint;
 import org.gradle.launcher.bootstrap.ExecutionListener;
+import org.gradle.launcher.cli.CommandLineActionFactory;
 
 import java.util.Arrays;
 
 /**
  * The main command-line entry-point for Gradle.
- *
- * @author Hans Dockter
  */
 public class Main extends EntryPoint {
-
-    private final String[] args;
-    
-    public Main(String[] args) {
-        this.args = args;
-    }
-
     public static void main(String[] args) {
-        try {
-            new Main(args).run();
-            System.exit(0);
-        } catch (Throwable throwable) {
-            throwable.printStackTrace();
-            System.exit(1);
-        }
+        new Main().run(args);
     }
 
-    protected void doAction(ExecutionListener listener) {
+    protected void doAction(String[] args, ExecutionListener listener) {
         createActionFactory().convert(Arrays.asList(args)).execute(listener);
     }
 

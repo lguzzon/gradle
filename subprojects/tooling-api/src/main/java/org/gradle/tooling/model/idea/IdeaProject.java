@@ -16,44 +16,62 @@
 
 package org.gradle.tooling.model.idea;
 
+import org.gradle.api.Incubating;
 import org.gradle.tooling.model.DomainObjectSet;
-import org.gradle.tooling.model.Element;
 import org.gradle.tooling.model.HierarchicalElement;
+import org.gradle.tooling.model.UnsupportedMethodException;
 
 /**
  * Represents the information about the IDEA project.
  *
  * @since 1.0-milestone-5
  */
-public interface IdeaProject extends HierarchicalElement, Element {
+public interface IdeaProject extends HierarchicalElement {
 
     /**
-     * The name of the jdk
+     * Returns the Java language settings for this project.
      *
-     * @return jdk name
+     * @return the Java language settings for the current project, never null.
+     * @throws UnsupportedMethodException For Gradle versions older than 1.0-milestone-8, where this method is not supported.
+     * @since 2.11
+     */
+    @Incubating
+    IdeaJavaLanguageSettings getJavaLanguageSettings() throws UnsupportedMethodException;
+
+    /**
+     * Returns the name of the JDK.
+     *
+     * @return The name of the JDK.
+     * @since 1.0-milestone-5
      */
     String getJdkName();
 
     /**
-     * Language level to use within the current project.
+     * Returns the language level to use within the current project.
+     * <p>
+     * Note: To determine the project language level {@link IdeaModule#getJavaLanguageSettings()}
+     * should be preferred.
      *
-     * @return language level
+     * @return The language level to use within the current project.
+     * @since 1.0-milestone-5
      */
     IdeaLanguageLevel getLanguageLevel();
 
     /**
-     * Returns modules of this idea project. Most projects have at least one module.
-     * Alias to {@link #getModules()}
+     * Returns the modules of this IDEA project. Most projects have at least one module.
+     * Alias for {@link #getModules()}.
      *
-     * @return modules
+     * @return The modules of this IDEA project.
+     * @since 1.0-milestone-5
      */
     DomainObjectSet<? extends IdeaModule> getChildren();
 
     /**
-     * Returns modules of this idea project. Most projects have at least one module.
-     * Alias to {@link #getChildren()}
+     * Returns the modules of this IDEA project. Most projects have at least one module.
+     * Alias for {@link #getChildren()}.
      *
-     * @return modules
+     * @return The modules of this IDEA project.
+     * @since 1.0-milestone-5
      */
     DomainObjectSet<? extends IdeaModule> getModules();
 }

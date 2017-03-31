@@ -15,8 +15,9 @@
  */
 package org.gradle.util;
 
-import org.gradle.api.Action;
 import org.gradle.internal.SystemProperties;
+import org.gradle.internal.io.LineBufferingOutputStream;
+import org.gradle.internal.io.TextStream;
 import org.jmock.Expectations;
 import org.jmock.integration.junit4.JMock;
 import org.jmock.integration.junit4.JUnit4Mockery;
@@ -30,13 +31,12 @@ import java.io.IOException;
 @RunWith(JMock.class)
 public class LineBufferingOutputStreamTest {
     private final JUnit4Mockery context = new JUnit4GroovyMockery();
-    private Action<String> action = context.mock(Action.class);
-    private LineBufferingOutputStream outputStream = new LineBufferingOutputStream(action, false, 8);
+    private TextStream action = context.mock(TextStream.class);
     private String eol;
 
     @Before
     public void setUp() {
-        eol = SystemProperties.getLineSeparator();
+        eol = SystemProperties.getInstance().getLineSeparator();
     }
 
     @After
@@ -46,76 +46,95 @@ public class LineBufferingOutputStreamTest {
 
     @Test
     public void logsEachLineAsASeparateLogMessage() throws IOException {
+        LineBufferingOutputStream outputStream = new LineBufferingOutputStream(action, 8);
+
         context.checking(new Expectations() {{
-            one(action).execute("line 1");
-            one(action).execute("line 2");
+            one(action).text(TextUtil.toPlatformLineSeparators("line 1\n"));
+            one(action).text(TextUtil.toPlatformLineSeparators("line 2\n"));
         }});
 
-        outputStream.write(String.format("line 1%nline 2%n").getBytes());
+        outputStream.write(TextUtil.toPlatformLineSeparators("line 1\nline 2\n").getBytes());
     }
 
     @Test
-    public void canReceiveEachLineWithSeparator() throws IOException {
+    public void buffersTextUntilEndOfLineReached() throws IOException {
+        System.setProperty("line.separator", "-");
+        LineBufferingOutputStream outputStream = new LineBufferingOutputStream(action, 8);
+
         context.checking(new Expectations() {{
-            one(action).execute(String.format("line 1%n"));
-            one(action).execute(String.format("line 2%n"));
+            one(action).text("line 1-");
         }});
 
-        outputStream = new LineBufferingOutputStream(action, true);
-        outputStream.write(String.format("line 1%nline 2%n").getBytes());
+        outputStream.write("line ".getBytes());
+        outputStream.write("1-line 2".getBytes());
+
+        context.checking(new Expectations() {{
+            one(action).text("line 2-");
+        }});
+
+        outputStream.write("-".getBytes());
     }
 
     @Test
     public void logsEmptyLines() throws IOException {
+        System.setProperty("line.separator", "-");
+        LineBufferingOutputStream outputStream = new LineBufferingOutputStream(action, 8);
+
         context.checking(new Expectations() {{
-            one(action).execute("");
-            one(action).execute("");
+            one(action).text("-");
+            one(action).text("-");
         }});
 
-        outputStream.write(String.format("%n%n").getBytes());
+        outputStream.write("--".getBytes());
     }
 
     @Test
     public void handlesSingleCharacterLineSeparator() throws IOException {
-        context.checking(new Expectations() {{
-            one(action).execute("line 1");
-            one(action).execute("line 2");
-        }});
-
         System.setProperty("line.separator", "-");
-        outputStream = new LineBufferingOutputStream(action, false, 8);
+        LineBufferingOutputStream outputStream = new LineBufferingOutputStream(action, 8);
+
+        context.checking(new Expectations() {{
+            one(action).text("line 1-");
+            one(action).text("line 2-");
+        }});
 
         outputStream.write(String.format("line 1-line 2-").getBytes());
     }
-    
+
     @Test
     public void handlesMultiCharacterLineSeparator() throws IOException {
+        final String separator = new String(new byte[]{'\r', '\n'});
+        System.setProperty("line.separator", separator);
+        LineBufferingOutputStream outputStream = new LineBufferingOutputStream(action, 8);
+
         context.checking(new Expectations() {{
-            one(action).execute("line 1");
-            one(action).execute("line 2");
+            one(action).text("line 1" + separator);
+            one(action).text("line 2" + separator);
         }});
 
-        System.setProperty("line.separator", "----");
-        outputStream = new LineBufferingOutputStream(action, false, 8);
-
-        outputStream.write(String.format("line 1----line 2----").getBytes());
+        outputStream.write(("line 1" + separator + "line 2" + separator).getBytes());
     }
 
     @Test
     public void logsLineWhichIsLongerThanInitialBufferLength() throws IOException {
+        System.setProperty("line.separator", "-");
+        LineBufferingOutputStream outputStream = new LineBufferingOutputStream(action, 8);
+
         context.checking(new Expectations() {{
-            one(action).execute("a line longer than 8 bytes long");
-            one(action).execute("line 2");
+            one(action).text("a line longer than 8 bytes long-");
+            one(action).text("line 2");
         }});
-        outputStream.write(String.format("a line longer than 8 bytes long%n").getBytes());
+        outputStream.write("a line longer than 8 bytes long-".getBytes());
         outputStream.write("line 2".getBytes());
-        outputStream.close();
+        outputStream.flush();
     }
 
     @Test
     public void logsPartialLineOnFlush() throws IOException {
+        LineBufferingOutputStream outputStream = new LineBufferingOutputStream(action, 8);
+
         context.checking(new Expectations() {{
-            one(action).execute("line 1");
+            one(action).text("line 1");
         }});
 
         outputStream.write("line 1".getBytes());
@@ -123,17 +142,62 @@ public class LineBufferingOutputStreamTest {
     }
 
     @Test
-    public void logsPartialLineOnClose() throws IOException {
+    public void logsNothingOnCloseWhenNothingHasBeenWrittenToStream() throws IOException {
+        LineBufferingOutputStream outputStream = new LineBufferingOutputStream(action, 8);
+
         context.checking(new Expectations() {{
-            one(action).execute("line 1");
+            one(action).endOfStream(null);
+        }});
+        outputStream.close();
+    }
+
+    @Test
+    public void logsNothingOnCloseWhenCompleteLineHasBeenWrittenToStream() throws IOException {
+        System.setProperty("line.separator", "-");
+        LineBufferingOutputStream outputStream = new LineBufferingOutputStream(action, 8);
+
+        context.checking(new Expectations() {{
+            one(action).text("line 1-");
+            one(action).endOfStream(null);
+        }});
+
+        outputStream.write("line 1-".getBytes());
+        outputStream.close();
+    }
+
+    @Test
+    public void logsPartialLineOnClose() throws IOException {
+        LineBufferingOutputStream outputStream = new LineBufferingOutputStream(action, 8);
+
+        context.checking(new Expectations() {{
+            one(action).text("line 1");
+            one(action).endOfStream(null);
         }});
         outputStream.write("line 1".getBytes());
         outputStream.close();
     }
-    
+
     @Test(expected = IOException.class)
     public void cannotWriteAfterClose() throws IOException {
+        LineBufferingOutputStream outputStream = new LineBufferingOutputStream(action, 8);
+
+        context.checking(new Expectations() {{
+            one(action).endOfStream(null);
+        }});
         outputStream.close();
         outputStream.write("ignore me".getBytes());
+    }
+
+    @Test
+    public void splitsLongLines() throws IOException {
+        LineBufferingOutputStream outputStream = new LineBufferingOutputStream(action, 8, 13);
+        context.checking(new Expectations() {{
+            one(action).text("1234567890123");
+            one(action).text("4567890123456");
+            one(action).text("789");
+            one(action).endOfStream(null);
+        }});
+        outputStream.write("12345678901234567890123456789".getBytes());
+        outputStream.close();
     }
 }

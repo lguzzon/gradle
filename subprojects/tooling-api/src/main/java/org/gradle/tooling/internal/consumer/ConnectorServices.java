@@ -16,37 +16,78 @@
 
 package org.gradle.tooling.internal.consumer;
 
-import org.gradle.StartParameter;
-import org.gradle.internal.service.SynchronizedServiceRegistry;
-import org.gradle.internal.service.ServiceRegistry;
+import org.gradle.api.JavaVersion;
+import org.gradle.internal.Factory;
+import org.gradle.internal.concurrent.DefaultExecutorFactory;
+import org.gradle.internal.concurrent.ExecutorFactory;
+import org.gradle.internal.jvm.UnsupportedJavaRuntimeException;
 import org.gradle.internal.service.DefaultServiceRegistry;
+import org.gradle.tooling.CancellationTokenSource;
 import org.gradle.tooling.internal.consumer.loader.CachingToolingImplementationLoader;
 import org.gradle.tooling.internal.consumer.loader.DefaultToolingImplementationLoader;
 import org.gradle.tooling.internal.consumer.loader.SynchronizedToolingImplementationLoader;
 import org.gradle.tooling.internal.consumer.loader.ToolingImplementationLoader;
 
-/**
- * by Szczepan Faber, created at: 12/6/11
- */
 public class ConnectorServices {
+    private static DefaultServiceRegistry singletonRegistry = new ConnectorServiceRegistry();
 
-    private static ServiceRegistry singletonRegistry = new SynchronizedServiceRegistry(new ConnectorServiceRegistry());
+    public static DefaultGradleConnector createConnector() {
+        checkJavaVersion();
+        return singletonRegistry.getFactory(DefaultGradleConnector.class).create();
+    }
+    public static CancellationTokenSource createCancellationTokenSource() {
+        checkJavaVersion();
+        return new DefaultCancellationTokenSource();
+    }
 
-    public DefaultGradleConnector createConnector() {
-        ConnectionFactory connectionFactory = new ConnectionFactory(singletonRegistry.get(ToolingImplementationLoader.class));
-        return new DefaultGradleConnector(connectionFactory, new DistributionFactory(StartParameter.DEFAULT_GRADLE_USER_HOME));
+    public static void close() {
+        checkJavaVersion();
+        singletonRegistry.close();
     }
 
     /**
      * Resets the state of connector services. Meant to be used only for testing!
      */
-    public void reset() {
-        singletonRegistry = new SynchronizedServiceRegistry(new ConnectorServiceRegistry());
+    public static void reset() {
+        singletonRegistry.close();
+        singletonRegistry = new ConnectorServiceRegistry();
+    }
+
+    private static void checkJavaVersion() {
+        UnsupportedJavaRuntimeException.assertUsingVersion("Gradle Tooling API", JavaVersion.VERSION_1_7);
     }
 
     private static class ConnectorServiceRegistry extends DefaultServiceRegistry {
+        protected Factory<DefaultGradleConnector> createConnectorFactory(final ConnectionFactory connectionFactory, final DistributionFactory distributionFactory) {
+            return new Factory<DefaultGradleConnector>() {
+                public DefaultGradleConnector create() {
+                    return new DefaultGradleConnector(connectionFactory, distributionFactory);
+                }
+            };
+        }
+
+        protected ExecutorFactory createExecutorFactory() {
+            return new DefaultExecutorFactory();
+        }
+
+        protected ExecutorServiceFactory createExecutorServiceFactory() {
+            return new DefaultExecutorServiceFactory();
+        }
+
+        protected DistributionFactory createDistributionFactory() {
+            return new DistributionFactory();
+        }
+
         protected ToolingImplementationLoader createToolingImplementationLoader() {
             return new SynchronizedToolingImplementationLoader(new CachingToolingImplementationLoader(new DefaultToolingImplementationLoader()));
+        }
+
+        protected LoggingProvider createLoggingProvider() {
+            return new SynchronizedLogging();
+        }
+
+        protected ConnectionFactory createConnectionFactory(ToolingImplementationLoader toolingImplementationLoader, ExecutorFactory executorFactory, LoggingProvider loggingProvider) {
+            return new ConnectionFactory(toolingImplementationLoader, executorFactory, loggingProvider);
         }
     }
 }

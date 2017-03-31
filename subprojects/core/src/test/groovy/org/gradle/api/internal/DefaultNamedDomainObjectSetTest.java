@@ -15,15 +15,16 @@
  */
 package org.gradle.api.internal;
 
-import groovy.lang.Closure;
-import groovy.lang.MissingPropertyException;
-import org.gradle.api.*;
+import org.gradle.api.Action;
+import org.gradle.api.DomainObjectCollection;
+import org.gradle.api.Namer;
+import org.gradle.api.Rule;
+import org.gradle.api.UnknownDomainObjectException;
 import org.gradle.api.specs.Spec;
-import org.gradle.api.specs.Specs;
-import org.gradle.util.ConfigureUtil;
+import org.gradle.internal.reflect.DirectInstantiator;
 import org.gradle.util.GUtil;
-import org.gradle.util.HelperUtil;
 import org.gradle.util.TestClosure;
+import org.gradle.util.TestUtil;
 import org.jmock.Expectations;
 import org.jmock.integration.junit4.JMock;
 import org.jmock.integration.junit4.JUnit4Mockery;
@@ -32,8 +33,8 @@ import org.junit.runner.RunWith;
 
 import java.util.Iterator;
 
-import static org.gradle.util.HelperUtil.call;
-import static org.gradle.util.HelperUtil.toClosure;
+import static org.gradle.util.TestUtil.call;
+import static org.gradle.util.TestUtil.toClosure;
 import static org.gradle.util.WrapUtil.toList;
 import static org.hamcrest.Matchers.*;
 import static org.junit.Assert.*;
@@ -41,8 +42,12 @@ import static org.junit.Assert.*;
 
 @RunWith(JMock.class)
 public class DefaultNamedDomainObjectSetTest {
-    private final org.gradle.internal.reflect.Instantiator instantiator = new ClassGeneratorBackedInstantiator(new AsmBackedClassGenerator(), new org.gradle.internal.reflect.DirectInstantiator());
-    private final Namer<Bean> namer = new Namer<Bean>() { public String determineName(Bean bean) { return bean.name; } };
+    private final org.gradle.internal.reflect.Instantiator instantiator = new ClassGeneratorBackedInstantiator(new AsmBackedClassGenerator(), DirectInstantiator.INSTANCE);
+    private final Namer<Bean> namer = new Namer<Bean>() {
+        public String determineName(Bean bean) {
+            return bean.name;
+        }
+    };
     @SuppressWarnings("unchecked")
     private final DefaultNamedDomainObjectSet<Bean> container = instantiator.newInstance(DefaultNamedDomainObjectSet.class, Bean.class, instantiator, namer);
     private final JUnit4Mockery context = new JUnit4Mockery();
@@ -63,11 +68,11 @@ public class DefaultNamedDomainObjectSetTest {
         Bean bean1 = new Bean("a");
         Bean bean2 = new Bean("b");
         Bean bean3 = new Bean("c");
-    
+
         container.add(bean2);
         container.add(bean1);
         container.add(bean3);
-    
+
         assertThat(toList(container), equalTo(toList(bean1, bean2, bean3)));
     }
 
@@ -82,11 +87,11 @@ public class DefaultNamedDomainObjectSetTest {
         Bean bean1 = new Bean("a");
         Bean bean2 = new Bean("b");
         Bean bean3 = new Bean("c");
-    
+
         container.add(bean2);
         container.add(bean1);
         container.add(bean3);
-    
+
         Iterator<Bean> iterator = container.iterator();
         assertThat(iterator.next(), sameInstance(bean1));
         assertThat(iterator.next(), sameInstance(bean2));
@@ -167,7 +172,7 @@ public class DefaultNamedDomainObjectSetTest {
         container.add(bean3);
 
         assertThat(toList(container.matching(spec)), equalTo(toList(bean2, bean3)));
-        assertThat(toList(container.matching(HelperUtil.toClosure(testClosure))), equalTo(toList(bean2, bean3)));
+        assertThat(toList(container.matching(TestUtil.toClosure(testClosure))), equalTo(toList(bean2, bean3)));
         assertThat(container.matching(spec).findByName("a"), nullValue());
         assertThat(container.matching(spec).findByName("b"), sameInstance(bean2));
     }
@@ -199,7 +204,9 @@ public class DefaultNamedDomainObjectSetTest {
             public OtherBean(String name) {
                 super(name);
             }
-            public OtherBean() {}
+
+            public OtherBean() {
+            }
         }
         final Action<OtherBean> action = context.mock(Action.class);
         Bean bean1 = new Bean("b1");
@@ -208,7 +215,7 @@ public class DefaultNamedDomainObjectSetTest {
         container.add(bean1);
         container.add(bean2);
 
-        context.checking(new Expectations(){{
+        context.checking(new Expectations() {{
             one(action).execute(bean2);
         }});
 
@@ -221,7 +228,9 @@ public class DefaultNamedDomainObjectSetTest {
             public OtherBean(String name) {
                 super(name);
             }
-            public OtherBean() {}
+
+            public OtherBean() {
+            }
         }
         final TestClosure closure = context.mock(TestClosure.class);
         Bean bean1 = new Bean("b1");
@@ -230,11 +239,11 @@ public class DefaultNamedDomainObjectSetTest {
         container.add(bean1);
         container.add(bean2);
 
-        context.checking(new Expectations(){{
+        context.checking(new Expectations() {{
             one(closure).call(bean2);
         }});
 
-        container.withType(OtherBean.class, HelperUtil.toClosure(closure));
+        container.withType(OtherBean.class, TestUtil.toClosure(closure));
     }
 
     @Test
@@ -306,7 +315,7 @@ public class DefaultNamedDomainObjectSetTest {
             }
         };
 
-        container.matching(spec).whenObjectAdded(HelperUtil.toClosure(closure));
+        container.matching(spec).whenObjectAdded(TestUtil.toClosure(closure));
 
         container.add(bean);
         container.add(new Bean());
@@ -370,6 +379,21 @@ public class DefaultNamedDomainObjectSetTest {
         container.add(bean);
 
         assertThat(container.getByName("a", toClosure("{ beanProperty = 'hi' }")), sameInstance(bean));
+        assertThat(bean.getBeanProperty(), equalTo("hi"));
+    }
+
+    @Test
+    public void canApplyActionToDomainObjectByName() {
+        Bean bean = new Bean("a");
+        container.add(bean);
+
+        assertThat(container.getByName("a", new Action<Bean>() {
+            @Override
+            public void execute(Bean bean) {
+                bean.setBeanProperty("hi");
+            }
+        }), sameInstance(bean));
+
         assertThat(bean.getBeanProperty(), equalTo("hi"));
     }
 
@@ -461,7 +485,7 @@ public class DefaultNamedDomainObjectSetTest {
             one(closure).call(bean);
         }});
 
-        container.whenObjectAdded(HelperUtil.toClosure(closure));
+        container.whenObjectAdded(TestUtil.toClosure(closure));
         container.add(bean);
     }
 
@@ -552,7 +576,7 @@ public class DefaultNamedDomainObjectSetTest {
         }});
 
         container.add(bean);
-        container.all(HelperUtil.toClosure(closure));
+        container.all(TestUtil.toClosure(closure));
     }
 
     @Test
@@ -577,21 +601,8 @@ public class DefaultNamedDomainObjectSetTest {
             one(closure).call(bean);
         }});
 
-        container.all(HelperUtil.toClosure(closure));
+        container.all(TestUtil.toClosure(closure));
         container.add(bean);
-    }
-
-    @Test
-    public void eachObjectIsAvailableAsADynamicProperty() {
-        Bean bean = new Bean("child");
-        container.add(bean);
-        assertTrue(container.withType(Bean.class).findByName("child") != null);
-        assertTrue(container.getAsDynamicObject().hasProperty("child"));
-        assertThat(container.getAsDynamicObject().getProperty("child"), sameInstance((Object) bean));
-        assertThat(container.getAsDynamicObject().getProperties().get("child"), sameInstance((Object) bean));
-        assertThat(call("{ it.child }", container), sameInstance((Object) bean));
-        assertThat(call("{ it.child }", container.withType(Bean.class)), sameInstance((Object) bean));
-        assertThat(call("{ it.child }", container.matching(Specs.satisfyAll())), sameInstance((Object) bean));
     }
 
     @Test
@@ -602,114 +613,30 @@ public class DefaultNamedDomainObjectSetTest {
     }
 
     @Test
-    public void cannotGetUnknownProperty() {
-        assertFalse(container.getAsDynamicObject().hasProperty("unknown"));
-
-        try {
-            container.getAsDynamicObject().getProperty("unknown");
-            fail();
-        } catch (MissingPropertyException e) {
-            // expected
-        }
-    }
-
-    @Test
-    public void dynamicPropertyAccessInvokesRulesForUnknownDomainObject() {
-        Bean bean = new Bean();
-        addRuleFor(bean);
-
-        assertTrue(container.getAsDynamicObject().hasProperty("bean"));
-        assertThat(container.getAsDynamicObject().getProperty("bean"), sameInstance((Object) bean));
-    }
-
-    @Test
-    public void eachObjectIsAvailableAsConfigureMethod() {
-        Bean bean = new Bean("child");
-        container.add(bean);
-
-        Closure closure = toClosure("{ beanProperty = 'value' }");
-        assertTrue(container.getAsDynamicObject().hasMethod("child", closure));
-        container.getAsDynamicObject().invokeMethod("child", closure);
-        assertThat(bean.getBeanProperty(), equalTo("value"));
-
-        call("{ it.child { beanProperty = 'value 2' } }", container);
-        assertThat(bean.getBeanProperty(), equalTo("value 2"));
-
-        call("{ it.invokeMethod('child') { beanProperty = 'value 3' } }", container);
-        assertThat(bean.getBeanProperty(), equalTo("value 3"));
-    }
-
-    @Test
-    public void canUseDynamicPropertiesAndMethodsInsideConfigureClosures() {
-        Bean bean = new Bean("child");
-        container.add(bean);
-        container.add(bean);
-        container.add(bean);
-        container.add(bean);
-        container.add(bean);
-
-        ConfigureUtil.configure(toClosure("{ child.beanProperty = 'value 1' }"), container);
-        assertThat(bean.getBeanProperty(), equalTo("value 1"));
-
-        ConfigureUtil.configure(toClosure("{ child { beanProperty = 'value 2' } }"), container);
-        assertThat(bean.getBeanProperty(), equalTo("value 2"));
-
-        ConfigureUtil.configure(toClosure("{ child.beanProperty = 'value 3' }"), container);
-        assertThat(bean.getBeanProperty(), equalTo("value 3"));
-
-        ConfigureUtil.configure(toClosure("{ child.beanProperty = 'value 4' }"), container);
-        assertThat(bean.getBeanProperty(), equalTo("value 4"));
-
-        Bean withType = new Bean("withType");
-        container.add(withType);
-        
-        // Try with an element with the same name as a method
-        ConfigureUtil.configure(toClosure("{ withType.beanProperty = 'value 6' }"), container);
-        assertThat(withType.getBeanProperty(), equalTo("value 6"));
-
-        ConfigureUtil.configure(toClosure("{ withType { beanProperty = 'value 6' } }"), container);
-        assertThat(withType.getBeanProperty(), equalTo("value 6"));
-    }
-
-    @Test
-    public void cannotInvokeUnknownMethod() {
-        container.add(new Bean("child"));
-
-        assertMethodUnknown("unknown");
-        assertMethodUnknown("unknown", toClosure("{ }"));
-        assertMethodUnknown("child");
-        assertMethodUnknown("child", "not a closure");
-        assertMethodUnknown("child", toClosure("{ }"), "something else");
-    }
-
-    private void assertMethodUnknown(String name, Object... arguments) {
-        assertFalse(container.getAsDynamicObject().hasMethod(name, arguments));
-        try {
-            container.getAsDynamicObject().invokeMethod(name, arguments);
-            fail();
-        } catch (groovy.lang.MissingMethodException e) {
-            // Expected
-        }
-    }
-
-    @Test
-    public void configureMethodInvokesRuleForUnknownDomainObject() {
-        Bean bean = new Bean();
-        addRuleFor(bean);
-
-        assertTrue(container.getAsDynamicObject().hasMethod("bean", toClosure("{ }")));
-    }
-
-    @Test
     public void addRuleByClosure() {
         String testPropertyKey = "org.gradle.test.addRuleByClosure";
         String expectedTaskName = "someTaskName";
-        Closure ruleClosure = HelperUtil.toClosure(String.format("{ taskName -> System.setProperty('%s', '%s') }",
-                testPropertyKey, expectedTaskName));
-        container.addRule("description", ruleClosure);
+        container.addRule(
+            "description",
+            TestUtil.toClosure(String.format("{ taskName -> System.setProperty('%s', taskName) }", testPropertyKey)));
         container.getRules().get(0).apply(expectedTaskName);
         assertThat(System.getProperty(testPropertyKey), equalTo(expectedTaskName));
-        System.getProperties().remove(testPropertyKey);
+        System.clearProperty(testPropertyKey);
+    }
+
+    @Test
+    public void addRuleByAction() {
+        final String testPropertyKey = "org.gradle.test.addRuleByAction";
+        final String expectedTaskName = "someTaskName";
+        container.addRule("description", new Action<String>() {
+            @Override
+            public void execute(String taskName) {
+                System.setProperty(testPropertyKey, taskName);
+            }
+        });
+        container.getRules().get(0).apply(expectedTaskName);
+        assertThat(System.getProperty(testPropertyKey), equalTo(expectedTaskName));
+        System.clearProperty(testPropertyKey);
     }
 
     private void addRuleFor(final Bean bean) {
@@ -724,7 +651,7 @@ public class DefaultNamedDomainObjectSetTest {
         });
     }
 
-    private class Bean {
+    public static class Bean {
         public final String name;
         private String beanProperty;
 

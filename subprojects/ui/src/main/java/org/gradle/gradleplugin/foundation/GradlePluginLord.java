@@ -16,12 +16,10 @@
 package org.gradle.gradleplugin.foundation;
 
 import org.codehaus.groovy.runtime.StackTraceUtils;
-import org.gradle.api.internal.LocationAwareException;
-import org.gradle.api.internal.classpath.DefaultModuleRegistry;
+import org.gradle.api.internal.project.ProjectInternal;
 import org.gradle.api.logging.LogLevel;
 import org.gradle.api.logging.Logger;
 import org.gradle.api.logging.Logging;
-import org.gradle.configuration.ImplicitTasksConfigurer;
 import org.gradle.foundation.CommandLineAssistant;
 import org.gradle.foundation.ProjectView;
 import org.gradle.foundation.TaskView;
@@ -33,19 +31,20 @@ import org.gradle.gradleplugin.foundation.favorites.FavoritesEditor;
 import org.gradle.gradleplugin.foundation.request.ExecutionRequest;
 import org.gradle.gradleplugin.foundation.request.RefreshTaskListRequest;
 import org.gradle.gradleplugin.foundation.request.Request;
-import org.gradle.logging.ShowStacktrace;
+import org.gradle.internal.SystemProperties;
+import org.gradle.internal.exceptions.LocationAwareException;
+import org.gradle.internal.installation.CurrentGradleInstallation;
+import org.gradle.internal.installation.GradleInstallation;
+import org.gradle.api.logging.configuration.ShowStacktrace;
 import org.gradle.util.GUtil;
 
 import java.io.File;
 import java.util.*;
-import java.util.concurrent.LinkedBlockingQueue;
 
 /**
  * This class has nothing to do with plugins inside of gradle, but are related to making a plugin that uses gradle, such as for an IDE. It is also used by the standalone IDE (that way the standalone
  * UI and plugin UIs are kept in synch). <p/> This is the class that stores most of the information that the Gradle plugin works directly with. It is meant to simplify creating a plugin that uses
  * gradle. It maintains a queue of commands to execute and executes them in a separate process due to some complexities with gradle and its dependencies classpaths and potential memory issues.
- *
- * @author mhunsicker
  */
 public class GradlePluginLord {
     private final Logger logger = Logging.getLogger(GradlePluginLord.class);
@@ -58,10 +57,7 @@ public class GradlePluginLord {
 
     private FavoritesEditor favoritesEditor;  //an editor for the current favorites. The user can edit this at any time, hence we're using an editor.
 
-    private ExecutionQueue<Request> executionQueue;
-    private LinkedBlockingQueue<Request> currentlyExecutingRequests = new LinkedBlockingQueue<Request>();
-
-    private boolean isStarted;  //this flag is mostly to prevent initialization from firing off repeated refresh requests.
+    private QueueManager queueManager = new QueueManager();
 
     private ShowStacktrace stackTraceLevel = ShowStacktrace.INTERNAL_EXCEPTIONS;
     private LogLevel logLevel = LogLevel.LIFECYCLE;
@@ -98,25 +94,25 @@ public class GradlePluginLord {
         /**
          * Notification that we're about to reload the projects and tasks.
          */
-        public void startingProjectsAndTasksReload();
+        void startingProjectsAndTasksReload();
 
         /**
          * Notification that the projects and tasks have been reloaded. You may want to repopulate or update your views.
          *
          * @param wasSuccessful true if they were successfully reloaded. False if an error occurred so we no longer can show the projects and tasks (probably an error in a .gradle file).
          */
-        public void projectsAndTasksReloaded(boolean wasSuccessful);
+        void projectsAndTasksReloaded(boolean wasSuccessful);
     }
 
     public interface RequestObserver {
-        public void executionRequestAdded(ExecutionRequest request);
+        void executionRequestAdded(ExecutionRequest request);
 
-        public void refreshRequestAdded(RefreshTaskListRequest request);
+        void refreshRequestAdded(RefreshTaskListRequest request);
 
         /**
          * Notification that a command is about to be executed. This is mostly useful for IDE's that may need to save their files.
          */
-        public void aboutToExecuteRequest(Request request);
+        void aboutToExecuteRequest(Request request);
 
         /**
          * Notification that the command has completed execution.
@@ -125,35 +121,38 @@ public class GradlePluginLord {
          * @param result the result of the command
          * @param output the output from gradle executing the command
          */
-        public void requestExecutionComplete(Request request, int result, String output);
+        void requestExecutionComplete(Request request, int result, String output);
     }
 
     public interface SettingsObserver {
 
         /**
-         * Notification that some settings have changed for the plugin. Settings such as current directory, gradle home directory, etc. This is useful for UIs that need to update their UIs when this is
-         * changed by other means.
+         * Notification that some settings have changed for the plugin. Settings such as current directory, gradle home directory, etc. This is useful for UIs that need to update their UIs when this
+         * is changed by other means.
          */
-        public void settingsChanged();
+        void settingsChanged();
     }
 
     public GradlePluginLord() {
         favoritesEditor = new FavoritesEditor();
 
         //create the queue that executes the commands. The contents of this interaction are where we actually launch gradle.
-        executionQueue = new ExecutionQueue<Request>(new ExecutionQueueInteraction());
 
-        currentDirectory = new File(System.getProperty("user.dir"));
+        currentDirectory = SystemProperties.getInstance().getCurrentDir();
 
         String gradleHomeProperty = System.getProperty("gradle.home");
         if (gradleHomeProperty != null) {
             gradleHomeDirectory = new File(gradleHomeProperty);
         } else {
-            gradleHomeDirectory = new DefaultModuleRegistry().getGradleHome();
+            GradleInstallation gradleInstallation = CurrentGradleInstallation.get();
+            gradleHomeDirectory = gradleInstallation == null ? null : gradleInstallation.getGradleHome();
         }
     }
 
     public File getGradleHomeDirectory() {
+        if (gradleHomeDirectory == null || !gradleHomeDirectory.isDirectory()) {
+            throw new IllegalArgumentException("Could not locate Gradle home directory.");
+        }
         return gradleHomeDirectory;
     }
 
@@ -164,8 +163,7 @@ public class GradlePluginLord {
      * @param gradleHomeDirectory the new home directory
      */
     public void setGradleHomeDirectory(File gradleHomeDirectory) {
-        if (areEqual(this.gradleHomeDirectory, gradleHomeDirectory))    //already set to this. This prevents recursive notifications.
-        {
+        if (areEqual(this.gradleHomeDirectory, gradleHomeDirectory)) { //already set to this. This prevents recursive notifications.
             return;
         }
         this.gradleHomeDirectory = gradleHomeDirectory;
@@ -184,8 +182,7 @@ public class GradlePluginLord {
      * @returns true if we changed the current directory, false if not (it was already set to this)
      */
     public boolean setCurrentDirectory(File currentDirectory) {
-        if (areEqual(this.currentDirectory, currentDirectory))    //already set to this. This prevents recursive notifications.
-        {
+        if (areEqual(this.currentDirectory, currentDirectory)) { //already set to this. This prevents recursive notifications.
             return false;
         }
         this.currentDirectory = currentDirectory;
@@ -198,8 +195,7 @@ public class GradlePluginLord {
     }
 
     public boolean setCustomGradleExecutor(File customGradleExecutor) {
-        if (areEqual(this.customGradleExecutor, customGradleExecutor))    //already set to this. This prevents recursive notifications.
-        {
+        if (areEqual(this.customGradleExecutor, customGradleExecutor)) { //already set to this. This prevents recursive notifications.
             return false;
         }
         this.customGradleExecutor = customGradleExecutor;
@@ -215,8 +211,7 @@ public class GradlePluginLord {
      * this allows you to change how much information is given when an error occurs.
      */
     public void setStackTraceLevel(ShowStacktrace stackTraceLevel) {
-        if (areEqual(this.stackTraceLevel, stackTraceLevel))    //already set to this. This prevents recursive notifications.
-        {
+        if (areEqual(this.stackTraceLevel, stackTraceLevel)) { //already set to this. This prevents recursive notifications.
             return;
         }
         this.stackTraceLevel = stackTraceLevel;
@@ -236,19 +231,11 @@ public class GradlePluginLord {
             return;
         }
 
-        if (areEqual(this.logLevel, logLevel))    //already set to this. This prevents recursive notifications.
-        {
+        if (areEqual(this.logLevel, logLevel)) { //already set to this. This prevents recursive notifications.
             return;
         }
         this.logLevel = logLevel;
         notifySettingsChanged();
-    }
-
-    /**
-     * Call this to start execution. This is done after you've initialized everything.
-     */
-    public void startExecutionQueue() {
-        isStarted = true;
     }
 
     /**
@@ -262,10 +249,6 @@ public class GradlePluginLord {
          * @param request the request to execute.
          */
         public void execute(final Request request) {
-
-            //mark this request as being currently executed
-            currentlyExecutingRequests.add(request);
-
             notifyAboutToExecuteRequest(request);
 
             //I'm just putting these in temp variables for easier debugging
@@ -283,7 +266,7 @@ public class GradlePluginLord {
             //we need to know when this command is finished executing so we can mark it as complete and notify any observers.
             server.addServerObserver(new ProcessLauncherServer.ServerObserver() {
                 public void clientExited(int result, String output) {
-                    currentlyExecutingRequests.remove(request);
+                    queueManager.onComplete(request);
                     notifyRequestExecutionComplete(request, result, output);
                 }
 
@@ -403,27 +386,6 @@ public class GradlePluginLord {
     }
 
     /**
-     * This executes all the tasks together in a background thread. That is, all tasks are passed to a single gradle call at once. This creates or uses an existing OutputPanel to display the results.
-     *
-     * @param tasks the tasks to execute
-     * @param forceOutputToBeShown overrides the user setting onlyShowOutputOnErrors so that the output is shown regardless
-     * @param additionCommandLineOptions additional command line options to exeucte.
-     */
-    public Request addExecutionRequestToQueue(final List<TaskView> tasks, boolean forceOutputToBeShown, String... additionCommandLineOptions) {
-
-        if (tasks == null || tasks.isEmpty()) {
-            return null;
-        }
-
-        if (tasks.size() == 1) { //if there's only 1, just treat it as one
-            return addExecutionRequestToQueue(tasks.get(0), forceOutputToBeShown, additionCommandLineOptions);
-        }
-
-        String singleCommandLine = CommandLineAssistant.combineTasks(tasks, additionCommandLineOptions);
-        return addExecutionRequestToQueue(singleCommandLine, tasks.get(0).getName() + "...", forceOutputToBeShown);
-    }
-
-    /**
      * Executes several favorites commands at once as a single command. This has the affect of simply concatenating all the favorite command lines into a single line.
      *
      * @param favorites a list of favorites. If just one favorite, it executes it normally. If multiple favorites, it executes them all at once as a single command.
@@ -457,10 +419,6 @@ public class GradlePluginLord {
      * @param forceOutputToBeShown overrides the user setting onlyShowOutputOnErrors so that the output is shown regardless
      */
     public Request addExecutionRequestToQueue(String fullCommandLine, String displayName, boolean forceOutputToBeShown) {
-        if (!isStarted) {
-            return null;
-        }
-
         if (fullCommandLine == null) {
             return null;
         }
@@ -468,13 +426,13 @@ public class GradlePluginLord {
         //here we'll give the UI a chance to add things to the command line.
         fullCommandLine = alterCommandLine(fullCommandLine);
 
-        final ExecutionRequest request = new ExecutionRequest(getNextRequestID(), fullCommandLine, displayName, forceOutputToBeShown, executionQueue);
+        final ExecutionRequest request = new ExecutionRequest(getNextRequestID(), fullCommandLine, displayName, forceOutputToBeShown, queueManager);
         requestObserverLord.notifyObservers(new ObserverLord.ObserverNotification<RequestObserver>() {
             public void notify(RequestObserver observer) {
                 observer.executionRequestAdded(request);
             }
         });
-        executionQueue.addRequestToQueue(request);
+        queueManager.addRequestToQueue(request);
         return request;
     }
 
@@ -495,21 +453,13 @@ public class GradlePluginLord {
      * This will refresh the project/task tree. This version allows you to specify additional arguments to be passed to gradle during the refresh (such as -b to specify a build file)
      *
      * @param additionalCommandLineArguments the arguments to add, or null if none.
-     * @return the Request that was created. Null if no request created.
+     * @return the Request that was created.
      */
     public Request addRefreshRequestToQueue(String additionalCommandLineArguments) {
-        if (!isStarted) {
-            return null;
-        }
-
-        if (hasRequestOfType(RefreshTaskListRequest.TYPE)) {
-            return null; //we're already doing a refresh.
-        }
-
         //we'll request a task list since there is no way to do a no op. We're not really interested
         //in what's being executed, just the ability to get the task list (which must be populated as
         //part of executing anything).
-        String fullCommandLine = ImplicitTasksConfigurer.TASKS_TASK;
+        String fullCommandLine = ProjectInternal.TASKS_TASK;
 
         if (additionalCommandLineArguments != null) {
             fullCommandLine += ' ' + additionalCommandLineArguments;
@@ -518,8 +468,17 @@ public class GradlePluginLord {
         //here we'll give the UI a chance to add things to the command line.
         fullCommandLine = alterCommandLine(fullCommandLine);
 
-        final RefreshTaskListRequest request = new RefreshTaskListRequest(getNextRequestID(), fullCommandLine, executionQueue, this);
-        executionQueue.addRequestToQueue(request);
+        // Don't schedule again if already doing a refresh with the specified arguments
+        // TODO - fix this race condition - multiple threads may be requesting a refresh
+        List<Request> currentRequests = queueManager.findRequestsOfType(RefreshTaskListRequest.TYPE);
+        for (Request currentRequest : currentRequests) {
+            if (currentRequest.getFullCommandLine().equals(fullCommandLine)) {
+                return currentRequest;
+            }
+        }
+
+        final RefreshTaskListRequest request = new RefreshTaskListRequest(getNextRequestID(), fullCommandLine, queueManager, this);
+        queueManager.addRequestToQueue(request);
         // TODO - fix this race condition - request may already have completed
         requestObserverLord.notifyObservers(new ObserverLord.ObserverNotification<RequestObserver>() {
             public void notify(RequestObserver observer) {
@@ -598,29 +557,27 @@ public class GradlePluginLord {
             formatter.format("Use the stack trace options to get more details.");
         }
 
-        if (failure != null) {
-            formatter.format("%n");
+        formatter.format("%n");
 
-            if (failure instanceof LocationAwareException) {
-                LocationAwareException scriptException = (LocationAwareException) failure;
-                formatter.format("%s%n%n", scriptException.getLocation());
-                formatter.format("%s", scriptException.getOriginalMessage());
+        if (failure instanceof LocationAwareException) {
+            LocationAwareException scriptException = (LocationAwareException) failure;
+            formatter.format("%s%n%n", scriptException.getLocation());
+            formatter.format("%s", scriptException.getCause().getMessage());
 
-                for (Throwable cause : scriptException.getReportableCauses()) {
-                    formatter.format("%nCause: %s", getMessage(cause));
-                }
-            } else {
-                formatter.format("%s", getMessage(failure));
+            for (Throwable cause : scriptException.getReportableCauses()) {
+                formatter.format("%nCause: %s", getMessage(cause));
+            }
+        } else {
+            formatter.format("%s", getMessage(failure));
+        }
+
+        if (stackTraceLevel != ShowStacktrace.INTERNAL_EXCEPTIONS) {
+            formatter.format("%n%nException is:\n");
+            if (stackTraceLevel == ShowStacktrace.ALWAYS_FULL) {
+                return formatter.toString() + getStackTraceAsText(failure);
             }
 
-            if (stackTraceLevel != ShowStacktrace.INTERNAL_EXCEPTIONS) {
-                formatter.format("%n%nException is:\n");
-                if (stackTraceLevel == ShowStacktrace.ALWAYS_FULL) {
-                    return formatter.toString() + getStackTraceAsText(failure);
-                }
-
-                return formatter.toString() + getStackTraceAsText(StackTraceUtils.deepSanitize(failure));
-            }
+            return formatter.toString() + getStackTraceAsText(StackTraceUtils.deepSanitize(failure));
         }
 
         return formatter.toString();
@@ -658,33 +615,44 @@ public class GradlePluginLord {
      * @return true if this is busy, false if not.
      */
     public boolean isBusy() {
-        return hasRequestOfType(ExecutionRequest.TYPE);
+        return !queueManager.findRequestsOfType(ExecutionRequest.TYPE).isEmpty();
     }
 
-    /**
-     * Determines if we have an request of the specified type
-     *
-     * @param type the sought type of request.
-     * @return true if it has the request, false if not.
-     */
-    private boolean hasRequestOfType(Request.Type type) {
-        Iterator<Request> iterator = currentlyExecutingRequests.iterator();
-        while (iterator.hasNext()) {
-            ExecutionQueue.Request request = iterator.next();
-            if (request.getType() == type) {
-                return true;
+    private class QueueManager implements ExecutionQueue.RequestCancellation {
+        private final Object lock = new Object();
+        private final ExecutionQueue<Request> executionQueue = new ExecutionQueue<Request>(new ExecutionQueueInteraction());
+        private final Set<Request> currentlyExecutingRequests = new HashSet<Request>();
+
+        private List<Request> findRequestsOfType(Request.Type type) {
+            List<Request> requests = new ArrayList<Request>();
+            synchronized (lock) {
+                for (Request request : currentlyExecutingRequests) {
+                    if (request.getType() == type) {
+                        requests.add(request);
+                    }
+                }
+            }
+            return requests;
+        }
+
+        public void onCancel(ExecutionQueue.Request request) {
+            executionQueue.removeRequestFromQueue(request);
+            synchronized (lock) {
+                currentlyExecutingRequests.remove(request);
             }
         }
 
-        List<Request> pendingRequests = executionQueue.getRequests();
-        iterator = pendingRequests.iterator();
-        while (iterator.hasNext()) {
-            ExecutionQueue.Request request = iterator.next();
-            if (request.getType() == type) {
-                return true;
+        public void onComplete(Request request) {
+            synchronized (lock) {
+                currentlyExecutingRequests.remove(request);
             }
         }
 
-        return false;
+        public void addRequestToQueue(Request request) {
+            synchronized (lock) {
+                currentlyExecutingRequests.add(request);
+            }
+            executionQueue.addRequestToQueue(request);
+        }
     }
 }

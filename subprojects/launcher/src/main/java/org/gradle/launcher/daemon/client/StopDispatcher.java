@@ -18,40 +18,29 @@ package org.gradle.launcher.daemon.client;
 
 import org.gradle.api.logging.Logger;
 import org.gradle.api.logging.Logging;
-import org.gradle.launcher.daemon.protocol.Stop;
-import org.gradle.messaging.remote.internal.Connection;
-import org.gradle.internal.id.IdGenerator;
+import org.gradle.launcher.daemon.logging.DaemonMessages;
+import org.gradle.launcher.daemon.protocol.*;
+import org.gradle.internal.remote.internal.Connection;
 
-/**
- * @author: Szczepan Faber, created at: 9/13/11
- */
 public class StopDispatcher {
     private static final Logger LOGGER = Logging.getLogger(StopDispatcher.class);
-    private final IdGenerator<?> idGenerator;
 
-    public StopDispatcher(IdGenerator<?> idGenerator) {
-        this.idGenerator = idGenerator;
-    }
-
-    public void dispatch(Connection<Object> connection) {
-        //At the moment if we cannot communicate with the daemon we assume it is stopped and print a message to the user
+    public boolean dispatch(Connection<Message> connection, Command stopCommand) {
+        Throwable failure = null;
         try {
-            try {
-                connection.dispatch(new Stop(idGenerator.generateId()));
-            } catch (Exception e) {
-                LOGGER.lifecycle("Unable to send the Stop command to one of the daemons. The daemon has already stopped or crashed.");
-                LOGGER.debug("Unable to send Stop.", e);
-                return;
+            connection.dispatch(stopCommand);
+            Result result = (Result) connection.receive();
+            if (result instanceof Failure) {
+                failure = ((Failure) result).getValue();
             }
-            try {
-                connection.receive();
-            } catch (Exception e) {
-                LOGGER.lifecycle("The daemon didn't reply to Stop command. It is already stopped or crashed.");
-                LOGGER.debug("Unable to receive reply.", e);
-            }
-        } finally {
-            connection.stop();
+            connection.dispatch(new Finished());
+        } catch (Throwable e) {
+            failure = e;
         }
+        if (failure != null) {
+            LOGGER.lifecycle(DaemonMessages.UNABLE_TO_STOP_DAEMON);
+            LOGGER.debug(String.format("Unable to complete stop daemon using %s.", connection), failure);
+        }
+        return failure == null;
     }
-
 }

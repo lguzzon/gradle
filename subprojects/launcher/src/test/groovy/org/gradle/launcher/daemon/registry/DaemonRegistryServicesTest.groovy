@@ -15,18 +15,31 @@
  */
 package org.gradle.launcher.daemon.registry
 
+import org.gradle.cache.internal.DefaultFileLockManager
+import org.gradle.cache.internal.FileLockManager
+import org.gradle.cache.internal.ProcessMetaDataProvider
+import org.gradle.cache.internal.locklistener.FileLockContentionHandler
+import org.gradle.internal.nativeintegration.filesystem.Chmod
+import org.gradle.internal.service.DefaultServiceRegistry
+import org.gradle.internal.service.ServiceRegistry
 import org.gradle.launcher.daemon.context.DefaultDaemonContext
-import org.gradle.messaging.remote.internal.inet.SocketInetAddress
-import org.gradle.tests.fixtures.ConcurrentTestUtil
-import org.gradle.util.TemporaryFolder
+import org.gradle.internal.remote.internal.inet.SocketInetAddress
+import org.gradle.test.fixtures.ConcurrentTestUtil
+import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
 import org.junit.Rule
 import spock.lang.Specification
 
+import static org.gradle.launcher.daemon.server.api.DaemonStateControl.State.*
+
 class DaemonRegistryServicesTest extends Specification {
-    @Rule TemporaryFolder tmp = new TemporaryFolder()
+    @Rule TestNameTestDirectoryProvider tmp = new TestNameTestDirectoryProvider()
+    def parent = Mock(ServiceRegistry) {
+        get(FileLockManager) >> new DefaultFileLockManager(Stub(ProcessMetaDataProvider), Stub(FileLockContentionHandler))
+        get(Chmod) >> Stub(Chmod)
+    }
 
     def registry(baseDir) {
-        new DaemonRegistryServices(tmp.createDir(baseDir))
+        new DefaultServiceRegistry(parent).addProvider(new DaemonRegistryServices(tmp.createDir(baseDir)))
     }
 
     def "same daemon registry instance is used for same daemon registry file across service instances"() {
@@ -34,16 +47,17 @@ class DaemonRegistryServicesTest extends Specification {
         registry("a").get(DaemonRegistry).is(registry("a").get(DaemonRegistry))
         !registry("a").get(DaemonRegistry).is(registry("b").get(DaemonRegistry))
     }
-    
+
     @Rule ConcurrentTestUtil concurrent = new ConcurrentTestUtil()
-    
+
     def "the registry can be concurrently written to"() {
         when:
-        def registry = registry("someDir").createDaemonRegistry()
+        def registry = registry("someDir").get(DaemonRegistry)
         5.times { idx ->
             concurrent.start {
                 def context = new DefaultDaemonContext("$idx", new File("$idx"), new File("$idx"), idx, 5000, [])
-                registry.store(new SocketInetAddress(new Inet6Address(), 8888 + idx), context, "foo-$idx")
+                registry.store(new DaemonInfo(
+                    new SocketInetAddress(new Inet6Address(), 8888 + idx), context, "foo-$idx".bytes, Idle))
             }
         }
         concurrent.finished()

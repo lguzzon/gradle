@@ -15,19 +15,14 @@
  */
 package org.gradle.integtests.tooling.m5
 
-import org.gradle.integtests.tooling.fixture.MinTargetGradleVersion
-import org.gradle.integtests.tooling.fixture.MinToolingApiVersion
 import org.gradle.integtests.tooling.fixture.ToolingApiSpecification
-import org.gradle.tooling.ProjectConnection
 import org.gradle.tooling.model.eclipse.EclipseProject
 
-@MinToolingApiVersion('1.0-milestone-5')
-@MinTargetGradleVersion('1.0-milestone-5')
 class ToolingApiHonorsProjectCustomizationsCrossVersionSpec extends ToolingApiSpecification {
 
     def "should honour reconfigured project names"() {
-        def projectDir = dist.testDir
-        projectDir.file('build.gradle').text = '''
+
+        file('build.gradle').text = '''
 allprojects {
     apply plugin: 'java'
     apply plugin: 'eclipse'
@@ -41,29 +36,29 @@ project(':impl') {
     eclipse.project.name = 'gradle-impl'
 }
 '''
-        projectDir.file('settings.gradle').text = "include 'api', 'impl'"
+        file('settings.gradle').text = "include 'api', 'impl'"
 
         when:
-        EclipseProject eclipseProject = withConnection { connection -> connection.getModel(EclipseProject.class) }
+        EclipseProject eclipseProject = loadToolingModel(EclipseProject)
 
         then:
-        EclipseProject api = eclipseProject.children[1]
+        def children = eclipseProject.children.sort { it.name }
+        EclipseProject api = children[0]
         assert api.name == 'gradle-api'
-        EclipseProject impl = eclipseProject.children[0]
+        EclipseProject impl = children[1]
         assert impl.name == 'gradle-impl'
     }
 
     def "should deduplicate project names"() {
-        def projectDir = dist.testDir
-        projectDir.file('build.gradle').text = '''
+        file('build.gradle').text = '''
 allprojects {
     apply plugin: 'java'
 }
 '''
-        projectDir.file('settings.gradle').text = "include 'services:api', 'contrib:api'"
+        file('settings.gradle').text = "include 'services:api', 'contrib:api'"
 
         when:
-        EclipseProject eclipseProject = withConnection { connection -> connection.getModel(EclipseProject.class) }
+        EclipseProject eclipseProject = loadToolingModel(EclipseProject)
 
         then:
         String grandChildOne = eclipseProject.children[0].children[0].name
@@ -72,8 +67,7 @@ allprojects {
     }
 
     def "can have overlapping source and resource directories"() {
-        def projectDir = dist.testDir
-        projectDir.file('build.gradle').text = '''
+        file('build.gradle').text = '''
 apply plugin: 'java'
 apply plugin: 'eclipse'
 
@@ -97,7 +91,7 @@ sourceSets {
         }
 
         when:
-        EclipseProject eclipseProject = withConnection { connection -> connection.getModel(EclipseProject.class) }
+        EclipseProject eclipseProject = loadToolingModel(EclipseProject)
 
         then:
         eclipseProject.sourceDirectories.size() == 3
@@ -107,8 +101,7 @@ sourceSets {
     }
 
     def "can enable download of Javadoc for external dependencies"() {
-        def projectDir = dist.testDir
-        projectDir.file('build.gradle').text = '''
+        file('build.gradle').text = '''
 apply plugin: 'java'
 apply plugin: 'eclipse'
 repositories { mavenCentral() }
@@ -120,10 +113,7 @@ eclipse { classpath { downloadJavadoc = true } }
 '''
 
         when:
-        EclipseProject eclipseProject = withConnection { ProjectConnection connection ->
-            def builder = connection.model(EclipseProject.class)
-            return builder.get()
-        }
+        EclipseProject eclipseProject = loadToolingModel(EclipseProject)
 
         then:
         eclipseProject.classpath.size() == 2

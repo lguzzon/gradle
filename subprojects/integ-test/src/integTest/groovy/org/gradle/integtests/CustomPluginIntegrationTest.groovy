@@ -16,10 +16,10 @@
 package org.gradle.integtests
 
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
-import org.gradle.integtests.fixtures.ArtifactBuilder
+import org.gradle.integtests.fixtures.executer.ArtifactBuilder
 
-public class CustomPluginIntegrationTest extends AbstractIntegrationSpec {
-    public void "can reference plugin in buildSrc by id"() {
+class CustomPluginIntegrationTest extends AbstractIntegrationSpec {
+    void "can reference plugin in buildSrc by id"() {
         given:
         file('buildSrc/src/main/java/CustomPlugin.java') << '''
 import org.gradle.api.*;
@@ -46,7 +46,7 @@ task test
         succeeds('test')
     }
 
-    public void "can reference plugin in external jar by id"() {
+    void "can reference plugin in external jar by id"() {
         given:
         ArtifactBuilder builder = artifactBuilder()
         builder.sourceFile('CustomPlugin.java') << '''
@@ -80,7 +80,7 @@ task test
         succeeds('test')
     }
 
-    public void "loads plugin in correct environment"() {
+    void "loads plugin in correct environment"() {
         given:
         def implClassName = 'com.google.common.collect.Multimap'
         ArtifactBuilder builder = artifactBuilder()
@@ -89,11 +89,17 @@ import org.gradle.api.*
 public class CustomPlugin implements Plugin<Project> {
     public void apply(Project p) {
         Project.class.classLoader.loadClass('${implClassName}')
+        def cl
         try {
-            getClass().classLoader.loadClass('${implClassName}')
+            cl = getClass().classLoader
+            cl.loadClass('${implClassName}')
             assert false: 'should fail'
         } catch (ClassNotFoundException e) {
             // expected
+        } finally {
+            if (cl instanceof URLClassLoader) {
+                cl.close()
+            }
         }
         assert Thread.currentThread().contextClassLoader == getClass().classLoader
         p.task('test')
@@ -155,8 +161,8 @@ apply plugin: 'groovy'
 repositories { mavenCentral() }
 dependencies {
     compile gradleApi()
-    groovy localGroovy()
-    testCompile 'junit:junit:4.8.2'
+    compile localGroovy()
+    testCompile 'junit:junit:4.12'
 }
 """
 
@@ -196,8 +202,8 @@ apply plugin: 'groovy'
 repositories { mavenCentral() }
 dependencies {
     compile gradleApi()
-    groovy localGroovy()
-    testCompile 'junit:junit:4.8.2'
+    compile localGroovy()
+    testCompile 'junit:junit:4.12'
 }
 """
 

@@ -24,6 +24,7 @@ import org.gradle.api.plugins.WarPlugin;
 import org.gradle.api.plugins.WarPluginConvention;
 import org.gradle.api.tasks.SourceSet;
 import org.gradle.api.tasks.bundling.War;
+import org.gradle.util.DeprecationLogger;
 
 import java.io.File;
 import java.util.concurrent.Callable;
@@ -32,8 +33,9 @@ import java.util.concurrent.Callable;
  * <p>A {@link Plugin} which extends the {@link WarPlugin} to add tasks which run the web application using an embedded
  * Jetty web container.</p>
  *
- * @author Hans Dockter
+ * @deprecated The Jetty plugin has been deprecated
  */
+@Deprecated
 public class JettyPlugin implements Plugin<Project> {
     public static final String JETTY_RUN = "jettyRun";
     public static final String JETTY_RUN_WAR = "jettyRunWar";
@@ -43,7 +45,8 @@ public class JettyPlugin implements Plugin<Project> {
     public static final String RELOAD_MANUAL = "manual";
 
     public void apply(Project project) {
-        project.getPlugins().apply(WarPlugin.class);
+        DeprecationLogger.nagUserOfPluginReplacedWithExternalOne("Jetty", "Gretty (https://github.com/akhikhl/gretty)");
+        project.getPluginManager().apply(WarPlugin.class);
         JettyPluginConvention jettyConvention = new JettyPluginConvention();
         Convention convention = project.getConvention();
         convention.getPlugins().put("jetty", jettyConvention);
@@ -74,13 +77,13 @@ public class JettyPlugin implements Plugin<Project> {
             }
         });
 
-        JettyRunWar jettyRunWar = project.getTasks().add(JETTY_RUN_WAR, JettyRunWar.class);
+        JettyRunWar jettyRunWar = project.getTasks().create(JETTY_RUN_WAR, JettyRunWar.class);
         jettyRunWar.setDescription("Assembles the webapp into a war and deploys it to Jetty.");
         jettyRunWar.setGroup(WarPlugin.WEB_APP_GROUP);
     }
 
     private void configureJettyStop(Project project, final JettyPluginConvention jettyConvention) {
-        JettyStop jettyStop = project.getTasks().add(JETTY_STOP, JettyStop.class);
+        JettyStop jettyStop = project.getTasks().create(JETTY_STOP, JettyStop.class);
         jettyStop.setDescription("Stops Jetty.");
         jettyStop.setGroup(WarPlugin.WEB_APP_GROUP);
         jettyStop.getConventionMapping().map("stopPort", new Callable<Object>() {
@@ -116,7 +119,7 @@ public class JettyPlugin implements Plugin<Project> {
             }
         });
 
-        JettyRun jettyRun = project.getTasks().add(JETTY_RUN, JettyRun.class);
+        JettyRun jettyRun = project.getTasks().create(JETTY_RUN, JettyRun.class);
         jettyRun.setDescription("Uses your files as and where they are and deploys them to Jetty.");
         jettyRun.setGroup(WarPlugin.WEB_APP_GROUP);
     }

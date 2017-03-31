@@ -15,21 +15,15 @@
  */
 package org.gradle.api.plugins.announce
 
-import org.gradle.api.internal.project.ProjectInternal
 import org.gradle.api.plugins.announce.internal.AnnouncerFactory
-import spock.lang.Specification
-import org.gradle.util.HelperUtil
+import org.gradle.test.fixtures.AbstractProjectBuilderSpec
 
-/**
- * @author Hans Dockter
- */
-
-class AnnouncePluginExtensionTest extends Specification {
+class AnnouncePluginExtensionTest extends AbstractProjectBuilderSpec {
     final AnnouncerFactory announcerFactory = Mock()
-    final ProjectInternal project = HelperUtil.createRootProject()
-    final AnnouncePluginExtension announcePluginConvention = new AnnouncePluginExtension(project)
+    AnnouncePluginExtension announcePluginConvention
 
     def setup() {
+        announcePluginConvention = new AnnouncePluginExtension(project)
         announcePluginConvention.announcerFactory = announcerFactory
     }
 

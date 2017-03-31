@@ -20,14 +20,12 @@ import org.gradle.foundation.ipc.basic.ProcessLauncherServer;
 import org.gradle.foundation.ipc.gradle.ExecuteGradleCommandServerProtocol;
 import org.gradle.foundation.queue.ExecutionQueue;
 import org.gradle.gradleplugin.foundation.GradlePluginLord;
-import org.gradle.logging.ShowStacktrace;
+import org.gradle.api.logging.configuration.ShowStacktrace;
 
 import java.io.File;
 
 /**
  * This represents a reques to gradle that is executed in a separate process using the ProcessLauncherServer.
- *
- * @author mhunsicker
  */
 public interface Request extends ExecutionQueue.Request {
 

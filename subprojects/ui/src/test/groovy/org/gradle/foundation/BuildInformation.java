@@ -16,21 +16,22 @@
 package org.gradle.foundation;
 
 import org.gradle.api.Project;
+import org.gradle.api.internal.project.ProjectInternal;
+import org.gradle.api.internal.project.ProjectTaskLister;
 
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Collections;
 
 /**
  * This provides a simple way to hold onto and obtain projects and tasks for testing purposes.
- *
- * @author mhunsicker
  */
 public class BuildInformation {
     private List<ProjectView> projects;
 
     public BuildInformation(Project rootProject) {
-        ProjectConverter buildExecuter = new ProjectConverter();
+        ProjectTaskLister taskLister = ((ProjectInternal) rootProject).getServices().get(ProjectTaskLister.class);
+        ProjectConverter buildExecuter = new ProjectConverter(taskLister);
         projects = buildExecuter.convertProjects(rootProject);
     }
 
@@ -42,7 +43,6 @@ public class BuildInformation {
        Call this to get the root level project with the given name.
        @param  name       the name of the project.
        @return the project if it exists.
-       @author mhunsicker
     */
 
     public ProjectView getRootLevelProject(String name) {
@@ -65,7 +65,6 @@ public class BuildInformation {
        Locates the project that has the specified full path
        @param  fullProjectPath the full path of the sought project.
        @return a project or null.
-       @author mhunsicker
     */
 
     public ProjectView getProjectFromFullPath(String fullProjectPath) {
@@ -79,9 +78,7 @@ public class BuildInformation {
         }
 
         ProjectView rootProject = getRootLevelProject(pathParserPortion.getFirstPart());
-        if (rootProject
-                == null)  //if the root wasn't specified, just go get the first item we have. root' isn't typically specified if a user gives us the path.
-        {
+        if (rootProject == null) { //if the root wasn't specified, just go get the first item we have. root' isn't typically specified if a user gives us the path.
             if (!projects.isEmpty()) {
                 rootProject = projects.get(0);
             }
@@ -104,7 +101,6 @@ public class BuildInformation {
 
        @param  fullTaskName the full task name (root_project:sub_project:sub_sub_project:task.).
        @return the task or null if not found.
-       @author mhunsicker
     */
 
     public TaskView getTaskFromFullPath(String fullTaskName) {
@@ -119,16 +115,13 @@ public class BuildInformation {
 
         String remainder = pathParserPortion.getRemainder();
         ProjectView rootProject = null;
-        if (pathParserPortion.getFirstPart().equals(""))   //this means it starts with a colon, just get the root
-        {
+        if (pathParserPortion.getFirstPart().equals("")) { //this means it starts with a colon, just get the root
             if (!projects.isEmpty()) {
                 rootProject = projects.get(0);
             }
         } else {  //see if they did specify the root.
             rootProject = getRootLevelProject(pathParserPortion.getFirstPart());
-            if (rootProject
-                    == null)  //if the root wasn't specified, just go get the first item we have. root' isn't typically specified if a user gives us the path.
-            {
+            if (rootProject == null) { //if the root wasn't specified, just go get the first item we have. root' isn't typically specified if a user gives us the path.
                 if (!projects.isEmpty()) {
                     rootProject = projects.get(0);
                     remainder = fullTaskName;
